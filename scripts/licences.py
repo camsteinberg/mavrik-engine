@@ -81,7 +81,8 @@ def write(work, engine, repo):
     notices = {}
 
     def put(component, name, data):
-        p = os.path.join(lic, component, name)
+        folder = component.replace("media:", "media/")
+        p = os.path.join(lic, folder, name)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         mode = "wb" if isinstance(data, bytes) else "w"
         with open(p, mode) as f:
@@ -149,6 +150,9 @@ def write(work, engine, repo):
             licence, _ = COMPONENT_INFO[comp]
             key = SOURCE_KEY.get(comp)
             version = inputs["inputs"][key]["version"] if key else "-"
+            if comp == "wine":
+                wine_version = open(os.path.join(work, "wine-src", "VERSION")).read().strip().replace("Wine version ", "")
+                version = f"{wine_version} (CrossOver {version} sources)"
             source = inputs["inputs"][key]["url"] if key else "https://github.com/camsteinberg/mavrik-engine"
             files = notices.get(comp, [])
             if comp == "licences":

@@ -140,7 +140,7 @@ def gate_relocatable(engine, ctx):
         for kind, value in macho_paths(path):
             if kind == "LC_LOAD_DYLINKER":
                 continue
-            if value.startswith("@") or value.startswith(SYSTEM_PREFIXES):
+            if not value.startswith("/") or value.startswith(SYSTEM_PREFIXES):
                 continue
             problems.append(f"{rel}: {kind} {value}")
     if count == 0:

@@ -20,7 +20,7 @@ rm -rf "$WORK/cx" "$WORK/wine-src"
 mkdir -p "$WORK/cx"
 tar -xzf "$(src crossover-sources)" -C "$WORK/cx"
 echo "top level of the source archive:"
-find "$WORK/cx" -mindepth 1 -maxdepth 2 | sed "s|$WORK/cx/||" | sort | head -80
+find "$WORK/cx" -mindepth 1 -maxdepth 2 | sed "s|$WORK/cx/||" | sort | sed -n "1,80p"
 subdir="$(pin crossover-sources subdir)"
 mv "$WORK/cx/$subdir" "$WORK/wine-src"
 cat "$WORK/wine-src/VERSION"
@@ -41,7 +41,7 @@ for p in "$REPO"/patches/*.patch; do
         exit 1
     fi
 done
-rejects="$(find . -name '*.rej' -o -name '*.orig' | head -5)"
+rejects="$(find . -name '*.rej' -o -name '*.orig' | sed -n "1,5p")"
 [ -z "$rejects" ] || { echo "::error::patch leftovers: $rejects"; exit 1; }
 cd - >/dev/null
 echo "::endgroup::"
@@ -58,8 +58,8 @@ for key in gstreamer-runtime gstreamer-devel; do
         ditto "$payload" "$G"
     done
 done
-lib="$(find "$G" -name libgstreamer-1.0.0.dylib -path '*/lib/*' | head -1)"
-[ -n "$lib" ] || { echo "::error::no libgstreamer in the expanded packages"; find "$G" -maxdepth 4 | head -40; exit 1; }
+lib="$(find "$G" -name libgstreamer-1.0.0.dylib -path '*/lib/*' | sed -n "1,1p")"
+[ -n "$lib" ] || { echo "::error::no libgstreamer in the expanded packages"; find "$G" -maxdepth 4 | sed -n "1,40p"; exit 1; }
 ROOT="$(cd "$(dirname "$lib")/.." && pwd)"
 echo "component packages:"; ls "$WORK/gst-pkg/gstreamer-runtime" "$WORK/gst-pkg/gstreamer-devel"
 # The .pc files name the framework's install place; point them at the expanded copy.

@@ -67,4 +67,4 @@ ccache -s || true
 mkdir -p "$DEST/.build"
 cp include/config.h Makefile "$DEST/.build/"
 echo "installed:"
-find "$DEST" -maxdepth 4 -type d | sed "s|$DEST/||" | sort | head -30
+find "$DEST" -maxdepth 4 -type d | sed "s|$DEST/||" | sort | sed -n "1,30p"
