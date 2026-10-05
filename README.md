@@ -70,8 +70,9 @@ input:
 - **winemac**: `winemac.so` exports `macdrv_functions` with the layout DXMT reads.
 - **addons**: Wine Mono and Gecko are present at exactly the versions the tree asks for; the build
   stops early if the tree asks for a version that is not pinned.
-- **wine**: `wine --version` prints the expected version, and `wineboot --init` in a new Windows
-  folder finishes with no Mono or Gecko download prompt.
+- **wine**: `wine --version` prints the expected version; `wineboot --init` in a new Windows
+  folder finishes with no Mono or Gecko download prompt and finds the engine's Mono; and Wine Gecko
+  loads from the engine in both the 64-bit and the 32-bit half.
 - **media**: GStreamer and FFmpeg load from inside the engine, never from
   `/Library/Frameworks/GStreamer.framework`, and create the elements Wine uses. On a Mac that has
   that framework, the gate leaves it in place and checks that nothing is loaded from it.

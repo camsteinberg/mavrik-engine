@@ -18,8 +18,9 @@ The gates:
   winemac       winemac.so exports macdrv_functions, and its layout gives DXMT what DXMT reads
                 (the fallback names DXMT would use without it are reported)
   addons        Wine Mono and Gecko are in the engine at exactly the versions addons.c names
-  wine          wine --version prints the expected version, and wineboot --init in a fresh
-                prefix finishes with no Mono or Gecko download prompt
+  wine          wine --version prints the expected version; wineboot --init in a fresh prefix
+                finishes with no Mono or Gecko download prompt and finds the engine's Mono; and Wine
+                Gecko loads from the engine in the 64-bit and the 32-bit half
   media         GStreamer and FFmpeg load from inside the engine, never from
                 /Library/Frameworks/GStreamer.framework, and build the elements Wine uses. A Mac
                 that has the framework is not changed: every library dyld loads and every plugin
@@ -300,49 +301,91 @@ def wine_env(engine, home):
             "WINEDEBUG": "fixme-all,+mscoree,+appwizcpl", "LANG": "en_US.UTF-8", "TMPDIR": home}
 
 
-def wineboot_check(engine, timeout=900):
-    """Returns (problems, detail). Kills everything the prefix started, whatever happens."""
+# appwiz.cpl traces "Got URL" just before it opens a Mono or Gecko download dialog; mscoree says
+# this when it has no Mono at all.
+PROMPT_MARKERS = ("Got URL", "mono runtime not found")
+
+
+def run_watched(cmd, env, log, timeout):
+    """Runs a Wine command with its output added to log, and stops it at the first download prompt.
+    Returns (the prompt's marker or None, the exit code or None if it did not finish in time, its output)."""
+    mark = os.path.getsize(log) if os.path.exists(log) else 0
+    with open(log, "a") as f:
+        proc = subprocess.Popen(cmd, env=env, stdout=f, stderr=subprocess.STDOUT)
+    deadline = time.time() + timeout
+    while True:
+        with open(log, errors="replace") as f:
+            f.seek(mark)
+            text = f.read()
+        prompt = next((m for m in PROMPT_MARKERS if m in text), None)
+        if prompt or proc.poll() is not None or time.time() > deadline:
+            break
+        time.sleep(1)
+    code = proc.poll()
+    if code is None:
+        proc.kill()
+        proc.wait()
+    return prompt, code, text
+
+
+def wineboot_check(engine, gecko_version, timeout=900):
+    """wineboot --init in a fresh prefix must finish with no download prompt and find the engine's
+    Mono; then Wine Gecko must load from the engine in both halves (regsvr32 /i mshtml.dll makes
+    mshtml load it, as a game's first web view would). Returns (problems, detail, log tail). Kills
+    everything the prefix started and removes the prefix, whatever happens."""
     home = tempfile.mkdtemp(prefix="wineboot-")
     env = wine_env(engine, home)
+    wine = os.path.join(engine, "bin", "wine")
     log = os.path.join(home, "wineboot.log")
-    problems, start = [], time.time()
-    with open(log, "w") as f:
-        proc = subprocess.Popen([os.path.join(engine, "bin", "wine"), "wineboot", "--init"], env=env, stdout=f, stderr=subprocess.STDOUT)
-    prompt = None
+    problems, start, loaded = [], time.time(), []
     try:
-        while True:
-            text = open(log, errors="replace").read()
-            for marker in ("Got URL", "mono runtime not found"):
-                if marker in text:
-                    prompt = marker
-            if prompt or proc.poll() is not None or time.time() - start > timeout:
-                break
-            time.sleep(2)
+        prompt, code, text = run_watched([wine, "wineboot", "--init"], env, log, timeout)
         if prompt:
             problems.append(f"a Mono or Gecko install prompt started (log: '{prompt}')")
-        elif proc.poll() is None:
+        elif code is None:
             problems.append(f"wineboot --init did not finish in {timeout} s")
         else:
-            w = out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
-            if proc.returncode != 0:
-                problems.append(f"wineboot --init exited {proc.returncode}")
-            text = open(log, errors="replace").read()
+            out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
+            if code != 0:
+                problems.append(f"wineboot --init exited {code}")
             if "mono runtime is at" not in text:
                 problems.append("the log does not show Wine finding its Mono runtime")
             if not os.path.isfile(os.path.join(env["WINEPREFIX"], "system.reg")):
                 problems.append("no system.reg in the new prefix")
+        genv = dict(env, WINEDEBUG="fixme-all,+mshtml,+appwizcpl")
+        for arch, regsvr32 in (("x86_64", "regsvr32"), ("x86", "C:\\windows\\syswow64\\regsvr32.exe")):
+            if problems:
+                break
+            prompt, code, text = run_watched([wine, regsvr32, "/s", "/n", "/i", "mshtml.dll"], genv, log, 300)
+            want = f"wine-gecko-{gecko_version}-{arch}"
+            from_engine = [l for l in text.splitlines() if "load_xul" in l and want in l
+                           and os.path.basename(engine) in l]
+            if prompt:
+                problems.append(f"loading Wine Gecko ({arch}) started a download prompt (log: '{prompt}')")
+            elif code is None:
+                problems.append(f"loading Wine Gecko ({arch}) did not finish in 300 s")
+            elif not from_engine:
+                problems.append(f"Wine did not load {want} from the engine (regsvr32 exited {code})")
+            else:
+                loaded.append(arch)
     finally:
         out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
-        if proc.poll() is None:
-            proc.kill()
-    tail = open(log, errors="replace").read().splitlines()[-15:]
-    shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-wineboot-last.log"))
-    return problems, f"wineboot --init in a fresh prefix took {time.time() - start:.0f} s", tail
+        tail = open(log, errors="replace").read().splitlines()[-15:] if os.path.exists(log) else []
+        if os.path.exists(log):
+            shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-wineboot-last.log"))
+        shutil.rmtree(home, ignore_errors=True)
+    detail = "wineboot --init in a fresh prefix finds the engine's Mono"
+    if loaded:
+        detail += f"; Wine Gecko {gecko_version} loads from the engine ({', '.join(loaded)})"
+    return problems, f"{detail}; {time.time() - start:.0f} s", tail
 
 
 def version_check(engine, expected):
     home = tempfile.mkdtemp(prefix="wineversion-")
-    r = out([os.path.join(engine, "bin", "wine"), "--version"], env=wine_env(engine, home), timeout=120)
+    try:
+        r = out([os.path.join(engine, "bin", "wine"), "--version"], env=wine_env(engine, home), timeout=120)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
     got = r.stdout.strip()
     if got != expected:
         return [f"wine --version printed '{got}' (exit {r.returncode}), expected '{expected}'"], got
@@ -351,7 +394,7 @@ def version_check(engine, expected):
 
 def gate_wine(engine, ctx):
     problems, got = version_check(engine, ctx["expected_version"])
-    boot, detail, tail = wineboot_check(engine)
+    boot, detail, tail = wineboot_check(engine, ctx["inputs"]["inputs"]["wine-gecko-x86"]["version"])
     problems += boot
     if boot:
         problems += ["log: " + l for l in tail]
@@ -400,8 +443,11 @@ def mediacheck(engine, work):
            "GST_REGISTRY_1_0": os.path.join(home, "registry.bin"), "GST_REGISTRY_FORK": "no",
            "XDG_DATA_HOME": os.path.join(home, "data"), "XDG_CACHE_HOME": os.path.join(home, "cache")}
     lib = os.path.join(engine, "lib")
-    gst = out([exe, "gst", os.path.join(lib, "libgstreamer-1.0.0.dylib")] + GST_ELEMENTS, env=env, timeout=300)
-    ff = out([exe, "ffmpeg", os.path.join(lib, "libavcodec.61.dylib")] + FFMPEG_DECODERS, env=env, timeout=120)
+    try:
+        gst = out([exe, "gst", os.path.join(lib, "libgstreamer-1.0.0.dylib")] + GST_ELEMENTS, env=env, timeout=300)
+        ff = out([exe, "ffmpeg", os.path.join(lib, "libavcodec.61.dylib")] + FFMPEG_DECODERS, env=env, timeout=120)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
     os.makedirs(os.path.join(work, "gates"), exist_ok=True)
     open(os.path.join(work, "gates", "mediacheck-gst.txt"), "w").write(gst.stdout + "\n--- stderr ---\n" + gst.stderr)
     open(os.path.join(work, "gates", "mediacheck-ffmpeg.txt"), "w").write(ff.stdout)

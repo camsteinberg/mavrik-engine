@@ -129,7 +129,9 @@ class Assembler:
 
     # 2
     def strip(self):
-        before = int(out(["du", "-sk", self.engine]).split()[0])
+        def total():  # file sizes, not disk blocks: a clone and a rewritten file use blocks differently
+            return sum(os.path.getsize(p) for p in walk_files(self.engine) if os.path.isfile(p) and not os.path.islink(p))
+        before = total()
         for arch, tool in (("i386-windows", "i686-w64-mingw32-strip"), ("x86_64-windows", "x86_64-w64-mingw32-strip")):
             d = os.path.join(self.engine, "lib", "wine", arch)
             for a in [p for p in walk_files(d) if p.endswith(".a")]:
@@ -142,8 +144,8 @@ class Assembler:
         unix += [p for p in walk_files(os.path.join(self.engine, "bin")) if is_macho(p)]
         for p in unix:
             run(["strip", "-x", "-S", p], capture_output=True)
-        after = int(out(["du", "-sk", self.engine]).split()[0])
-        print(f"stripped: {before // 1024} MB -> {after // 1024} MB")
+        after = total()
+        print(f"stripped: {before / 1e6:.1f} MB -> {after / 1e6:.1f} MB")
 
     # 3
     def addons(self):

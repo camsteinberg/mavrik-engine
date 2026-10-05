@@ -95,13 +95,20 @@ def run(engine, work):
     clone(os.path.join(engine, "share", "wine", "mono"), os.path.join(no_gecko, "share", "wine", "mono"))
     case(results, "addons", "an engine with Mono but no Gecko", G.gate_addons(no_gecko, ctx)[2])
 
-    # wine: a wrong expected version; an engine clone without Mono and Gecko, which must prompt.
+    # wine: a wrong expected version; an engine clone without Mono and Gecko, which must prompt at
+    # wineboot; and one with Mono but no Gecko, which must prompt when mshtml loads Gecko.
+    gecko = ctx["inputs"]["inputs"]["wine-gecko-x86"]["version"]
     case(results, "wine", "expecting wine-0.0", G.version_check(engine, "wine-0.0")[0])
     bad = os.path.join(tmp, "no-addons-engine")
     clone(engine, bad)
     shutil.rmtree(os.path.join(bad, "share", "wine", "mono"))
     shutil.rmtree(os.path.join(bad, "share", "wine", "gecko"))
-    case(results, "wine", "wineboot on an engine clone without Mono and Gecko", G.wineboot_check(bad, timeout=600)[0])
+    case(results, "wine", "wineboot on an engine clone without Mono and Gecko", G.wineboot_check(bad, gecko, timeout=600)[0])
+    shutil.rmtree(bad, ignore_errors=True)
+    bad = os.path.join(tmp, "no-gecko-engine")
+    clone(engine, bad)
+    shutil.rmtree(os.path.join(bad, "share", "wine", "gecko"))
+    case(results, "wine", "an engine clone with Mono but no Gecko", G.wineboot_check(bad, gecko, timeout=600)[0])
     shutil.rmtree(bad, ignore_errors=True)
 
     # media: a plugin with a run path into the Mac's own GStreamer.framework.
@@ -113,6 +120,12 @@ def run(engine, work):
     subprocess.run(["install_name_tool", "-add_rpath", G.GST_FRAMEWORK + "/Versions/1.0/lib", plug], check=True)
     case(results, "media", "a plugin with a run path into /Library/Frameworks/GStreamer.framework",
          G.media_static(os.path.join(tmp, "media"), [plug]))
+    # media and dlopen: the dyld check behind "nothing loads from outside the engine" (and so from
+    # GStreamer.framework). The media gate's own run, judged as if the engine were somewhere else,
+    # must be reported; if dyld's output stopped parsing, this would find nothing and fail here.
+    gst_run = open(os.path.join(ctx["work"], "gates", "mediacheck-gst.txt")).read().split("\n--- stderr ---\n")[-1]
+    case(results, "media", "the media gate's GStreamer loads, judged as if the engine were elsewhere",
+         G.outside(G.dyld_images(gst_run), os.path.join(tmp, "elsewhere"), [os.path.join(ctx["work"], "tools", "mediacheck")]))
 
     # licences: an engine clone with one stray file.
     lic = os.path.join(tmp, "licence-engine")
