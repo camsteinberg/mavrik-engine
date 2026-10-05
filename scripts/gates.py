@@ -21,7 +21,10 @@ The gates:
   wine          wine --version prints the expected version, and wineboot --init in a fresh
                 prefix finishes with no Mono or Gecko download prompt
   media         GStreamer and FFmpeg load from inside the engine, never from
-                /Library/Frameworks/GStreamer.framework, and build the elements Wine uses
+                /Library/Frameworks/GStreamer.framework, and build the elements Wine uses. A Mac
+                that has the framework is not changed: every library dyld loads and every plugin
+                file must still be inside the engine, which is the case that matters on a
+                player's Mac with GStreamer installed
   licences      every file in the engine is covered by a line in licences/FILES.tsv, and every
                 component has its licence texts
   nogpl         no GPL-only file in the media component
@@ -407,20 +410,12 @@ def mediacheck(engine, work):
 
 def gate_media(engine, ctx):
     problems = []
-    masked = None
-    if os.path.exists(GST_FRAMEWORK):
-        # The runner should not have it; if it does, move it away so the check proves something.
-        masked = GST_FRAMEWORK + ".masked-by-mavrik"
-        subprocess.run(["sudo", "mv", GST_FRAMEWORK, masked], check=True)
-    try:
-        files = media_files(engine)
-        missing = [f for f in files[:2] if not os.path.isfile(f)]
-        problems += [f"missing {os.path.relpath(m, engine)}" for m in missing]
-        problems += media_static(engine, [f for f in files if os.path.isfile(f)])
-        exe, gst, ff = mediacheck(engine, ctx["work"])
-    finally:
-        if masked:
-            subprocess.run(["sudo", "mv", masked, GST_FRAMEWORK], check=True)
+    present = os.path.exists(GST_FRAMEWORK)
+    files = media_files(engine)
+    missing = [f for f in files[:2] if not os.path.isfile(f)]
+    problems += [f"missing {os.path.relpath(m, engine)}" for m in missing]
+    problems += media_static(engine, [f for f in files if os.path.isfile(f)])
+    exe, gst, ff = mediacheck(engine, ctx["work"])
     elements = [l.split("\t") for l in gst.stdout.splitlines() if l.startswith("element\t")]
     problems += [f"GStreamer element {e[2]} could not be created" for e in elements if e[1] != "ok"]
     if len(elements) != len(GST_ELEMENTS):
@@ -439,7 +434,7 @@ def gate_media(engine, ctx):
     return not problems, (f"{version}: {len(files)} media files resolve inside the engine, "
                           f"{sum(1 for e in elements if e[1] == 'ok')} elements, {len(plugins)} plugins, "
                           f"{sum(1 for d in decoders if d[1] == 'ok')} FFmpeg decoders; "
-                          f"{GST_FRAMEWORK} {'masked during the check' if masked else 'absent'}"), problems
+                          f"{GST_FRAMEWORK} {'present on this Mac, and nothing loaded from it' if present else 'absent'}"), problems
 
 
 def read_tsv(path):

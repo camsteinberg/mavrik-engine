@@ -30,8 +30,8 @@
       "component": "wine-gecko",
       "version": "2.47.4",
       "url": "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86.tar.xz",
-      "size": null,
-      "sha256": null,
+      "size": 43025064,
+      "sha256": "2cfc8d5c948602e21eff8a78613e1826f2d033df9672cace87fed56e8310afb6",
       "licence": "MPL-2.0"
     },
     "wine-gecko-x86_64": {
@@ -39,8 +39,8 @@
       "component": "wine-gecko",
       "version": "2.47.4",
       "url": "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86_64.tar.xz",
-      "size": null,
-      "sha256": null,
+      "size": 41935496,
+      "sha256": "fd88fc7e537d058d7a8abf0c1ebc90c574892a466de86706a26d254710a82814",
       "licence": "MPL-2.0"
     },
     "moltenvk": {
@@ -75,7 +75,7 @@
       "component": "media",
       "version": "1.28.6",
       "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-1.28.6-universal.pkg",
-      "size": null,
+      "size": 153477832,
       "sha256": "a8eb366c59b7e9e5dc049848fed6bcd203a8878aa7517c051639fda78797c6ad",
       "licence": "LGPL parts only are taken"
     },
@@ -84,7 +84,7 @@
       "component": "media",
       "version": "1.28.6",
       "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-devel-1.28.6-universal.pkg",
-      "size": null,
+      "size": 751614321,
       "sha256": "177b1428d0f47b844e7bff2aeeb22047686d802eba21580dab52f4a6fe1dcf02",
       "licence": "headers for the build only"
     },
@@ -93,7 +93,7 @@
       "component": "gmp",
       "version": "6.3.0",
       "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
-      "size": null,
+      "size": 2094196,
       "sha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
       "licence": "LGPL-3.0-or-later OR GPL-2.0-or-later"
     },
@@ -102,7 +102,7 @@
       "component": "nettle",
       "version": "4.0",
       "url": "https://ftp.gnu.org/gnu/nettle/nettle-4.0.tar.gz",
-      "size": null,
+      "size": 2630735,
       "sha256": "3addbc00da01846b232fb3bc453538ea5468da43033f21bb345cb1e9073f5094",
       "licence": "LGPL-3.0-or-later OR GPL-2.0-or-later"
     },
@@ -111,7 +111,7 @@
       "component": "gnutls",
       "version": "3.8.13",
       "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
-      "size": null,
+      "size": 7275324,
       "sha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
       "licence": "LGPL-2.1-or-later"
     },
@@ -120,7 +120,7 @@
       "component": "freetype",
       "version": "2.14.3",
       "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "size": null,
+      "size": 2670220,
       "sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
       "licence": "FTL"
     },
@@ -138,7 +138,7 @@
       "component": "media",
       "version": "1.32.7",
       "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2",
-      "size": null,
+      "size": 1117057,
       "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21",
       "licence": "LGPL-2.1-only",
       "note": "only its COPYING and AUTHORS are used, for the media notices; GStreamer 1.28.6 builds mpg123 1.32.7"
