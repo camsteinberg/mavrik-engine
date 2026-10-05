@@ -1,0 +1,237 @@
+# Builds mavrik's Wine engine from the pinned inputs in inputs.json, runs the gates that fail
+# the build, proves each gate fails on a bad input, and uploads the engine as an artifact.
+# Started by hand only. A prerelease is published only when publish_release is set.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish a prerelease with the engine and its sources (every gate must pass first)"
+        type: boolean
+        default: false
+      fresh:
+        description: "Ignore the build caches: a clean build from the pinned inputs"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MACOSX_DEPLOYMENT_TARGET: "14.0"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 3G
+  CCACHE_COMPILERCHECK: content
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_NOHASHDIR: "1"
+  CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime
+  WORK: ${{ github.workspace }}/work
+
+jobs:
+  build:
+    # Intel on purpose: the tree's Unix side is x86_64 only (its Metal layer class sits behind
+    # #if defined(__x86_64__)), as in CrossOver's own builds. It runs under Rosetta on Apple silicon.
+    runs-on: macos-15-intel
+    timeout-minutes: 350
+    outputs:
+      name: ${{ steps.pack.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Release builds need every input pinned
+        if: ${{ inputs.publish_release }}
+        run: python3 scripts/fetch.py check-pins inputs.json
+
+      - name: Cache keys
+        id: keys
+        run: python3 scripts/buildinfo.py keys inputs.json | tee -a "$GITHUB_OUTPUT"
+
+      - name: Restore downloads
+        id: dl-cache
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@v4
+        with:
+          path: work/downloads
+          key: ${{ steps.keys.outputs.downloads }}
+
+      - name: Download and check every input
+        run: |
+          mkdir -p "$WORK"
+          echo "$GITHUB_WORKSPACE/inputs.json" > "$WORK/inputs.path"
+          python3 scripts/fetch.py fetch inputs.json "$WORK/downloads" ${{ inputs.publish_release && '--release' || '' }}
+
+      - name: Save downloads
+        if: ${{ steps.dl-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: work/downloads
+          key: ${{ steps.keys.outputs.downloads }}
+
+      - name: Toolchain
+        run: |
+          brew install -q bison mingw-w64
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          mkdir -p "$WORK/bin" "$WORK/ccache-dist"
+          tar -xzf "$(python3 -c 'import json,os;print(json.load(open(os.environ["WORK"]+"/downloads/paths.json"))["ccache"])')" -C "$WORK/ccache-dist"
+          cp "$(find "$WORK/ccache-dist" -name ccache -type f -perm -u+x | head -1)" "$WORK/bin/ccache"
+          echo "$WORK/bin" >> "$GITHUB_PATH"
+          export PATH="$WORK/bin:$(brew --prefix bison)/bin:$PATH"
+          ccache --version | head -1
+          bison --version | head -1
+          x86_64-w64-mingw32-gcc --version | head -1
+          i686-w64-mingw32-gcc --version | head -1
+          clang --version | head -1
+          xcrun --show-sdk-version
+          sw_vers
+
+      - name: Unpack, check addons.c, apply patches, expand GStreamer
+        run: bash scripts/prepare.sh "$WORK/downloads/paths.json" inputs.json "$WORK"
+
+      - name: Restore our Unix libraries
+        id: deps-cache
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@v4
+        with:
+          path: work/deps
+          key: ${{ steps.keys.outputs.deps }}
+
+      - name: Build our Unix libraries (gmp, nettle, gnutls, freetype, SDL2)
+        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
+        run: bash scripts/build-deps.sh "$WORK/downloads/paths.json" "$WORK/deps-src" "$WORK/deps"
+
+      - name: Save our Unix libraries
+        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: work/deps
+          key: ${{ steps.keys.outputs.deps }}
+
+      - name: Restore the Wine build
+        id: wine-cache
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@v4
+        with:
+          path: work/wine-install
+          key: ${{ steps.keys.outputs.wine }}
+
+      - name: Restore the compiler cache
+        if: ${{ steps.wine-cache.outputs.cache-hit != 'true' && !inputs.fresh }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-${{ github.run_id }}
+          restore-keys: ccache-
+
+      - name: Configure and build Wine (Unix x86_64, PE i386 and x86_64)
+        id: build-wine
+        if: ${{ steps.wine-cache.outputs.cache-hit != 'true' }}
+        run: bash scripts/build-wine.sh "$WORK" "$WORK/deps" "$(cat "$WORK/gst-root.path")"
+
+      - name: Save the compiler cache
+        if: ${{ always() && steps.wine-cache.outputs.cache-hit != 'true' && steps.build-wine.outcome != 'skipped' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-${{ github.run_id }}
+
+      - name: Save the Wine build
+        if: ${{ steps.wine-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: work/wine-install
+          key: ${{ steps.keys.outputs.wine }}
+
+      - name: Assemble the engine
+        id: assemble
+        run: |
+          wine_version="$(sed 's/^Wine version //' "$WORK/wine-src/VERSION")"
+          name="mavrik-engine-${wine_version}-${{ steps.keys.outputs.version }}"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          mkdir -p "$WORK/out"
+          rm -rf "$WORK/out/$name"
+          python3 scripts/licences.py media-notices "$WORK"
+          python3 scripts/assemble.py "$WORK" "$WORK/out/$name"
+          python3 scripts/buildinfo.py write inputs.json "$WORK" "$WORK/out/$name"
+          python3 scripts/licences.py write "$WORK" "$WORK/out/$name" "$GITHUB_WORKSPACE"
+          du -sh "$WORK/out/$name"
+          du -sh "$WORK/out/$name"/* "$WORK/out/$name"/lib/wine/* "$WORK/out/$name"/share/wine/*
+
+      - name: Gates
+        run: python3 scripts/gates.py run "$WORK/out/${{ steps.assemble.outputs.name }}" "$WORK"
+
+      - name: Gate self-test (each gate must fail on a bad input)
+        run: python3 scripts/gates.py selftest "$WORK/out/${{ steps.assemble.outputs.name }}" "$WORK"
+
+      - name: Pack
+        id: pack
+        run: |
+          name="${{ steps.assemble.outputs.name }}"
+          cd "$WORK/out"
+          COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname root --gname wheel \
+            --options xz:compression-level=9,xz:threads=0 -cJf "$name.tar.xz" "$name"
+          shasum -a 256 "$name.tar.xz" | tee "$name.tar.xz.sha256"
+          stat -f '%z bytes' "$name.tar.xz"
+          cp "$WORK/gates/results.json" "$name.gates.json"
+          cp "$WORK/gates/selftest.json" "$name.gates-selftest.json"
+          cp "$name/build-info.json" "$name.build-info.json"
+          cp "$WORK/downloads/learned-pins.json" "$name.learned-pins.json"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Engine"
+            echo ""
+            echo "- \`$name.tar.xz\`: $(stat -f %z "$name.tar.xz") bytes"
+            echo "- sha256 \`$(cut -d' ' -f1 "$name.tar.xz.sha256")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.name }}
+          path: |
+            work/out/*.tar.xz
+            work/out/*.tar.xz.sha256
+            work/out/*.json
+          retention-days: 30
+          compression-level: 0
+
+      - name: Collect the corresponding sources for a release
+        if: ${{ inputs.publish_release }}
+        run: python3 scripts/release.py collect inputs.json "$WORK" "$WORK/release-sources"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.publish_release }}
+        with:
+          name: sources
+          path: work/release-sources
+          retention-days: 30
+          compression-level: 0
+
+  release:
+    needs: build
+    if: ${{ inputs.publish_release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          name="${{ needs.build.outputs.name }}"
+          tag="${name#mavrik-engine-}-$(date -u +%Y%m%d)-run${{ github.run_id }}"
+          files=$(find dist -type f | sort)
+          gh release create "$tag" $files --prerelease --title "$name ($tag)" \
+            --notes-file <(python3 scripts/release.py notes inputs.json "$name" "${{ github.run_id }}")
