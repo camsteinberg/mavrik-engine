@@ -73,15 +73,17 @@ input:
 - **wine**: `wine --version` prints the expected version, and `wineboot --init` in a new Windows
   folder finishes with no Mono or Gecko download prompt.
 - **media**: GStreamer and FFmpeg load from inside the engine, never from
-  `/Library/Frameworks/GStreamer.framework`, and create the elements Wine uses.
+  `/Library/Frameworks/GStreamer.framework`, and create the elements Wine uses. On a Mac that has
+  that framework, the gate leaves it in place and checks that nothing is loaded from it.
 - **licences**: every file in the engine is covered by a line in `licences/FILES.tsv`.
 - **nogpl**: no GPL-only file in the media component, and FFmpeg reports itself as LGPL.
 
 ## Build notes
 
-- The build runs on GitHub's `macos-15-intel` runner. The Unix side is x86_64 only: the tree's
+- Releases are built on GitHub's `macos-15-intel` runner. The Unix side is x86_64 only: the tree's
   Metal layer is built only for x86_64, as in CrossOver's own builds. It runs under Rosetta on
-  Apple silicon.
+  Apple silicon. On an Apple silicon Mac, every configure and make runs as x86_64 through Rosetta,
+  and the compilers are told `-arch x86_64`, so the build matches an Intel Mac's.
 - The Windows side is built for i386 and x86_64 with mingw-w64 gcc. llvm-mingw is known to break
   Steam's sign-in.
 - `--with-opengl` is not passed: configure would then fail on the missing EGL headers. Left alone,
@@ -90,13 +92,33 @@ input:
   `@loader_path/../../`, which is the engine's `lib/`, so those names are found there.
 - The Windows side is stripped of debug data; gcc leaves it in, and it makes the files five times
   larger.
-- Caches (downloads, the Unix libraries, the Wine build and ccache) make repeat builds fast. The
-  `fresh` option ignores them for a clean build.
+- Caches (downloads, the Unix libraries, the Wine build and ccache) make repeat builds fast. Each
+  finished step leaves a stamp with its cache key, and a later build with the same key skips it.
+  The workflow's `fresh` option (or `FRESH=1` on a Mac) ignores them for a clean build.
 - `MACOSX_DEPLOYMENT_TARGET` is 14.0 for everything built here. DXMT v0.80's own files need
   macOS 15.
 
-To build: start the `build` workflow by hand (Actions, build, Run workflow). The engine, its
-checksum and the gate results are uploaded as the run's artifact.
+## Building
+
+The build is four scripts in [`scripts/`](scripts/). The GitHub workflow prepares its runner and
+calls them, and a Mac runs the very same scripts:
+
+```sh
+bash scripts/build.sh WORK      # inputs, toolchain check, sources and patches, Unix libraries, Wine
+bash scripts/assemble.sh WORK   # the engine folder, its build record and its licence folder
+bash scripts/gates.sh WORK      # every gate, then the self-test
+bash scripts/pack.sh WORK       # the .tar.xz and its .sha256
+```
+
+- **On GitHub**: start the `build` workflow by hand (Actions, build, Run workflow). The engine, its
+  checksum and the gate results are uploaded as the run's artifact.
+- **On a Mac**: install Xcode, and with Homebrew bison, mingw-w64, cmake and pkg-config. Apple
+  silicon also needs Rosetta. `JOBS` sets make's parallel jobs. Without curl, set
+  `FETCH_ARGS="--via gh --from DIR"`: files on GitHub then come through the GitHub CLI, and the rest
+  from `DIR`, a folder of files downloaded by hand from the addresses in `inputs.json`. Every file is
+  checked against its pin either way.
+
+An engine built on a Mac is for testing only. Releases come only from the GitHub workflow.
 
 ## Releases
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Small build helpers.
 
-  buildinfo.py keys INPUTS                  print GitHub step outputs: cache keys and the engine version
+  buildinfo.py keys INPUTS                  print the cache keys (also build.sh's stamps) and the engine version
   buildinfo.py write INPUTS WORK ENGINE     write ENGINE/build-info.json, the engine's build record
 """
 import hashlib
@@ -31,7 +31,7 @@ def patches():
 def keys(inputs_path):
     doc = json.load(open(inputs_path))
     pins = doc["inputs"]
-    target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "")
+    target = doc["engine"]["macos_deployment_target"]
     s = os.path.join(REPO, "scripts")
     downloads = digest(doc["inputs"], doc["licence_texts"])
     deps = digest([pins[k] for k in ("gmp", "nettle", "gnutls", "freetype", "sdl2")], target,

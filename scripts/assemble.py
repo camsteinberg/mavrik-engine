@@ -8,7 +8,8 @@ GStreamer expansion (gstreamer/), downloads/paths.json, media-notices/ and input
 WORK/inputs.path. ENGINE is created (it must not exist).
 
 What it does, in order:
-  1. moves Wine's install into ENGINE and makes sure bin/wine and bin/wineserver exist;
+  1. copies Wine's install into ENGINE (an APFS clone, so it costs no space and the install stays
+     as the build left it, ready for the next assembly) and makes sure bin/wine and bin/wineserver exist;
   2. strips the PE half (mingw strip --strip-debug) and the Unix side (strip -x -S);
   3. unpacks Wine Mono and Wine Gecko into share/wine/mono and share/wine/gecko;
   4. copies the Unix libraries Wine opens by name (config.h's SONAME_* values) and everything they
@@ -31,6 +32,9 @@ import tarfile
 import tempfile
 
 SYSTEM_PREFIXES = ("/usr/lib/", "/System/")
+# Names configure defines whether or not it found the library, for libraries the engine does not
+# carry. Wine's odbc32 opens unixODBC only when the Mac has it, and works without it.
+NOT_CARRIED = {"SONAME_LIBODBC"}
 MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
                 b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce"}
 
@@ -105,7 +109,9 @@ class Assembler:
         src = os.path.join(self.work, "wine-install", "opt", "mavrik-engine")
         if os.path.exists(self.engine):
             sys.exit(f"{self.engine} already exists")
-        shutil.move(src, self.engine)
+        if subprocess.run(["cp", "-c", "-R", "-p", src, self.engine], capture_output=True).returncode:
+            shutil.rmtree(self.engine, ignore_errors=True)
+            shutil.copytree(src, self.engine, symlinks=True)
         for p in walk_files(self.engine):
             self.mark(p, "wine")
         bindir = os.path.join(self.engine, "bin")
@@ -184,6 +190,9 @@ class Assembler:
         shutil.copy(os.path.join(mvk, "MoltenVK", "LICENSE"), os.path.join(self.work, "notices", "MoltenVK-LICENSE"))
         for define, name in sorted(sonames.items()):
             if name == "libMoltenVK.dylib":
+                continue
+            if define in NOT_CARRIED:
+                print(f"{define} ({name}): not carried; Wine opens it only if the Mac has it")
                 continue
             if "/" in name:
                 sys.exit(f"{define} is a path ({name}); Wine must open its libraries by name")
