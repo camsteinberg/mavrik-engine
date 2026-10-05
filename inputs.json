@@ -1,0 +1,533 @@
+{
+  "comment": "Every input the build downloads, pinned by size and SHA-256. A release build refuses any entry whose size or sha256 is null. A test build downloads it, prints the values to pin and goes on.",
+  "engine": {
+    "name": "mavrik-engine",
+    "revision": 1,
+    "macos_deployment_target": "14.0"
+  },
+  "inputs": {
+    "crossover-sources": {
+      "role": "source",
+      "component": "wine",
+      "version": "26.3.0",
+      "url": "https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz",
+      "size": 149054023,
+      "sha256": "ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872",
+      "subdir": "sources/wine",
+      "licence": "LGPL-2.1-or-later"
+    },
+    "wine-mono": {
+      "role": "addon",
+      "component": "wine-mono",
+      "version": "10.4.1",
+      "url": "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-10.4.1/wine-mono-10.4.1-x86.tar.xz",
+      "size": 39590692,
+      "sha256": "a16606ef0724202e6a6848ece6e0cbba64d11e2f11aefe744af1d93c6d9f99bb",
+      "licence": "MIT AND LGPL-2.1-or-later AND others (see its COPYING)"
+    },
+    "wine-gecko-x86": {
+      "role": "addon",
+      "component": "wine-gecko",
+      "version": "2.47.4",
+      "url": "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86.tar.xz",
+      "size": null,
+      "sha256": null,
+      "licence": "MPL-2.0"
+    },
+    "wine-gecko-x86_64": {
+      "role": "addon",
+      "component": "wine-gecko",
+      "version": "2.47.4",
+      "url": "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86_64.tar.xz",
+      "size": null,
+      "sha256": null,
+      "licence": "MPL-2.0"
+    },
+    "moltenvk": {
+      "role": "runtime",
+      "component": "moltenvk",
+      "version": "1.4.2",
+      "url": "https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar",
+      "size": 59563008,
+      "sha256": "f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e",
+      "licence": "Apache-2.0"
+    },
+    "dxmt": {
+      "role": "runtime",
+      "component": "dxmt",
+      "version": "0.80",
+      "url": "https://github.com/3Shain/dxmt/releases/download/v0.80/dxmt-v0.80-builtin.tar.gz",
+      "size": 18681669,
+      "sha256": "8f260e36b5739e68f3bad613381441385c4dc7b85b78ba8de653d5a6a264529d",
+      "licence": "MIT",
+      "files": {
+        "x86_64-windows/d3d11.dll": 5350886,
+        "x86_64-windows/dxgi.dll": 1890058,
+        "x86_64-windows/d3d10core.dll": 1531476,
+        "x86_64-windows/winemetal.dll": 73478,
+        "x86_64-windows/nvapi64.dll": 1905830,
+        "x86_64-windows/nvngx.dll": 1579890,
+        "x86_64-unix/winemetal.so": 31805040
+      }
+    },
+    "gstreamer-runtime": {
+      "role": "runtime",
+      "component": "media",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-1.28.6-universal.pkg",
+      "size": null,
+      "sha256": "a8eb366c59b7e9e5dc049848fed6bcd203a8878aa7517c051639fda78797c6ad",
+      "licence": "LGPL parts only are taken"
+    },
+    "gstreamer-devel": {
+      "role": "build",
+      "component": "media",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-devel-1.28.6-universal.pkg",
+      "size": null,
+      "sha256": "177b1428d0f47b844e7bff2aeeb22047686d802eba21580dab52f4a6fe1dcf02",
+      "licence": "headers for the build only"
+    },
+    "gmp": {
+      "role": "source",
+      "component": "gmp",
+      "version": "6.3.0",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+      "size": null,
+      "sha256": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+      "licence": "LGPL-3.0-or-later OR GPL-2.0-or-later"
+    },
+    "nettle": {
+      "role": "source",
+      "component": "nettle",
+      "version": "4.0",
+      "url": "https://ftp.gnu.org/gnu/nettle/nettle-4.0.tar.gz",
+      "size": null,
+      "sha256": "3addbc00da01846b232fb3bc453538ea5468da43033f21bb345cb1e9073f5094",
+      "licence": "LGPL-3.0-or-later OR GPL-2.0-or-later"
+    },
+    "gnutls": {
+      "role": "source",
+      "component": "gnutls",
+      "version": "3.8.13",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz",
+      "size": null,
+      "sha256": "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e",
+      "licence": "LGPL-2.1-or-later"
+    },
+    "freetype": {
+      "role": "source",
+      "component": "freetype",
+      "version": "2.14.3",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
+      "size": null,
+      "sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "licence": "FTL"
+    },
+    "sdl2": {
+      "role": "source",
+      "component": "sdl2",
+      "version": "2.32.10",
+      "url": "https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz",
+      "size": 7630262,
+      "sha256": "5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165",
+      "licence": "Zlib"
+    },
+    "mpg123-source": {
+      "role": "notices",
+      "component": "media",
+      "version": "1.32.7",
+      "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2",
+      "size": null,
+      "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21",
+      "licence": "LGPL-2.1-only",
+      "note": "only its COPYING and AUTHORS are used, for the media notices; GStreamer 1.28.6 builds mpg123 1.32.7"
+    },
+    "ccache": {
+      "role": "tool",
+      "component": "ccache",
+      "version": "4.14.1",
+      "url": "https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-darwin.tar.gz",
+      "size": 2217445,
+      "sha256": "c279fa81e2e806b4d9e64d4a06cb569a84ef54151feef796e5d4f4e95a464563",
+      "licence": "GPL-3.0-or-later (build tool, not shipped)"
+    },
+    "dxmt-winemetal-source": {
+      "role": "check",
+      "component": "dxmt",
+      "version": "0.80",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/v0.80/src/winemetal/unix/winemetal_unix.c",
+      "size": 120555,
+      "sha256": "f8f4b952ebd4b862afd86b3a228d8a44708e7d87638a9c6798d7afd917fe6b35",
+      "licence": "MIT",
+      "note": "read by the winemac gate: the macdrv_functions layout DXMT v0.80 expects, and its fallback symbol names"
+    }
+  },
+  "licence_texts": {
+    "dxmt-license": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/v0.80/LICENSE",
+      "size": 1065,
+      "sha256": "6b928413c6308c106f3e0080bd94b6427b56d587d400fd40e6cbfbab7d9c4ae1"
+    },
+    "dxmt-dxvk-license": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/v0.80/src/util/dxvk.LICENSE",
+      "size": 970,
+      "sha256": "03ca4af84f5cd28cef3ed3f1ef4d17996992d35ccdbe82b29cc020ca02c16f3d"
+    },
+    "llvm-license": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-15.0.7/llvm/LICENSE.TXT",
+      "size": 15141,
+      "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee"
+    },
+    "llvm-regex-copyright": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-15.0.7/llvm/lib/Support/COPYRIGHT.regex",
+      "size": 2718,
+      "sha256": "0424e57d4303164dc59a8509c20dae0518b853692e5c2b0e98b11816fdbc97c7"
+    },
+    "llvm-convertutf": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-15.0.7/llvm/lib/Support/ConvertUTF.cpp",
+      "size": 28334,
+      "sha256": "6399984c40df77a0ffeb58e8d79b9b62282a49967688027c393703c39eab913a"
+    },
+    "dxbcparser-license": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/microsoft/D3D12TranslationLayer/aa4db554af2da6fb60dfeb06c6560f4f251199d6/LICENSE",
+      "size": 1093,
+      "sha256": "903df5512f7d02609fed0c780a9b704f5a3eeb6e4d84ebe42a29845c81899a3c"
+    },
+    "nvapi-license": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/NVIDIA/nvapi/d08488fcc82eef313b0464db37d2955709691e94/License.txt",
+      "size": 1217,
+      "sha256": "bab44777f0f4d0333479ea0be6e24c084464a8cb64b98f1253fcc3df70f6eccf"
+    },
+    "cereal-license": {
+      "for": "moltenvk",
+      "url": "https://raw.githubusercontent.com/USCiLab/cereal/a56bad8bbb770ee266e930c95d37fff2a5be7fea/LICENSE",
+      "size": 1542,
+      "sha256": "58604a126af6a671ea390ee3d5b3e42228aa59b2858fb7af1d5b20b31739ccbb"
+    },
+    "spirv-cross-license": {
+      "for": "moltenvk",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Cross/6c09849fe88c48eaed08413aa022aaa136a3a057/LICENSE",
+      "size": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "spirv-tools-license": {
+      "for": "moltenvk",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Tools/0d6fd73ca73830ccab5fa1f00ed5ed40124e2c55/LICENSE",
+      "size": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "gstreamer-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gstreamer/COPYING",
+      "size": 26431,
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
+    },
+    "gst-plugins-base-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-base/COPYING",
+      "size": 26431,
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
+    },
+    "gst-plugins-good-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-good/COPYING",
+      "size": 26432,
+      "sha256": "6095e9ffa777dd22839f7801aa845b31c9ed07f3d6bf8a26dc5d2dec8ccc0ef3"
+    },
+    "gst-plugins-bad-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-bad/COPYING",
+      "size": 26530,
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    },
+    "gst-plugins-ugly-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-ugly/COPYING",
+      "size": 26432,
+      "sha256": "6095e9ffa777dd22839f7801aa845b31c9ed07f3d6bf8a26dc5d2dec8ccc0ef3"
+    },
+    "gst-libav-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-libav/COPYING",
+      "size": 26431,
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
+    },
+    "glib-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GNOME/glib/2.82.4/COPYING",
+      "size": 25967,
+      "sha256": "fa6f36630bb1e0c571d34b2bbdf188d08495c9dbf58f28cac112f303fc1f58fb"
+    },
+    "ffmpeg-license": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/LICENSE.md",
+      "size": 4376,
+      "sha256": "cb48bf09a11f5fb576cddb0431c8f5ed0a60157a9ec942adffc13907cbe083f2"
+    },
+    "ffmpeg-copying-lgpl": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/COPYING.LGPLv2.1",
+      "size": 26526,
+      "sha256": "b634ab5640e258563c536e658cad87080553df6f34f62269a21d554844e58bfe"
+    },
+    "proxy-libintl-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/frida/proxy-libintl/0.5/COPYING",
+      "size": 25292,
+      "sha256": "d245807f90032872d1438d741ed21e2490e1175dc8aa3afa5ddb6c8e529b58e5"
+    },
+    "libffi-license": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/libffi/libffi/v3.3/LICENSE",
+      "size": 1132,
+      "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0"
+    },
+    "pcre2-licence": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/PCRE2Project/pcre2/pcre2-10.42/LICENCE",
+      "size": 3477,
+      "sha256": "87d884eceb7fc54611470ce9f74280d28612b0c877adfc767e9676892a638987"
+    },
+    "orc-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/GStreamer/orc/0.4.42/COPYING",
+      "size": 3124,
+      "sha256": "4f5dabb1b44bb6fc5cd53820b1f103147ad61b395a57903991325bd1b85d97bf"
+    },
+    "zlib-license": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE",
+      "size": 1002,
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243"
+    },
+    "bzip2-license": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/libarchive/bzip2/bzip2-1.0.8/LICENSE",
+      "size": 1896,
+      "sha256": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3"
+    },
+    "flac-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/xiph/flac/1.4.3/COPYING.Xiph",
+      "size": 1509,
+      "sha256": "12600ea1a7affcbf469bd0d8b2cd725e4167114a2ee834b88f5d2857bfd7ddbf"
+    },
+    "ogg-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/xiph/ogg/v1.3.5/COPYING",
+      "size": 1466,
+      "sha256": "d2ab5758336489da61c12cc5bb757da5339c4ae9001f9bb0562b4370249af814"
+    },
+    "vorbis-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/xiph/vorbis/v1.3.7/COPYING",
+      "size": 1470,
+      "sha256": "ec1815db59fcd302846df949d7424876cb2e2dc5ed1606c5fb0b36787b1cf43a"
+    },
+    "theora-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/xiph/theora/v1.1.1/COPYING",
+      "size": 1470,
+      "sha256": "8417fad7da775735564e209484a2e011e0fa201e94f01fdbee6e4977e478e6fc"
+    },
+    "theora-license": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/xiph/theora/v1.1.1/LICENSE",
+      "size": 964,
+      "sha256": "654a0238f789f4435c4818f50005b141d013c5a09a31d861efc1d0d67ba975a4"
+    },
+    "opus-copying": {
+      "for": "media",
+      "url": "https://raw.githubusercontent.com/xiph/opus/v1.5.2/COPYING",
+      "size": 1945,
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+    },
+    "wine-mono-copying": {
+      "for": "wine-mono",
+      "url": "https://raw.githubusercontent.com/madewokherd/wine-mono/wine-mono-10.4.1/COPYING",
+      "size": 2423,
+      "sha256": "0265443ffc97c9450dbcf402c2430bf9fe87d7a6c92d5d7684fcecfe749bf75d"
+    },
+    "spdx-mpl-2.0": {
+      "for": "wine-gecko",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-2.0.txt",
+      "size": 16727,
+      "sha256": "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172"
+    },
+    "spdx-mpl-1.1": {
+      "for": "texts",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-1.1.txt",
+      "size": 23669,
+      "sha256": "6214f8b1300bb9f37b16ebc146f8f61af0187e0025042ff95c8b3030744a8795"
+    },
+    "spdx-lgpl-2.1": {
+      "for": "texts",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/LGPL-2.1-or-later.txt",
+      "size": 26001,
+      "sha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2"
+    },
+    "spdx-lgpl-3.0": {
+      "for": "texts",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/LGPL-3.0-or-later.txt",
+      "size": 42098,
+      "sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1"
+    },
+    "spdx-gpl-2.0": {
+      "for": "texts",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-2.0-or-later.txt",
+      "size": 17337,
+      "sha256": "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3"
+    },
+    "spdx-gpl-3.0": {
+      "for": "texts",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-or-later.txt",
+      "size": 34674,
+      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
+    },
+    "spdx-apache-2.0": {
+      "for": "texts",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/Apache-2.0.txt",
+      "size": 10280,
+      "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+    }
+  },
+  "media_projects": {
+    "gstreamer": {
+      "version": "1.28.6",
+      "licence": "LGPL-2.1-or-later",
+      "texts": [
+        "gstreamer-copying",
+        "gst-plugins-base-copying",
+        "gst-plugins-good-copying",
+        "gst-plugins-bad-copying",
+        "gst-plugins-ugly-copying",
+        "gst-libav-copying"
+      ],
+      "source": "https://gstreamer.freedesktop.org/src/"
+    },
+    "glib": {
+      "version": "2.82.4",
+      "licence": "LGPL-2.1-or-later",
+      "texts": [
+        "glib-copying"
+      ],
+      "source": "https://download.gnome.org/sources/glib/2.82/"
+    },
+    "ffmpeg": {
+      "version": "7.1",
+      "licence": "LGPL-2.1-or-later",
+      "texts": [
+        "ffmpeg-license",
+        "ffmpeg-copying-lgpl"
+      ],
+      "source": "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz"
+    },
+    "proxy-libintl": {
+      "version": "0.5",
+      "licence": "LGPL-2.0-or-later",
+      "texts": [
+        "proxy-libintl-copying"
+      ],
+      "source": "https://github.com/frida/proxy-libintl/archive/refs/tags/0.5.tar.gz"
+    },
+    "mpg123": {
+      "version": "1.32.7",
+      "licence": "LGPL-2.1-only",
+      "texts": [
+        "mpg123-source:COPYING",
+        "mpg123-source:AUTHORS"
+      ],
+      "source": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2"
+    },
+    "libffi": {
+      "version": "3.2.9999.5 (GStreamer's meson port)",
+      "licence": "MIT",
+      "texts": [
+        "libffi-license"
+      ],
+      "source": "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi"
+    },
+    "pcre2": {
+      "version": "10.42",
+      "licence": "BSD-3-Clause",
+      "texts": [
+        "pcre2-licence"
+      ],
+      "source": "https://github.com/PCRE2Project/pcre2/releases/tag/pcre2-10.42"
+    },
+    "orc": {
+      "version": "0.4.42",
+      "licence": "BSD-2-Clause AND BSD-3-Clause",
+      "texts": [
+        "orc-copying"
+      ],
+      "source": "https://gstreamer.freedesktop.org/src/orc/"
+    },
+    "zlib": {
+      "version": "1.3.1",
+      "licence": "Zlib",
+      "texts": [
+        "zlib-license"
+      ],
+      "source": "https://zlib.net/fossils/zlib-1.3.1.tar.gz"
+    },
+    "bzip2": {
+      "version": "1.0.8",
+      "licence": "bzip2-1.0.6",
+      "texts": [
+        "bzip2-license"
+      ],
+      "source": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
+    },
+    "flac": {
+      "version": "1.4.3",
+      "licence": "BSD-3-Clause",
+      "texts": [
+        "flac-copying"
+      ],
+      "source": "https://github.com/xiph/flac/releases/tag/1.4.3"
+    },
+    "ogg": {
+      "version": "1.3.5",
+      "licence": "BSD-3-Clause",
+      "texts": [
+        "ogg-copying"
+      ],
+      "source": "https://github.com/xiph/ogg/releases/tag/v1.3.5"
+    },
+    "vorbis": {
+      "version": "1.3.7",
+      "licence": "BSD-3-Clause",
+      "texts": [
+        "vorbis-copying"
+      ],
+      "source": "https://github.com/xiph/vorbis/releases/tag/v1.3.7"
+    },
+    "theora": {
+      "version": "1.1.1",
+      "licence": "BSD-3-Clause",
+      "texts": [
+        "theora-copying",
+        "theora-license"
+      ],
+      "source": "https://github.com/xiph/theora/releases/tag/v1.1.1"
+    },
+    "opus": {
+      "version": "1.5.2",
+      "licence": "BSD-3-Clause",
+      "texts": [
+        "opus-copying"
+      ],
+      "source": "https://github.com/xiph/opus/releases/tag/v1.5.2"
+    }
+  },
+  "media_projects_comment": "The projects inside GStreamer 1.28.6's official macOS build that the media component takes files from, with the versions GStreamer's build recipes (cerbero 1.28.6) name."
+}
