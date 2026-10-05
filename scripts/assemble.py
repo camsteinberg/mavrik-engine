@@ -267,11 +267,11 @@ class Assembler:
                 sys.exit(f"{self.rel(path)} is {archs}, not x86_64 only")
             ident, loads, rpaths = load_commands(path)
             args = []
-            if ident and not ident.startswith("@"):
+            if ident and ident.startswith("/") and not ident.startswith(SYSTEM_PREFIXES):
                 args += ["-id", "@rpath/" + os.path.basename(ident)]
             here = os.path.dirname(path)
             for load in loads:
-                if load.startswith("@") or load.startswith(SYSTEM_PREFIXES):
+                if not load.startswith("/") or load.startswith(SYSTEM_PREFIXES):
                     continue
                 base = os.path.basename(load)
                 if not os.path.exists(os.path.join(libdir, base)):
@@ -279,7 +279,7 @@ class Assembler:
                 rel = os.path.relpath(libdir, here)
                 args += ["-change", load, "@loader_path/" + base if rel == "." else f"@loader_path/{rel}/{base}"]
             for rp in rpaths:
-                if not rp.startswith("@"):
+                if rp.startswith("/"):
                     args += ["-delete_rpath", rp]
             if os.path.dirname(path) == unixdir and path.endswith(".so") and "@loader_path/../../" not in rpaths:
                 args += ["-add_rpath", "@loader_path/../../"]

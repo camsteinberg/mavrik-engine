@@ -24,7 +24,7 @@ unpack() {  # unpack KEY -> echoes the source folder
     dir="$WORK/$1"
     rm -rf "$dir" && mkdir -p "$dir"
     tar -xf "$archive" -C "$dir"
-    find "$dir" -mindepth 1 -maxdepth 1 -type d | head -1
+    find "$dir" -mindepth 1 -maxdepth 1 -type d | sed -n "1,1p"
 }
 
 export CC="ccache clang" CXX="ccache clang++"
@@ -78,7 +78,7 @@ echo "::endgroup::"
 
 # Keep each source's licence and notice files for the engine's licences/ folder.
 for key in gmp nettle gnutls freetype sdl2; do
-    d="$(find "$WORK/$key" -mindepth 1 -maxdepth 1 -type d | head -1)"
+    d="$(find "$WORK/$key" -mindepth 1 -maxdepth 1 -type d | sed -n "1,1p")"
     out="$PREFIX/share/licences/$key"
     mkdir -p "$out"
     find "$d" -maxdepth 1 -type f \( -iname 'COPYING*' -o -iname 'LICENSE*' -o -iname 'LICENCE*' \
