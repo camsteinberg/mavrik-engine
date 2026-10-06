@@ -6,7 +6,8 @@
 #    has not pinned (the engine must carry exactly what the tree asks for).
 # 3. Applies patches/*.patch in order; any reject or fuzz stops the build.
 # 4. Expands GStreamer's runtime and development packages (without installing anything
-#    into /Library) into WORK/gstreamer/Versions/1.0, and points its pkg-config files there.
+#    into /Library, and without their static archives) into WORK/gstreamer/Versions/1.0, and
+#    points its pkg-config files there.
 set -euo pipefail
 
 PATHS="$1" INPUTS="$2" WORK="$3"
@@ -52,22 +53,22 @@ rm -rf "$G" "$WORK/gst-pkg"
 mkdir -p "$G" "$WORK/gst-pkg"
 FW=/Library/Frameworks/GStreamer.framework
 for key in gstreamer-runtime gstreamer-devel; do
-    pkgutil --expand-full "$(src "$key")" "$WORK/gst-pkg/$key"
-    # Static archives are never linked (Wine links GStreamer's shared libraries); they are 4.5 GB.
-    find "$WORK/gst-pkg/$key" -name '*.a' -type f -delete
+    pkgutil --expand "$(src "$key")" "$WORK/gst-pkg/$key"
+    echo "$key component packages: $(ls "$WORK/gst-pkg/$key" | tr '\n' ' ')"
     # Each component package's Payload is a slice of GStreamer.framework, placed where its
-    # PackageInfo says it installs (the framework itself, or Versions/1.0 inside it).
+    # PackageInfo says it installs (the framework itself, or Versions/1.0 inside it). Static
+    # archives are never written: Wine links GStreamer's shared libraries, and they are 4.5 GB.
     for component in "$WORK/gst-pkg/$key"/*.pkg; do
-        [ -d "$component/Payload" ] || continue
+        [ -f "$component/Payload" ] || continue
         loc="$(sed -n 's/.*install-location="\([^"]*\)".*/\1/p' "$component/PackageInfo" | sed -n 1p)"
         case "$loc" in
             "$FW"|"$FW"/*) ;;
             *) echo "::error::$(basename "$component") installs to '$loc', outside $FW"; exit 1 ;;
         esac
         mkdir -p "$G${loc#"$FW"}"
-        ditto --clone "$component/Payload" "$G${loc#"$FW"}"
+        aa extract -i "$component/Payload" -d "$G${loc#"$FW"}" -exclude-regex '\.a$'
+        rm -rf "$component"
     done
-    echo "$key component packages: $(ls "$WORK/gst-pkg/$key" | tr '\n' ' ')"
     rm -rf "$WORK/gst-pkg/$key"
 done
 rmdir "$WORK/gst-pkg"
