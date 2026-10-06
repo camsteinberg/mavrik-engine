@@ -7,6 +7,9 @@
 #   Unix side: x86_64, clang. The tree's Metal layer is x86_64 only. configure and make run as
 #              x86_64 (through Rosetta on Apple silicon), so the build is the same as on an Intel Mac.
 #   PE side:   i386 and x86_64 with mingw-w64 gcc (llvm-mingw is known to break Steam's login).
+# Every compiler gets -ffile-prefix-map=WORK/=, so no file in the engine carries this machine's
+# build path (bison and flex write their source paths into the parsers they generate, and those reach
+# __FILE__). What Wine was compiled with is kept in WORK/wine-install/.build/toolchain.json.
 # Libraries come only from DEPS (our own builds) and the expanded GStreamer packages; the
 # build stops if FFmpeg, GStreamer, FreeType, GnuTLS, SDL2 or Vulkan (MoltenVK) went missing,
 # because configure only warns about those and would build a quietly smaller Wine.
@@ -19,6 +22,7 @@ SRC="$WORK/wine-src" BUILD="$WORK/wine-build" DEST="$WORK/wine-install"
 ncpu=$(sysctl -n hw.ncpu)
 JOBS="${JOBS:-$(( ncpu + ncpu / 2 ))}"
 x86() { arch -x86_64 "$@"; }
+MAP="-ffile-prefix-map=$WORK/="
 
 export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:$GST/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
@@ -45,7 +49,7 @@ x86 "$SRC/configure" \
     --without-pulse --without-sane --without-udev --without-usb --without-v4l2 \
     --without-wayland --without-x \
     CC="ccache clang -arch x86_64" CXX="ccache clang++ -arch x86_64" \
-    CFLAGS="-O2" CROSSCFLAGS="-O2" LDFLAGS="-Wl,-headerpad_max_install_names" \
+    CFLAGS="-O2 $MAP" CROSSCFLAGS="-O2 $MAP" LDFLAGS="-Wl,-headerpad_max_install_names" \
     i386_CC="ccache i686-w64-mingw32-gcc" x86_64_CC="ccache x86_64-w64-mingw32-gcc" \
     ac_cv_lib_soname_vulkan= ac_cv_lib_soname_MoltenVK=libMoltenVK.dylib \
     || { tail -200 config.log; exit 1; }
@@ -72,6 +76,7 @@ ccache -s || true
 # every build starts from an empty one (ccache keeps that fast), so its objects are never used again.
 mkdir -p "$DEST/.build"
 cp include/config.h Makefile config.log "$DEST/.build/"
+python3 "$(dirname "$0")/buildinfo.py" toolchain > "$DEST/.build/toolchain.json"
 echo "installed:"
 find "$DEST" -maxdepth 4 -type d | sed "s|$DEST/||" | sort | sed -n "1,30p"
 cd "$WORK"

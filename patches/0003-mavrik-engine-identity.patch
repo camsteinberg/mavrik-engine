@@ -1,0 +1,93 @@
+mavrik-engine's own identity in place of CrossOver's, where a player or macOS can see it.
+
+The CrossOver tree names the Wine loader as CrossOver (CrossOver Hack 10913), and its crash dialog
+sends people to CodeWeavers. This engine is not CrossOver, and its bugs belong in mavrik-engine's
+issues, never with CodeWeavers. This patch changes only names and addresses:
+
+- loader/wine_info.plist.in, the Info.plist built into the loader every game runs as:
+  - the bundle identifier is org.mavrik.engine, not com.codeweavers.CrossOver.wineloader. macOS keys
+    a program's preferences, its saved window state and its privacy permissions by this
+    identifier, and the CrossOver one is shared with CrossOver and with Apple's Game Porting
+    Toolkit. Upstream's org.winehq.wine would be shared with every other Wine on the Mac.
+  - the bundle name is "Game", followed by the padding comment the loader's
+    apple_override_bundle_name (CrossOver Hack 13438) looks for. That code replaces the name in
+    memory with the program's own (ABZU.exe shows as "ABZU", or WINEPRELOADERAPPNAME when set) before
+    macOS reads it, so the menu bar, the Dock and the app switcher show the game. "Game" is only the
+    fallback, and with the padding a name may be 32 characters long instead of 28.
+  - the executable name is "wine", the loader's file name, as upstream.
+- programs/winedbg/winedbg.rc: the crash dialog's two links point to mavrik-engine's issues instead
+  of codeweavers.com. Wine's translations of these two texts carry WineHQ's links, which this
+  build must not send people to either, so the changed English text is used in every language.
+- dlls/ieframe/iexplore.c: the browser window is "Wine Internet Explorer", as upstream, not
+  "CrossOver Web Browser".
+- programs/iexplore/iexplore.inf: the "CrossOver HTML engine" uninstall entry is removed, as
+  upstream has none.
+
+CrossOver's names that no player sees (registry keys its code reads, log lines, comments) stay; the
+identity gate lists them.
+Upstream status: mavrik-engine's own branding; upstream Wine already uses its own names.
+
+--- a/dlls/ieframe/iexplore.c
++++ b/dlls/ieframe/iexplore.c
+@@ -50,8 +50,8 @@
+ #define WM_UPDATEADDRBAR    (WM_APP+1)
+ 
+ /* Windows uses "Microsoft Internet Explorer" */
+-/* CrossOver: We use "CrossOver Web Browser" */
+-static const WCHAR wszWineInternetExplorer[] = L"CrossOver Web Browser";
++/* We use "Wine Internet Explorer" */
++static const WCHAR wszWineInternetExplorer[] = L"Wine Internet Explorer";
+ 
+ static LONG obj_cnt;
+ static DWORD dde_inst;
+--- a/loader/wine_info.plist.in
++++ b/loader/wine_info.plist.in
+@@ -7,13 +7,13 @@
+     <key>CFBundleDevelopmentRegion</key>
+     <string>English</string>
+     <key>CFBundleExecutable</key>
+-    <string>wineloader</string><!-- CrossOver Hack 10913 -->
++    <string>wine</string>
+     <key>CFBundleIdentifier</key>
+-    <string>com.codeweavers.CrossOver.wineloader</string><!-- CrossOver Hack 10913 -->
++    <string>org.mavrik.engine</string>
+     <key>CFBundleInfoDictionaryVersion</key>
+     <string>6.0</string>
+     <key>CFBundleName</key>
+-    <string>CrossOver-Hosted Application</string><!-- CrossOver Hack 10913 -->
++    <string>Game</string><!-- bundle name padding -->
+     <key>CFBundlePackageType</key>
+     <string>APPL</string>
+     <key>CFBundleShortVersionString</key>
+--- a/programs/iexplore/iexplore.inf
++++ b/programs/iexplore/iexplore.inf
+@@ -40,8 +40,6 @@
+ HKLM,"Software\Microsoft\Internet Explorer","Version",,"9.11.9600.18376"
+ HKLM,"Software\Microsoft\Internet Explorer","W2kVersion",,"9.11.9600.18376"
+ HKLM,"Software\Microsoft\Internet Explorer","svcVersion",,"11.0.9600.18376"
+-HKLM,"Software\Microsoft\Windows\CurrentVersion\Uninstall\CXHTML","DisplayName",,"CrossOver HTML engine"
+-HKLM,"Software\Microsoft\Windows\CurrentVersion\Uninstall\CXHTML","UninstallString",,"iexplore -unregserver"
+ 
+ 
+ [Strings]
+--- a/programs/winedbg/winedbg.rc
++++ b/programs/winedbg/winedbg.rc
+@@ -55,8 +55,7 @@
+                     to close. We are sorry for the inconvenience.",
+                     IDC_STATIC_TXT1,27,10,224,30
+     CONTROL         "This can be caused by a problem in the program or a deficiency in Wine. \
+-                    You may want to check <a href=\"https://www.codeweavers.com/compatibility/\">https://www.codeweavers.com/compatibility/</a> \
+-                    for tips about running this application.",
++                    You can report it at <a href=\"https://github.com/camsteinberg/mavrik-engine/issues\">github.com/camsteinberg/mavrik-engine</a>.",
+                     IDC_STATIC_TXT2,"SysLink",0,27,60,224,100
+     DEFPUSHBUTTON   "Close", IDOK, 205, 151, 60, 16, WS_TABSTOP
+     PUSHBUTTON      "Show &Details", ID_DETAILS, 140, 151, 60, 16, WS_TABSTOP
+@@ -70,7 +69,7 @@
+     EDITTEXT        IDC_CRASH_TXT, 4, 4, 392, 272, ES_MULTILINE | ES_READONLY | WS_HSCROLL | WS_VSCROLL, WS_TABSTOP
+     CONTROL         "If this problem is not present under Windows and has not been reported yet, \
+                      you can save the detailed information to a file using the \"Save As\" button, \
+-                     then <a href=\"https://www.codeweavers.com/support/tickets/enter/\">file a bug report</a> \
++                     then <a href=\"https://github.com/camsteinberg/mavrik-engine/issues\">file a bug report</a> \
+                      and attach that file to the report.",
+                     IDC_STATIC_TXT2,"SysLink",0,6,285,388,32
+     DEFPUSHBUTTON   "Close", IDOK, 326, 320, 70, 16, WS_TABSTOP

@@ -7,12 +7,20 @@
 # Each is built with the fewest options that still give Wine what it uses, so the
 # engine carries as few extra libraries as it can:
 #   gnutls  - with its own copies of libtasn1 and libunistring, no p11-kit, no IDN,
-#             no compression, no gettext. Wine uses it for TLS and its crypto calls.
+#             no compression, no gettext. Wine uses it for TLS and its crypto calls. Its
+#             system-wide priority file is turned off (an empty --with-system-priority-file),
+#             so GnuTLS reads no configuration from outside the engine.
 #   freetype - no harfbuzz, png or brotli; zlib and bzip2 come from macOS.
 #   gmp and nettle - "fat" builds that pick their CPU code at run time, so one build is
 #             safe on every Intel Mac and under Rosetta.
 # Each configure and make runs as x86_64 (through Rosetta on Apple silicon), so the libraries are
-# built exactly as on an Intel Mac. JOBS sets make's parallel jobs. Naming libraries builds only
+# built exactly as on an Intel Mac; SDL2's CMake build runs natively and compiles for x86_64. Every
+# compiler gets -ffile-prefix-map, so the build folders' paths stay out of the libraries.
+# Each library's licence and notice files are kept for the engine's licences/ folder: the top-level
+# ones, and the notices of third-party code built into it (NOTICES below). Every licence-named file
+# deeper in a source tree must be listed in NOTICES or in NOT_SHIPPED with its reason, so a new
+# version that brings in more third-party code stops the build until its notices are reviewed.
+# JOBS sets make's parallel jobs. Naming libraries builds only
 # those, into the existing PREFIX (to retry one); with none named, PREFIX is emptied first.
 set -euo pipefail
 
@@ -36,8 +44,9 @@ unpack() {  # unpack KEY -> echoes the source folder
     find "$dir" -mindepth 1 -maxdepth 1 -type d | sed -n "1,1p"
 }
 
+MAP="-ffile-prefix-map=$WORK/=deps-src/ -ffile-prefix-map=$PREFIX/=deps/"
 export CC="ccache clang -arch x86_64" CXX="ccache clang++ -arch x86_64"
-export CFLAGS="-O2" CXXFLAGS="-O2"
+export CFLAGS="-O2 $MAP" CXXFLAGS="-O2 $MAP"
 export CPPFLAGS="-I$PREFIX/include"
 export LDFLAGS="-L$PREFIX/lib -Wl,-headerpad_max_install_names"
 # Only our own .pc files: nothing from Homebrew on the runner may be found by accident.
@@ -70,6 +79,7 @@ d="$(unpack gnutls)"
     --with-included-libtasn1 --with-included-unistring \
     --without-p11-kit --without-idn --without-tpm --without-tpm2 \
     --without-brotli --without-zstd --without-zlib --without-leancrypto \
+    --with-system-priority-file= \
     && x86 make -j"$JOBS" && x86 make install )
 echo "::endgroup::"
 fi
@@ -90,6 +100,7 @@ cmake -S "$d" -B "$WORK/sdl2-build" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_OBJC_COMPILER=clang \
+    -DCMAKE_C_FLAGS="$MAP" -DCMAKE_OBJC_FLAGS="$MAP" \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache -DCMAKE_INSTALL_RPATH="" \
     -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL_TESTS=OFF
 cmake --build "$WORK/sdl2-build" -j"$JOBS"
@@ -97,7 +108,23 @@ cmake --install "$WORK/sdl2-build"
 echo "::endgroup::"
 fi
 
-# Keep each source's licence and notice files for the engine's licences/ folder.
+# Licence and notice files. NOTICES: kept, besides the top-level ones (path in the source tree).
+# NOT_SHIPPED: licence-named files deeper in the tree that are not about code in the library.
+NOTICES_gmp=""
+NOTICES_nettle="descore.README"
+NOTICES_gnutls="lib/accelerated/x86/license.txt lib/inih/LICENSE.txt lib/crau/LICENSE"
+NOTICES_freetype="docs/FTL.TXT docs/GPLv2.TXT src/bdf/README src/pcf/README"
+NOTICES_sdl2="src/hidapi/LICENSE.txt src/hidapi/LICENSE-bsd.txt src/video/yuv2rgb/LICENSE"
+not_shipped() {  # not_shipped KEY PATH: the reason a licence file is not shipped, or nothing
+    case "$1:$2" in
+        gnutls:lib/crau/UNLICENSE) echo "crypto-auditing is MIT or Unlicense; the MIT terms are taken" ;;
+        gnutls:doc/*) echo "documentation and example programs, not built" ;;
+        sdl2:src/hidapi/LICENSE-gpl3.txt|sdl2:src/hidapi/LICENSE-orig.txt)
+            echo "HIDAPI is offered under GPL-3.0, BSD or its original licence; the BSD terms are taken" ;;
+        sdl2:Xcode-iOS/*|sdl2:Xcode/*) echo "Xcode project files and iOS demos, not built" ;;
+        sdl2:test/*|sdl2:visualtest/*) echo "tests, not built" ;;
+    esac
+}
 for key in gmp nettle gnutls freetype sdl2; do
     want "$key" || continue
     d="$(find "$WORK/$key" -mindepth 1 -maxdepth 1 -type d | sed -n "1,1p")"
@@ -105,8 +132,22 @@ for key in gmp nettle gnutls freetype sdl2; do
     mkdir -p "$out"
     find "$d" -maxdepth 1 -type f \( -iname 'COPYING*' -o -iname 'LICENSE*' -o -iname 'LICENCE*' \
         -o -iname 'AUTHORS*' -o -iname 'README' -o -iname 'NOTICE*' \) -exec cp {} "$out/" \;
-    [ -d "$d/docs" ] && find "$d/docs" -maxdepth 1 -type f \( -iname 'FTL.TXT' -o -iname 'GPLv2.TXT' -o -iname 'LICENSE.TXT' \) -exec cp {} "$out/" \;
-    ls "$out" | sed "s|^|$key: |"
+    notices="$(eval echo "\$NOTICES_$key")"
+    for n in $notices; do
+        [ -f "$d/$n" ] || { echo "::error::$key: notice $n is not in the source"; exit 1; }
+        mkdir -p "$out/$(dirname "$n")"
+        cp "$d/$n" "$out/$n"
+    done
+    unknown=""
+    while IFS= read -r f; do
+        rel="${f#"$d"/}"
+        case "$rel" in */*) ;; *) continue ;; esac  # top-level files are kept above
+        case " $notices " in *" $rel "*) continue ;; esac
+        [ -n "$(not_shipped "$key" "$rel")" ] && continue
+        unknown="$unknown $rel"
+    done < <(find "$d" -type f | awk -F/ '{l=tolower($NF); if (l ~ /^(licen[cs]e|copying|copyright|notice|unlicense|patents)/ || l ~ /\.licen[cs]e$/) print}' | sort)
+    [ -z "$unknown" ] || { echo "::error::$key: licence files not reviewed (add each to NOTICES_$key or not_shipped):$unknown"; exit 1; }
+    (cd "$out" && find . -type f | sed "s|^\./|$key: |" | sort)
 done
 
 echo "built:"

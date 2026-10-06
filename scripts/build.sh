@@ -4,9 +4,10 @@
 # Builds Wine and its Unix libraries from the pinned inputs, in the same steps on GitHub's Intel
 # runner and on a Mac (Intel, or Apple silicon through Rosetta):
 #   1. fetch.py      every input, checked against its pinned size and sha256, into WORK/downloads
-#   2. toolchain     ccache from its pinned release into WORK/bin; bison 3, flex, pkg-config, cmake,
-#                    and mingw-w64 gcc must be installed already (the workflow installs bison and
-#                    mingw-w64 with Homebrew)
+#   2. toolchain     the Xcode inputs.json pins (toolchain.sh), ccache from its pinned release into
+#                    WORK/bin; bison 3, flex, pkg-config, cmake, and mingw-w64 gcc must be installed
+#                    already (the workflow installs bison and mingw-w64 with Homebrew). The versions
+#                    are part of the cache keys and of the engine's build-info.json
 #   3. prepare.sh    the Wine sources, the addons.c check, the patches, the GStreamer packages
 #   4. build-deps.sh our Unix libraries, into WORK/deps
 #   5. build-wine.sh Wine, into WORK/wine-install
@@ -31,15 +32,13 @@ RELEASE=""
 [ "${2:-}" = "--release" ] && RELEASE="--release"
 S="$REPO/scripts"
 ncpu="$(sysctl -n hw.ncpu)"
+. "$S/toolchain.sh" "$INPUTS"
 
 export MACOSX_DEPLOYMENT_TARGET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["engine"]["macos_deployment_target"])' "$INPUTS")"
 export JOBS="${JOBS:-$(( ncpu + ncpu / 2 ))}"
 export CCACHE_DIR="${CCACHE_DIR:-$WORK/ccache}" CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-3G}"
 export CCACHE_COMPILERCHECK=content CCACHE_BASEDIR="$WORK" CCACHE_NOHASHDIR=1
 export CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime
-for d in /opt/homebrew/opt/bison/bin /usr/local/opt/bison/bin; do
-    [ -x "$d/bison" ] && PATH="$d:$PATH" && break
-done
 export PATH="$WORK/bin:$PATH"
 
 key() { python3 "$S/buildinfo.py" keys "$INPUTS" | sed -n "s/^$1=//p"; }
@@ -79,6 +78,7 @@ x86_64-w64-mingw32-gcc --version | sed -n 1p
 i686-w64-mingw32-gcc --version | sed -n 1p
 clang --version | sed -n 1p
 cmake --version | sed -n 1p
+echo "Xcode $(xcodebuild -version | paste -sd ' ' -) at $DEVELOPER_DIR"
 echo "SDK $(xcrun --show-sdk-version), deployment target $MACOSX_DEPLOYMENT_TARGET, $(uname -m), make -j$JOBS"
 sw_vers | paste -sd ' ' -
 echo "::endgroup::"
