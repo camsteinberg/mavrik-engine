@@ -22,4 +22,20 @@ as with WINEARCH=wow64. 64-bit images never reach the check; installations with 
 are unchanged. (It does not address bug 59080, where the loader exists but cannot run.)
 
 The change is Alexander Theissen's (part of a4e40c6 in github.com/athei/wine), shipped in
-highball-engine since September 2026.
+highball-engine since September 2026. Tested on Wine 11.0 from CrossOver 26.3.0 sources under
+Rosetta on macOS 26.4: syswow64\notepad.exe runs as one process instead of two, 64-bit programs
+are unchanged, and a 32-bit program started from a 64-bit one still runs.
+
+---
+
+Evidence behind the last sentence (not part of the note): mavrik-engine revision 2 (recipe
+6cff7e5) against revision 1, same lab and harness, 2026-10-06, `WINEARCH=win64`.
+- `wine C:\windows\syswow64\notepad.exe`, three runs each: revision 1 ran it under
+  `start.exe /exec` (the launched process), the program as a separate process whose parent is
+  launchd, 10 Wine processes; revision 2 ran it in the launched process itself, no start.exe,
+  9 processes. Revision 1 with `WINEARCH=wow64` behaved like revision 2.
+- `cmd /c exit 7` and `cmd /c echo`, 32- and 64-bit: the exit code 7 and the output arrive the
+  same way on both revisions.
+- 64-bit Notepad, and 32-bit Notepad started by 64-bit cmd: the same on both revisions.
+- Each program was stopped by asking its window to close, then ending the prefix's programs and
+  its server; nothing of the prefix ran 10 s later, on both revisions.
