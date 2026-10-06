@@ -29,11 +29,15 @@ are unchanged, and a 32-bit program started from a 64-bit one still runs.
 ---
 
 Evidence behind the last sentence (not part of the note): mavrik-engine revision 2 (recipe
-6cff7e5) against revision 1, same lab and harness, 2026-10-06, `WINEARCH=win64`.
+6cff7e5) against revision 1, same lab, 2026-10-06, `WINEARCH=win64`. Every run below used the
+same version of the lab's harness except revision 1's first Notepad run, noted there.
 - `wine C:\windows\syswow64\notepad.exe`, three runs each: revision 1 ran it under
   `start.exe /exec` (the launched process), the program as a separate process whose parent is
   launchd, 10 Wine processes; revision 2 ran it in the launched process itself, no start.exe,
-  9 processes. Revision 1 with `WINEARCH=wow64` behaved like revision 2.
+  9 processes. Revision 1 with `WINEARCH=wow64` behaved like revision 2. Revision 1's first run
+  was taken with an earlier version of the harness, which differed at least in its filter for
+  leftover processes (no copy of it was kept); its two other runs and all of revision 2's used
+  the final version, and all three revision 1 runs show the same shape.
 - `cmd /c exit 7` and `cmd /c echo`, 32- and 64-bit: the exit code 7 and the output arrive the
   same way on both revisions.
 - 64-bit Notepad, and 32-bit Notepad started by 64-bit cmd: the same on both revisions.
