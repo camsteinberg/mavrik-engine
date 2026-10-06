@@ -19,8 +19,11 @@ The gates:
                 (the fallback names DXMT would use without it are reported)
   addons        Wine Mono and Gecko are in the engine at exactly the versions addons.c names
   wine          wine --version prints the expected version; wineboot --init in a fresh prefix
-                finishes with no Mono or Gecko download prompt and finds the engine's Mono; and Wine
-                Gecko loads from the engine in the 64-bit and the 32-bit half
+                finishes with no Mono or Gecko download prompt and finds the engine's Mono; Wine
+                Gecko loads from the engine in the 64-bit and the 32-bit half; in both halves,
+                Wine's own code uses GnuTLS, MoltenVK and FreeType and loads its GStreamer and
+                FFmpeg modules (tools/winelibs.c), every library Wine opens by name is loaded from
+                the engine, and no Wine process loads anything from outside the engine and macOS
   media         GStreamer and FFmpeg load from inside the engine, never from
                 /Library/Frameworks/GStreamer.framework, and build the elements Wine uses. A Mac
                 that has the framework is not changed: every library dyld loads and every plugin
@@ -40,6 +43,8 @@ import subprocess
 import sys
 import tempfile
 import time
+
+from assemble import NOT_CARRIED
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -97,11 +102,29 @@ def macho_paths(path):
     return found
 
 
+def stale(exe, src):
+    return not os.path.exists(exe) or os.path.getmtime(exe) < os.path.getmtime(src)
+
+
 def compile_tool(work, name):
+    src = os.path.join(REPO, "tools", name + ".c")
     exe = os.path.join(work, "tools", name)
-    if not os.path.exists(exe):
+    if stale(exe, src):
         os.makedirs(os.path.dirname(exe), exist_ok=True)
-        subprocess.run(["clang", "-O1", "-arch", "x86_64", "-o", exe, os.path.join(REPO, "tools", name + ".c")], check=True)
+        subprocess.run(["clang", "-O1", "-arch", "x86_64", "-o", exe, src], check=True)
+    return exe
+
+
+PE_COMPILERS = {"64": "x86_64-w64-mingw32-gcc", "32": "i686-w64-mingw32-gcc"}
+
+
+def compile_pe_tool(work, name, bits, libs):
+    """A Windows program from tools/NAME.c for one half of Wine (bits "64" or "32")."""
+    src = os.path.join(REPO, "tools", name + ".c")
+    exe = os.path.join(work, "tools", f"{name}{bits}.exe")
+    if stale(exe, src):
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        subprocess.run([PE_COMPILERS[bits], "-O1", "-o", exe, src] + [f"-l{l}" for l in libs], check=True)
     return exe
 
 
@@ -328,16 +351,30 @@ def run_watched(cmd, env, log, timeout):
     return prompt, code, text
 
 
-def wineboot_check(engine, gecko_version, timeout=900):
+def winelibs_inputs(ctx):
+    """The winelibs probe for each Windows half, and the engine files Wine's own code must load when
+    it runs: every library Wine opens by file name (config.h's SONAME_* values, less the ones the
+    engine does not carry) and the Unix modules that link GStreamer and FFmpeg."""
+    probes = [compile_pe_tool(ctx["work"], "winelibs", bits, ["bcrypt", "secur32", "gdi32", "user32"])
+              for bits in ("64", "32")]
+    config = open(os.path.join(ctx["work"], "wine-install", ".build", "config.h")).read()
+    names = sorted({v for k, v in re.findall(r'^#define (SONAME_\w+) "([^"]+)"$', config, re.M) if k not in NOT_CARRIED})
+    return probes, ["lib/" + n for n in names] + [f"lib/wine/x86_64-unix/{m}.so" for m in ("winegstreamer", "winedmo")]
+
+
+def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
     """wineboot --init in a fresh prefix must finish with no download prompt and find the engine's
     Mono; then Wine Gecko must load from the engine in both halves (regsvr32 /i mshtml.dll makes
-    mshtml load it, as a game's first web view would). Returns (problems, detail, log tail). Kills
-    everything the prefix started and removes the prefix, whatever happens."""
+    mshtml load it, as a game's first web view would); then every check of each probe
+    (winelibs_inputs) must pass. dyld lists the libraries every Wine process loads: none may come from
+    outside the engine and macOS, and once the probes have run, each of `required` (paths in the
+    engine) must be among them. Returns (problems, detail, log tail). Kills everything the prefix
+    started and removes the prefix, whatever happens."""
     home = tempfile.mkdtemp(prefix="wineboot-")
-    env = wine_env(engine, home)
+    env = dict(wine_env(engine, home), DYLD_PRINT_LIBRARIES="1")
     wine = os.path.join(engine, "bin", "wine")
     log = os.path.join(home, "wineboot.log")
-    problems, start, loaded = [], time.time(), []
+    problems, start, loaded, probed, images = [], time.time(), [], [], []
     try:
         prompt, code, text = run_watched([wine, "wineboot", "--init"], env, log, timeout)
         if prompt:
@@ -368,15 +405,43 @@ def wineboot_check(engine, gecko_version, timeout=900):
                 problems.append(f"Wine did not load {want} from the engine (regsvr32 exited {code})")
             else:
                 loaded.append(arch)
+        ran = 0
+        for probe in probes if not problems else ():
+            name = os.path.basename(probe)
+            prompt, code, text = run_watched([wine, probe], dict(env, WINEDEBUG="fixme-all"), log, 300)
+            lines = text.splitlines()
+            checks = [l.split("\t") for l in lines if l.startswith("check\t")]
+            problems += [f"{name}: {c[1]} failed ({c[3] if len(c) > 3 else '?'})" for c in checks if c[2:3] != ["ok"]]
+            if any(l.startswith("done\t") for l in lines):
+                ran += 1
+                if all(c[2:3] == ["ok"] for c in checks):
+                    probed.append(f"{name}: {', '.join(c[1] for c in checks)}")
+            else:
+                problems.append(f"{name} did not run to the end (exit {code}{', timed out' if code is None else ''})")
+        # Stop every process the prefix started, then read what dyld printed for each of them.
+        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        images = dyld_images(open(log, errors="replace").read())
+        if not images:
+            problems.append("dyld listed no libraries: the trace this gate reads is missing")
+        problems += [f"a Wine process loaded {img}, outside the engine and macOS" for img in outside(images, engine)]
+        if probes and ran == len(probes):
+            seen = {os.path.realpath(i) for i in images}
+            problems += [f"Wine's own code did not load {r} from the engine" for r in required
+                         if os.path.realpath(os.path.join(engine, r)) not in seen]
     finally:
         out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
-        tail = open(log, errors="replace").read().splitlines()[-15:] if os.path.exists(log) else []
+        lines = open(log, errors="replace").read().splitlines() if os.path.exists(log) else []
+        tail = [l for l in lines if not l.startswith("dyld[")][-15:]
         if os.path.exists(log):
             shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-wineboot-last.log"))
         shutil.rmtree(home, ignore_errors=True)
     detail = "wineboot --init in a fresh prefix finds the engine's Mono"
     if loaded:
         detail += f"; Wine Gecko {gecko_version} loads from the engine ({', '.join(loaded)})"
+    if probes and len(probed) == len(probes) and not problems:
+        detail += (f"; Wine's own code opens {len(required)} libraries and modules from the engine "
+                   f"({', '.join(os.path.basename(r) for r in required)}); all {len(set(images))} libraries "
+                   f"its processes loaded are the engine's or macOS's; probes passed ({'; '.join(probed)})")
     return problems, f"{detail}; {time.time() - start:.0f} s", tail
 
 
@@ -394,7 +459,9 @@ def version_check(engine, expected):
 
 def gate_wine(engine, ctx):
     problems, got = version_check(engine, ctx["expected_version"])
-    boot, detail, tail = wineboot_check(engine, ctx["inputs"]["inputs"]["wine-gecko-x86"]["version"])
+    probes, required = winelibs_inputs(ctx)
+    boot, detail, tail = wineboot_check(engine, ctx["inputs"]["inputs"]["wine-gecko-x86"]["version"],
+                                        probes=probes, required=required)
     problems += boot
     if boot:
         problems += ["log: " + l for l in tail]

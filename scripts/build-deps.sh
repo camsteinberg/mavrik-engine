@@ -2,7 +2,8 @@
 # build-deps.sh PATHS_JSON WORK PREFIX [LIBRARY...]
 #
 # Builds the Unix libraries Wine loads at run time from their pinned source tarballs
-# (inputs.json): gmp, nettle, gnutls, freetype and SDL2, for x86_64, into PREFIX.
+# (inputs.json): gmp, nettle, gnutls, freetype and SDL2, for x86_64, into PREFIX. WORK is scratch
+# space for the sources and build trees, removed when the build succeeds.
 # Each is built with the fewest options that still give Wine what it uses, so the
 # engine carries as few extra libraries as it can:
 #   gnutls  - with its own copies of libtasn1 and libunistring, no p11-kit, no IDN,
@@ -110,3 +111,5 @@ done
 
 echo "built:"
 ls -la "$PREFIX/lib"/*.dylib
+# WORK only held sources and build trees; every build unpacks afresh, so they go.
+rm -rf "$WORK"
