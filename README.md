@@ -11,6 +11,11 @@ This is a build of Wine from CodeWeavers' published CrossOver sources. It is not
 CrossOver release under the LGPL, and this build uses them as they are, plus the patches in
 [`patches/`](patches/).
 
+The engine never presents itself as CrossOver. Patch 0003 gives the Wine loader its own identity
+(`org.mavrik.engine`; macOS shows each game under its own name), points Wine's crash dialog at this
+repository's issues, and removes CrossOver's names from the places a player could see them. The
+`identity` gate checks this on every build.
+
 ## Bugs
 
 A game that misbehaves on this engine is a bug for this repository. Please open an issue here.
@@ -26,7 +31,8 @@ build refuses any input without a pinned hash.
 - **Patches**: [`patches/`](patches/), applied in order. [`patches/README.md`](patches/README.md)
   says why each one is there.
 - **Wine Mono and Wine Gecko**: the versions the Wine tree asks for (`dlls/appwiz.cpl/addons.c`),
-  unpacked into `share/wine`, so a new Windows folder never asks to download them.
+  unpacked into `share/wine`, so a new Windows folder never asks to download them. Wine Mono's
+  source archive is an input too: the notices of every project inside Wine Mono come from it.
 - **MoltenVK**: Vulkan on Metal, from Khronos' own release.
 - **DXMT v0.80**: Direct3D 10 and 11 on Metal. Its 64-bit files go into Wine's own folders, the
   way mavrik has tested them.
@@ -51,16 +57,31 @@ CrossOver tree can host it; a player's copy is installed separately under Apple'
 | `lib/gstreamer-1.0/` | the GStreamer plugins |
 | `share/wine/` | Wine's data, Wine Mono and Wine Gecko |
 | `licences/` | every part's licence and notices; `FILES.tsv` names the part every file belongs to |
-| `build-info.json` | what went in: inputs, patches, the recipe commit and the build run |
+| `build-info.json` | what went in: inputs, patches, the toolchain, the recipe commit and the build run, and the folder layout (`layout`) |
 
 The folder can live anywhere. Every library path inside it is relative, so nothing outside the
-folder and macOS is used. A program that starts the engine should set `GST_REGISTRY_1_0` to a
-file of its own, so GStreamer's plugin list is never shared with another GStreamer.
+folder and macOS is used, and no file names the machine or the folders it was built in.
+
+## For a program that starts the engine
+
+- **GStreamer**: set `GST_REGISTRY_1_0` to a file of the program's own, so GStreamer's plugin list
+  is never shared with another GStreamer on the Mac. The plugins are in `lib/gstreamer-1.0`
+  (`layout.gstreamer_plugins` in `build-info.json`). GStreamer also finds them there with no
+  settings, because they sit beside `libgstreamer`.
+- **The game's name**: every Windows program runs as `lib/wine/x86_64-unix/wine`. macOS shows it
+  under the program's own name (`ABZU.exe` shows as "ABZU" in the menu bar, the Dock and the app
+  switcher). `WINEPRELOADERAPPNAME` set in the environment replaces that name, up to 32 characters.
+  The loader's bundle identifier is `org.mavrik.engine`, so its preferences and saved window state
+  are its own.
+- **Crash dialog**: when a Windows program crashes, Wine shows its crash dialog, which links to this
+  repository's issues. A program that does not want players to see it sets the registry value
+  `HKCU\Software\Wine\WineDbg\ShowCrashDialog` to 0 in each Windows folder.
 
 ## Checks
 
 The build fails unless every gate passes, and a self-test step shows each gate failing on a bad
-input:
+input, for that gate's own reason (every problem the gate reports on a bad input must be about the
+property the case breaks):
 
 - **relocatable**: every Mach-O file is swept with `otool`; no path outside `/usr/lib` and `/System`
   may be absolute.
@@ -83,13 +104,38 @@ input:
   that framework, the gate leaves it in place and checks that nothing is loaded from it.
 - **licences**: every file in the engine is covered by a line in `licences/FILES.tsv`.
 - **nogpl**: no GPL-only file in the media component, and FFmpeg reports itself as LGPL.
+- **identity**: the loader's built-in Info.plist has the engine's own identifier, and no text in
+  Wine's files names CrossOver or CodeWeavers, except a reviewed list of names no player sees
+  (copyright lines, log lines, internal registry keys), each with its reason, in `gates.py`.
+- **buildpaths**: no file in the engine contains the build's work folder or the recipe's folder.
+- **d3d11**: a small Windows program ([`tools/d3d11probe.c`](tools/d3d11probe.c)) draws through
+  Direct3D 11 on a visible window, as a game does: DXMT's device, 60 frames presented into its Metal
+  view, and a texture read back from the GPU. DXMT's `winemetal.so` and the Mac driver load from the
+  engine. A machine with no Metal device cannot run DXMT, and the gate reports SKIP there, never
+  PASS. GitHub's Intel runners are virtual machines that may have none.
+- **playback**: a small Windows program ([`tools/mediaprobe.c`](tools/mediaprobe.c)) decodes a
+  one-second movie ([`tools/media/sample.mp4`](tools/media/), H.264 and AAC) in both halves, through
+  Media Foundation and through the Windows Media reader, the two ways games play video. GStreamer's
+  plugins load from the engine's `lib/gstreamer-1.0`, and nothing from outside the engine and macOS.
 
 ## Build notes
 
 - Releases are built on GitHub's `macos-15-intel` runner. The Unix side is x86_64 only: the tree's
   Metal layer is built only for x86_64, as in CrossOver's own builds. It runs under Rosetta on
-  Apple silicon. On an Apple silicon Mac, every configure and make runs as x86_64 through Rosetta,
-  and the compilers are told `-arch x86_64`, so the build matches an Intel Mac's.
+  Apple silicon. On an Apple silicon Mac, every `configure` and `make` runs as x86_64 through
+  Rosetta, and the compilers are told `-arch x86_64`, so the build matches an Intel Mac's. SDL2's
+  CMake build is the exception: CMake runs natively and compiles for x86_64.
+- The toolchain is part of the recipe. Every step uses the Xcode `inputs.json` pins (26.2, build
+  17C52; `scripts/toolchain.sh` selects it, and GitHub's runner has it at `/Applications/Xcode_26.2.app`),
+  because the loader's SDK decides which AppKit behaviours a game's windows get. mingw-w64 gcc,
+  bison, flex and CMake come from Homebrew; their versions are part of the cache keys and recorded
+  in `build-info.json`, so engines built with different tools can be told apart.
+- Every compiler gets `-ffile-prefix-map`, our own libraries are stripped like Wine's Unix side, and
+  GnuTLS's system-wide priority file is turned off, so no file names the build machine's folders
+  and GnuTLS reads no configuration from outside the engine.
+- Each library built here keeps the notices of the third-party code inside it (for example
+  CRYPTOGAMS and inih in GnuTLS, the BDF and PCF drivers in FreeType, HIDAPI in SDL2). The build
+  stops on any licence file in a source tree it has not been told about.
 - The Windows side is built for i386 and x86_64 with mingw-w64 gcc. llvm-mingw is known to break
   Steam's sign-in.
 - `--with-opengl` is not passed: configure would then fail on the missing EGL headers. Left alone,
@@ -100,7 +146,8 @@ input:
 - The Windows side is stripped of debug data; gcc leaves it in, and it makes the files five times
   larger.
 - Caches (downloads, the Unix libraries, the Wine build and ccache) make repeat builds fast. Each
-  finished step leaves a stamp with its cache key, and a later build with the same key skips it.
+  finished step leaves a stamp with its cache key (inputs, scripts, patches and toolchain), and a
+  later build with the same key skips it.
   The workflow's `fresh` option (or `FRESH=1` on a Mac) ignores them for a clean build. A step's
   scratch folders (the library sources, the Wine build tree and its objects) are removed when the
   step succeeds; ccache keeps the next build fast.
@@ -121,7 +168,7 @@ bash scripts/pack.sh WORK       # the .tar.xz and its .sha256
 
 - **On GitHub**: start the `build` workflow by hand (Actions, build, Run workflow). The engine, its
   checksum and the gate results are uploaded as the run's artifact.
-- **On a Mac**: install Xcode, and with Homebrew bison, mingw-w64, cmake and pkg-config. Apple
+- **On a Mac**: install Xcode 26.2, and with Homebrew bison, mingw-w64, cmake and pkg-config. Apple
   silicon also needs Rosetta. `JOBS` sets make's parallel jobs. Without curl, set
   `FETCH_ARGS="--via gh --from DIR"`: files on GitHub then come through the GitHub CLI, and the rest
   from `DIR`, a folder of files downloaded by hand from the addresses in `inputs.json`. Every file is
@@ -133,7 +180,18 @@ An engine built on a Mac is for testing only. Releases come only from the GitHub
 
 A run started with `publish_release` publishes a prerelease after every gate and the self-test
 pass. It carries the engine, its `.sha256`, the gate results and the source of every LGPL and MPL
-part. The release step refuses to run while any of those sources is not pinned.
+part:
+
+- Wine (the CrossOver source archive, with this repository's patches in the recipe), GnuTLS,
+  Nettle and GMP, Wine Mono and Wine Gecko;
+- DXMT, whose `winemetal.dll` carries Wine's start-up code;
+- for the media component, the exact tarballs GStreamer's build recipes (cerbero 1.28.6) built it
+  from (GStreamer and its plugin sets, GLib, FFmpeg, proxy-libintl and mpg123), with the sha256
+  values cerbero pins, and cerbero itself, which holds the patches it applied.
+
+Those sources are in `release_sources` in `inputs.json` (or are inputs with the role `source`). A
+release refuses to start while any of them has no pinned size and sha256. A test build downloads
+the ones it can and prints the values to pin.
 
 ## Credits
 

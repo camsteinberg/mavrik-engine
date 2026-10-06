@@ -32,10 +32,26 @@ The gates:
   licences      every file in the engine is covered by a line in licences/FILES.tsv, and every
                 component has its licence texts
   nogpl         no GPL-only file in the media component
+  identity      the engine never presents itself as CrossOver or sends anyone to CodeWeavers: the
+                loader's Info.plist has the engine's own identifier, and no text in Wine's files
+                names CrossOver or CodeWeavers outside a reviewed list of names no player sees
+                (copyright lines, log lines, internal registry keys)
+  buildpaths    no file carries the build machine's work or recipe folder (compiled-in paths, debug
+                maps, source paths)
+  d3d11         a Windows program draws through Direct3D 11 on a visible window: DXMT's device,
+                60 frames presented into its Metal view, and a GPU readback; winemetal.so and
+                winemac.so load from the engine. A machine with no Metal device (GitHub's Intel
+                runners are virtual machines without one) reports SKIP, never PASS
+  playback      a Windows program decodes a movie (H.264 and AAC in MP4) in both halves through Media
+                Foundation and through the Windows Media reader; GStreamer's plugins load from the
+                engine's lib/gstreamer-1.0, and nothing from outside the engine and macOS
+
+A gate returns PASS, FAIL or, for d3d11 only, SKIP with its reason.
 """
 import fnmatch
 import json
 import os
+import plistlib
 import re
 import shutil
 import struct
@@ -106,25 +122,28 @@ def stale(exe, src):
     return not os.path.exists(exe) or os.path.getmtime(exe) < os.path.getmtime(src)
 
 
-def compile_tool(work, name):
+def compile_tool(work, name, frameworks=()):
     src = os.path.join(REPO, "tools", name + ".c")
+    if not os.path.exists(src):
+        src = os.path.join(REPO, "tools", name + ".m")
     exe = os.path.join(work, "tools", name)
     if stale(exe, src):
         os.makedirs(os.path.dirname(exe), exist_ok=True)
-        subprocess.run(["clang", "-O1", "-arch", "x86_64", "-o", exe, src], check=True)
+        fw = [a for f in frameworks for a in ("-framework", f)]
+        subprocess.run(["clang", "-O1", "-arch", "x86_64", "-o", exe, src] + fw, check=True)
     return exe
 
 
 PE_COMPILERS = {"64": "x86_64-w64-mingw32-gcc", "32": "i686-w64-mingw32-gcc"}
 
 
-def compile_pe_tool(work, name, bits, libs):
+def compile_pe_tool(work, name, bits, libs, extra=()):
     """A Windows program from tools/NAME.c for one half of Wine (bits "64" or "32")."""
     src = os.path.join(REPO, "tools", name + ".c")
     exe = os.path.join(work, "tools", f"{name}{bits}.exe")
     if stale(exe, src):
         os.makedirs(os.path.dirname(exe), exist_ok=True)
-        subprocess.run([PE_COMPILERS[bits], "-O1", "-o", exe, src] + [f"-l{l}" for l in libs], check=True)
+        subprocess.run([PE_COMPILERS[bits], "-O1", "-s"] + list(extra) + ["-o", exe, src] + [f"-l{l}" for l in libs], check=True)
     return exe
 
 
@@ -187,9 +206,10 @@ def gate_dlopen(engine, ctx):
             if os.path.exists(d):
                 os.rename(d, d + ".masked")
                 masked.append(d)
-        env = {"PATH": "/usr/bin:/bin", "HOME": tempfile.mkdtemp(), "DYLD_PRINT_LIBRARIES": "1",
-               "DYLD_FALLBACK_LIBRARY_PATH": "/usr/lib"}
-        r = out([exe] + libs, env=env)
+        with tempfile.TemporaryDirectory(prefix="dlopen-") as home:
+            env = {"PATH": "/usr/bin:/bin", "HOME": home, "DYLD_PRINT_LIBRARIES": "1",
+                   "DYLD_FALLBACK_LIBRARY_PATH": "/usr/lib"}
+            r = out([exe] + libs, env=env)
     finally:
         for d in masked:
             os.rename(d + ".masked", d)
@@ -320,8 +340,10 @@ def gate_addons(engine, ctx):
 
 
 def wine_env(engine, home):
+    # GStreamer's plugin list goes in this home, as the README asks of any program that starts the engine.
     return {"PATH": f"{engine}/bin:/usr/bin:/bin", "HOME": home, "WINEPREFIX": os.path.join(home, "prefix"),
-            "WINEDEBUG": "fixme-all,+mscoree,+appwizcpl", "LANG": "en_US.UTF-8", "TMPDIR": home}
+            "WINEDEBUG": "fixme-all,+mscoree,+appwizcpl", "LANG": "en_US.UTF-8", "TMPDIR": home,
+            "GST_REGISTRY_1_0": os.path.join(home, "gst-registry.bin")}
 
 
 # appwiz.cpl traces "Got URL" just before it opens a Mono or Gecko download dialog; mscoree says
@@ -406,18 +428,9 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
             else:
                 loaded.append(arch)
         ran = 0
-        for probe in probes if not problems else ():
-            name = os.path.basename(probe)
-            prompt, code, text = run_watched([wine, probe], dict(env, WINEDEBUG="fixme-all"), log, 300)
-            lines = text.splitlines()
-            checks = [l.split("\t") for l in lines if l.startswith("check\t")]
-            problems += [f"{name}: {c[1]} failed ({c[3] if len(c) > 3 else '?'})" for c in checks if c[2:3] != ["ok"]]
-            if any(l.startswith("done\t") for l in lines):
-                ran += 1
-                if all(c[2:3] == ["ok"] for c in checks):
-                    probed.append(f"{name}: {', '.join(c[1] for c in checks)}")
-            else:
-                problems.append(f"{name} did not run to the end (exit {code}{', timed out' if code is None else ''})")
+        if not problems:
+            p, probed, ran = run_probes(wine, [(probe, []) for probe in probes], env, log)
+            problems += p
         # Stop every process the prefix started, then read what dyld printed for each of them.
         out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
         images = dyld_images(open(log, errors="replace").read())
@@ -443,6 +456,66 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
                    f"({', '.join(os.path.basename(r) for r in required)}); all {len(set(images))} libraries "
                    f"its processes loaded are the engine's or macOS's; probes passed ({'; '.join(probed)})")
     return problems, f"{detail}; {time.time() - start:.0f} s", tail
+
+
+def run_probes(wine, probes, env, log, timeout=300):
+    """Runs each (Windows program, arguments) with Wine. Returns (problems, the probes whose every check
+    passed, how many ran to the end): every "check" line must say ok, and each must print "done"."""
+    problems, probed, ran = [], [], 0
+    for probe, args in probes:
+        name = os.path.basename(probe)
+        prompt, code, text = run_watched([wine, probe] + list(args), dict(env, WINEDEBUG="fixme-all"), log, timeout)
+        lines = text.splitlines()
+        checks = [l.split("\t") for l in lines if l.startswith("check\t")]
+        problems += [f"{name}: {c[1]} failed ({c[3] if len(c) > 3 else '?'})" for c in checks if c[2:3] != ["ok"]]
+        if any(l.startswith("done\t") for l in lines) and checks:
+            ran += 1
+            if all(c[2:3] == ["ok"] for c in checks):
+                probed.append(f"{name}: " + "; ".join(f"{c[1]} {c[3] if len(c) > 3 else ''}".strip() for c in checks))
+        else:
+            problems.append(f"{name} did not run to the end (exit {code}{', timed out' if code is None else ''})")
+    return problems, probed, ran
+
+
+def probe_check(engine, probes, required=(), timeout=900):
+    """A fresh prefix (wineboot --init), then each (Windows program, arguments) of probes. dyld lists
+    what every Wine process loads: nothing may come from outside the engine and macOS, and once every
+    probe ran to the end, each of `required` (paths in the engine) must be among the loaded images.
+    Returns (problems, the probes' results, the engine's loaded images). Kills everything the prefix
+    started and removes it, whatever happens."""
+    home = tempfile.mkdtemp(prefix="probe-")
+    env = dict(wine_env(engine, home), DYLD_PRINT_LIBRARIES="1")
+    wine = os.path.join(engine, "bin", "wine")
+    log = os.path.join(home, "probe.log")
+    problems, probed, images = [], [], []
+    try:
+        prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, timeout)
+        if prompt or code != 0:
+            problems.append(f"wineboot --init: {prompt or 'exit %s' % code}")
+        else:
+            # A probe that crashes must end, not wait behind Wine's crash dialog.
+            run_watched([wine, "reg", "add", "HKCU\\Software\\Wine\\WineDbg", "/v", "ShowCrashDialog",
+                         "/t", "REG_DWORD", "/d", "0", "/f"], env, log, 120)
+            out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
+            p, probed, ran = run_probes(wine, probes, env, log)
+            problems += p
+        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        images = dyld_images(open(log, errors="replace").read())
+        if not images:
+            problems.append("dyld listed no libraries: the trace this gate reads is missing")
+        problems += [f"a Wine process loaded {img}, outside the engine and macOS" for img in outside(images, engine)]
+        if not problems:
+            seen = {os.path.realpath(i) for i in images}
+            problems += [f"Wine did not load {r} from the engine" for r in required
+                         if os.path.realpath(os.path.join(engine, r)) not in seen]
+    finally:
+        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        if os.path.exists(log):
+            shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-probe-last.log"))
+        shutil.rmtree(home, ignore_errors=True)
+    root = os.path.realpath(engine) + "/"
+    loaded = sorted({os.path.relpath(os.path.realpath(i), root) for i in images if os.path.realpath(i).startswith(root)})
+    return problems, probed, loaded
 
 
 def version_check(engine, expected):
@@ -643,9 +716,195 @@ def gate_nogpl(engine, ctx):
     return not problems, f"{n} media files: LGPL, BSD, MIT, Zlib or bzip2 only; FFmpeg is LGPL", problems
 
 
+# ---------------------------------------------------------------- identity
+
+ENGINE_IDENTIFIER = "org.mavrik.engine"
+LOADER = "lib/wine/x86_64-unix/wine"
+# CrossOver and CodeWeavers, in any case, as ASCII, UTF-16LE (Windows resources) and UTF-16BE (font tables).
+_NAMES = (b"crossover", b"codeweavers")
+_ENCODINGS = (("ascii", 1, 0), ("utf-16-le", 2, 0), ("utf-16-be", 2, 1))
+# The names that stay, each with why no player sees it: (path pattern, the whole text, reason).
+# A text is kept only when one pattern matches all of it, so a kept comment cannot hide a name beside it.
+IDENTITY_ALLOWED = [
+    ("*", r"[\s*(]*(Copyright[\s\d,-]+(\(C\)\s*)?)?[A-Z][\w.'-]*( [A-Z][\w.'-]*)* for CodeWeavers[).\s\d]*",
+     "copyright and authorship lines of Wine's own code and data"),
+    ("*", r"[\w .'-]*<[\w.+-]+@codeweavers\.com>", "an author's address in a GStreamer element winegstreamer registers"),
+    ("*", r"(?i)[;\s]*crossover hack(, bug \d+|: [\w %,.:-]+)", "CrossOver's log lines and comments"),
+    ("*", r"(?i)(trying |no|[._$a-z]*)?crossoverfallbac(k)?( return(ed|ing) %\w+|=%s|, verb=%s)?",
+     "shell32's internal fallback: its function, trace and registry value names"),
+    ("lib/wine/x86_64-unix/ntdll.so", r"\\Registry\\User\\[\w-]+\\Software\\CrossOver\\(SuppressAltLoader|UseAltLoader)",
+     "registry keys ntdll reads only for CrossOver's alternative loader (CX_ALT_LOADER_SOCKET)"),
+    ("share/wine/fonts/*", r"http://www\.codeweavers\.com",
+     "the vendor address in the name table of Wine's own symbol font, as upstream Wine ships it"),
+]
+
+
+def _name_pattern(name, step, pad):
+    parts = []
+    for c in name:
+        cls = b"[" + bytes([c]) + bytes([c]).upper() + b"]"
+        parts.append((b"\x00" + cls) if (step == 2 and pad == 1) else (cls + b"\x00") if step == 2 else cls)
+    return re.compile(b"".join(parts))
+
+
+_NAME_PATTERNS = [(enc, step, pad, _name_pattern(n, step, pad)) for n in _NAMES for enc, step, pad in _ENCODINGS]
+
+
+def _printable(data, i, step, pad):
+    """True if the character at byte i (of width step, its value at offset pad) is printable text."""
+    if i < 0 or i + step > len(data):
+        return False
+    ch = data[i + pad]
+    other = data[i + 1 - pad] if step == 2 else 0
+    return other == 0 and (32 <= ch < 127 or ch == 9)
+
+
+def identity_texts(data):
+    """Every printable string in data that names CrossOver or CodeWeavers, in each encoding."""
+    found = set()
+    for enc, step, pad, pattern in _NAME_PATTERNS:
+        for m in pattern.finditer(data):
+            start, end = m.start(), m.end()
+            while _printable(data, start - step, step, pad):
+                start -= step
+            while _printable(data, end, step, pad):
+                end += step
+            found.add(data[start:end].decode(enc, "replace").strip())
+    return found
+
+
+def allowed_identity(rel, text):
+    for path_pattern, text_pattern, _ in IDENTITY_ALLOWED:
+        if fnmatch.fnmatchcase(rel, path_pattern) and re.fullmatch(text_pattern, text):
+            return True
+    return False
+
+
+def loader_plist(path):
+    """The Info.plist built into the loader (its __TEXT,__info_plist section), as a dict."""
+    data = open(path, "rb").read()
+    start = data.find(b"<?xml")
+    end = data.find(b"</plist>", start)
+    if start < 0 or end < 0:
+        return None
+    return plistlib.loads(data[start:end + len(b"</plist>")])
+
+
+def identity_problems(engine, files):
+    """files: paths in the engine to scan (Wine's own files: they come from the CrossOver tree)."""
+    problems, kept = [], {}
+    loader = os.path.join(engine, LOADER)
+    info = loader_plist(loader) if os.path.isfile(loader) else None
+    if info is None:
+        problems.append(f"{LOADER}: no Info.plist")
+    else:
+        if info.get("CFBundleIdentifier") != ENGINE_IDENTIFIER:
+            problems.append(f"{LOADER}: CFBundleIdentifier is {info.get('CFBundleIdentifier')!r}, not {ENGINE_IDENTIFIER}")
+        for key in ("CFBundleName", "CFBundleExecutable"):
+            if re.search(r"(?i)crossover|codeweavers", str(info.get(key, ""))):
+                problems.append(f"{LOADER}: {key} is {info.get(key)!r}")
+    for rel in files:
+        path = os.path.join(engine, rel)
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        for text in sorted(identity_texts(open(path, "rb").read())):
+            if allowed_identity(rel, text):
+                kept[text] = kept.get(text, 0) + 1
+            else:
+                problems.append(f"{rel}: {text[:160]!r}")
+    return problems, kept
+
+
+def wine_files(engine):
+    return [r[0] for r in read_tsv(os.path.join(engine, "licences", "FILES.tsv")) if r[1] == "wine" and "*" not in r[0]]
+
+
+def gate_identity(engine, ctx):
+    files = wine_files(engine)
+    problems, kept = identity_problems(engine, files)
+    info = loader_plist(os.path.join(engine, LOADER)) or {}
+    return not problems, (f"the loader is {info.get('CFBundleIdentifier')} ({info.get('CFBundleName')}); "
+                          f"{len(files)} Wine files scanned, {len(kept)} reviewed internal names kept, none a player sees"), problems
+
+
+# ---------------------------------------------------------------- build paths
+
+def build_paths(ctx):
+    """The folders a build machine's paths would come from: the work folder and the recipe."""
+    return sorted({p for d in (ctx["work"], REPO) for p in (d, os.path.realpath(d))})
+
+
+def buildpath_problems(engine, needles):
+    pats = [(n, n.encode(enc)) for n in needles for enc in ("utf-8", "utf-16-le")]
+    problems, count = [], 0
+    for path in walk(engine):
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        count += 1
+        data = open(path, "rb").read()
+        hits = sorted({n for n, b in pats if b in data})
+        if hits:
+            problems.append(f"{os.path.relpath(path, engine)} contains {', '.join(hits)}")
+    return problems, count
+
+
+def gate_buildpaths(engine, ctx):
+    needles = build_paths(ctx)
+    problems, count = buildpath_problems(engine, needles)
+    return not problems, f"{count} files, none names {' or '.join(needles)}", problems
+
+
+# ---------------------------------------------------------------- d3d11 and playback
+
+def metal_device(work):
+    """The name of this machine's default Metal device, or None (as an x86_64 program, as DXMT sees it)."""
+    exe = compile_tool(work, "metaldevice", ("Metal", "Foundation"))
+    r = out([exe], timeout=60)
+    name = r.stdout.strip()
+    return name if r.returncode == 0 and name else None
+
+
+def d3d11_check(engine, ctx):
+    probe = compile_pe_tool(ctx["work"], "d3d11probe", "64", ["d3d11", "dxgi", "uuid", "gdi32", "user32"])
+    required = ["lib/wine/x86_64-unix/winemetal.so", "lib/wine/x86_64-unix/winemac.so"]
+    problems, probed, loaded = probe_check(engine, [(probe, [])], required)
+    return problems, probed
+
+
+def gate_d3d11(engine, ctx):
+    device = metal_device(ctx["work"])
+    if not device:
+        return None, "SKIP: this machine has no Metal device, so DXMT cannot run here", []
+    problems, probed = d3d11_check(engine, ctx)
+    return not problems, f"Metal device {device}; " + "; ".join(probed) + "; DXMT's winemetal.so and winemac.so loaded from the engine", problems
+
+
+SAMPLE = os.path.join(REPO, "tools", "media", "sample.mp4")
+# The plugins a decoded H.264 and AAC movie needs: the MP4 demuxer and FFmpeg's decoders.
+PLAYBACK_PLUGINS = ["lib/gstreamer-1.0/libgstisomp4.dylib", "lib/gstreamer-1.0/libgstlibav.dylib"]
+
+
+def playback_check(engine, ctx):
+    probes = [compile_pe_tool(ctx["work"], "mediaprobe", bits, ["mfplat", "mfreadwrite", "mfuuid", "ole32", "uuid"],
+                              extra=["-municode"]) for bits in ("64", "32")]
+    sample = "Z:" + SAMPLE.replace("/", "\\")
+    required = ["lib/wine/x86_64-unix/winegstreamer.so"] + PLAYBACK_PLUGINS
+    problems, probed, loaded = probe_check(engine, [(p, [sample]) for p in probes], required)
+    return problems, probed, loaded
+
+
+def gate_playback(engine, ctx):
+    problems, probed, loaded = playback_check(engine, ctx)
+    plugins = [l for l in loaded if l.startswith("lib/gstreamer-1.0/")]
+    return not problems, ("; ".join(probed) + f"; {len(plugins)} GStreamer plugins loaded from the engine "
+                          f"({', '.join(os.path.basename(p) for p in plugins)}), nothing from outside it"), problems
+
+
 GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", gate_pe32),
          ("winemac", gate_winemac), ("addons", gate_addons), ("wine", gate_wine),
-         ("media", gate_media), ("licences", gate_licences), ("nogpl", gate_nogpl)]
+         ("media", gate_media), ("licences", gate_licences), ("nogpl", gate_nogpl),
+         ("identity", gate_identity), ("buildpaths", gate_buildpaths), ("d3d11", gate_d3d11),
+         ("playback", gate_playback)]
 
 
 # ---------------------------------------------------------------- running
@@ -683,15 +942,16 @@ def run_gates(engine, work):
             ok, detail, problems = fn(engine, ctx)
         except Exception as e:  # a gate that cannot run is a failed gate
             ok, detail, problems = False, f"the gate itself failed: {e!r}", [repr(e)]
-        results.append({"gate": name, "result": "PASS" if ok else "FAIL", "detail": detail,
+        result = "SKIP" if ok is None else "PASS" if ok else "FAIL"
+        results.append({"gate": name, "result": result, "detail": detail,
                         "problems": problems, "seconds": round(time.time() - t, 1)})
-        print(f"{name}: {'PASS' if ok else 'FAIL'} ({time.time() - t:.0f} s) {detail}", flush=True)
+        print(f"{name}: {result} ({time.time() - t:.0f} s) {detail}", flush=True)
         for p in problems[:30]:
             print("   " + p)
     os.makedirs(os.path.join(ctx["work"], "gates"), exist_ok=True)
     json.dump(results, open(os.path.join(ctx["work"], "gates", "results.json"), "w"), indent=2)
     report(results, "Gates")
-    return all(r["result"] == "PASS" for r in results)
+    return all(r["result"] in ("PASS", "SKIP") for r in results)
 
 
 def main(argv):

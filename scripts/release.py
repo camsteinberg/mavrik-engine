@@ -6,9 +6,11 @@
   release.py notes INPUTS NAME RUN_ID   print the release notes
 
 A release carries the engine, its checksum, and the source of every part whose licence asks for
-it: Wine (the CrossOver source archive and this repository's patches), GnuTLS, Nettle, GMP,
-Wine Mono, Wine Gecko and the LGPL parts of the media component. A part whose source is not
-pinned (in "inputs" with role "source", or in "release_sources") stops the release.
+it: Wine (the CrossOver source archive and this repository's patches), GnuTLS, Nettle, GMP, Wine
+Mono, Wine Gecko, DXMT (its winemetal.dll carries Wine's start-up code), and the LGPL parts of the
+media component: the exact tarballs GStreamer's build recipes (cerbero 1.28.6) built them from, and
+cerbero itself, which holds the patches it applied. A part whose source is not pinned (an input with
+role "source", or an entry in "release_sources") stops the release.
 """
 import json
 import os
@@ -17,30 +19,45 @@ import sys
 import tarfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NEEDS_SOURCE = ["wine", "gmp", "nettle", "gnutls", "wine-mono", "wine-gecko",
-                "media:gstreamer", "media:glib", "media:ffmpeg", "media:proxy-libintl", "media:mpg123"]
+NEEDS_SOURCE = ["wine", "gmp", "nettle", "gnutls", "wine-mono", "wine-gecko", "dxmt",
+                "media:gstreamer", "media:glib", "media:ffmpeg", "media:proxy-libintl", "media:mpg123",
+                "media:cerbero"]
+
+
+def sources(doc):
+    """{component: [(key, entry)]} for every pinned source."""
+    have = {}
+    for key, entry in doc["inputs"].items():
+        if entry.get("role") == "source":
+            have.setdefault(entry["component"], []).append((key, entry))
+    for key, entry in doc.get("release_sources", {}).items():
+        have.setdefault(entry["component"], []).append((key, entry))
+    return have
 
 
 def collect(inputs_path, work, dest):
     doc = json.load(open(inputs_path))
     paths = json.load(open(os.path.join(work, "downloads", "paths.json")))
-    have = {}
-    for key, entry in doc["inputs"].items():
-        if entry.get("role") == "source":
-            have[entry["component"]] = key
-    for key, entry in doc.get("release_sources", {}).items():
-        have[entry["component"]] = key
+    have = sources(doc)
     missing = [c for c in NEEDS_SOURCE if c not in have]
     if missing:
         sys.exit("refusing to publish: no pinned source for " + ", ".join(missing)
                  + ". Add each to release_sources in inputs.json first.")
+    unpinned = [k for c in NEEDS_SOURCE for k, e in have[c] if not e.get("size") or not e.get("sha256")]
+    absent = [k for c in NEEDS_SOURCE for k, _ in have[c] if k not in paths]
+    if unpinned or absent:
+        sys.exit("refusing to publish: " + "; ".join(
+            ([f"not pinned: {', '.join(unpinned)}"] if unpinned else []) +
+            ([f"not downloaded: {', '.join(absent)}"] if absent else [])))
     os.makedirs(dest, exist_ok=True)
     for comp in NEEDS_SOURCE:
-        src = paths[have[comp]]
-        shutil.copy(src, os.path.join(dest, os.path.basename(src).split("--", 1)[-1]))
+        for key, entry in have[comp]:
+            name = entry.get("file") or os.path.basename(entry["url"])
+            shutil.copy(paths[key], os.path.join(dest, name))
     with tarfile.open(os.path.join(dest, "mavrik-engine-recipe.tar.gz"), "w:gz") as t:
         for name in ("README.md", "NOTICE.md", "LICENSE", "inputs.json", "patches", "scripts", "tools", ".github"):
-            t.add(os.path.join(REPO, name), arcname=name)
+            t.add(os.path.join(REPO, name), arcname=name,
+                  filter=lambda i: None if "__pycache__" in i.name else i)
     print("\n".join(sorted(os.listdir(dest))))
 
 

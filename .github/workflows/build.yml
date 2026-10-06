@@ -4,6 +4,7 @@
 #
 # The steps themselves live in scripts/ (build.sh, assemble.sh, gates.sh, pack.sh), so a build on a
 # Mac runs exactly what this workflow runs. This file only prepares the runner and keeps the caches.
+# Actions are pinned to commits (the v4 releases named beside them).
 name: build
 
 on:
@@ -41,12 +42,23 @@ jobs:
     outputs:
       name: ${{ steps.pack.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
-      - name: Release builds need every input pinned
+      - name: Release builds need every input and release source pinned
         if: ${{ inputs.publish_release }}
         run: python3 scripts/fetch.py check-pins inputs.json
 
+      - name: Toolchain (bison 3 and mingw-w64 gcc; the rest is on the runner or pinned)
+        run: brew install -q bison mingw-w64
+
+      # The pinned Xcode (inputs.json) for every later step, and Homebrew's bison first in PATH.
+      - name: Select Xcode
+        run: |
+          . scripts/toolchain.sh inputs.json
+          xcodebuild -version
+          python3 scripts/buildinfo.py toolchain
+
+      # The keys include the toolchain's versions, so they come after it is installed and selected.
       - name: Cache keys
         id: keys
         run: python3 scripts/buildinfo.py keys inputs.json | tee -a "$GITHUB_OUTPUT"
@@ -55,7 +67,7 @@ jobs:
       - name: Restore downloads
         id: dl-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/downloads
           key: ${{ steps.keys.outputs.downloads }}
@@ -63,7 +75,7 @@ jobs:
       - name: Restore our Unix libraries
         id: deps-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/deps
           key: ${{ steps.keys.outputs.deps }}
@@ -71,49 +83,46 @@ jobs:
       - name: Restore the Wine build
         id: wine-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/wine-install
           key: ${{ steps.keys.outputs.wine }}
 
       - name: Restore the compiler cache
         if: ${{ steps.wine-cache.outputs.cache-hit != 'true' && !inputs.fresh }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/ccache
           key: ccache-${{ github.run_id }}
           restore-keys: ccache-
-
-      - name: Toolchain (bison 3 and mingw-w64 gcc; the rest is on the runner or pinned)
-        run: brew install -q bison mingw-w64
 
       - name: Build (inputs, toolchain, sources and patches, Unix libraries, Wine)
         run: bash scripts/build.sh "$WORK" ${{ inputs.publish_release && '--release' || '' }}
 
       - name: Save downloads
         if: ${{ always() && steps.dl-cache.outputs.cache-hit != 'true' && hashFiles('work/downloads/.stamp') != '' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/downloads
           key: ${{ steps.keys.outputs.downloads }}
 
       - name: Save our Unix libraries
         if: ${{ always() && steps.deps-cache.outputs.cache-hit != 'true' && hashFiles('work/deps/.stamp') != '' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/deps
           key: ${{ steps.keys.outputs.deps }}
 
       - name: Save the compiler cache
         if: ${{ always() && steps.wine-cache.outputs.cache-hit != 'true' && hashFiles('work/ccache/**') != '' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/ccache
           key: ccache-${{ github.run_id }}
 
       - name: Save the Wine build
         if: ${{ always() && steps.wine-cache.outputs.cache-hit != 'true' && hashFiles('work/wine-install/.stamp') != '' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: work/wine-install
           key: ${{ steps.keys.outputs.wine }}
@@ -128,7 +137,7 @@ jobs:
         id: pack
         run: bash scripts/pack.sh "$WORK"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ${{ steps.pack.outputs.name }}
           path: |
@@ -142,7 +151,7 @@ jobs:
         if: ${{ inputs.publish_release }}
         run: python3 scripts/release.py collect inputs.json "$WORK" "$WORK/release-sources"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: ${{ inputs.publish_release }}
         with:
           name: sources
@@ -157,8 +166,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: dist
       - name: Publish the prerelease
