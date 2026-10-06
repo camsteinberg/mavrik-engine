@@ -5,15 +5,17 @@ sends people to CodeWeavers. This engine is not CrossOver, and its bugs belong i
 issues, never with CodeWeavers. This patch changes only names and addresses:
 
 - loader/wine_info.plist.in, the Info.plist built into the loader every game runs as:
-  - the bundle identifier is org.mavrik.engine, not com.codeweavers.CrossOver.wineloader. macOS keys
-    a program's preferences, its saved window state and its privacy permissions by this
-    identifier, and the CrossOver one is shared with CrossOver and with Apple's Game Porting
-    Toolkit. Upstream's org.winehq.wine would be shared with every other Wine on the Mac.
+  - the bundle identifier is org.mavrik.engine, not com.codeweavers.CrossOver.wineloader. Every Wine
+    process reports it as its main bundle's identifier, and macOS keeps a program's preferences and
+    saved window state under it. The CrossOver one is shared with CrossOver and with Apple's Game
+    Porting Toolkit; upstream's org.winehq.wine would be shared with every other Wine on the Mac.
   - the bundle name is "Game", followed by the padding comment the loader's
     apple_override_bundle_name (CrossOver Hack 13438) looks for. That code replaces the name in
-    memory with the program's own (ABZU.exe shows as "ABZU", or WINEPRELOADERAPPNAME when set) before
-    macOS reads it, so the menu bar, the Dock and the app switcher show the game. "Game" is only the
-    fallback, and with the padding a name may be 32 characters long instead of 28.
+    memory with the program's own before macOS reads it (ABZU.exe becomes "ABZU", or
+    WINEPRELOADERAPPNAME when it is set), so the app menu says "Hide ABZU" and "Quit ABZU". "Game" is
+    only the fallback, and with the padding a name may be 32 characters long instead of 28. The Dock
+    and the app switcher do not use it: they show the loader's file name, wine, because
+    LaunchServices names a program that has no app bundle after its executable.
   - the executable name is "wine", the loader's file name, as upstream.
 - programs/winedbg/winedbg.rc: the crash dialog's two links point to mavrik-engine's issues instead
   of codeweavers.com. Wine's translations of these two texts carry WineHQ's links, which this

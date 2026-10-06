@@ -12,7 +12,7 @@ CrossOver release under the LGPL, and this build uses them as they are, plus the
 [`patches/`](patches/).
 
 The engine never presents itself as CrossOver. Patch 0003 gives the Wine loader its own identity
-(`org.mavrik.engine`; macOS shows each game under its own name), points Wine's crash dialog at this
+(`org.mavrik.engine`, with each game's own name in its app menu), points Wine's crash dialog at this
 repository's issues, and removes CrossOver's names from the places a player could see them. The
 `identity` gate checks this on every build.
 
@@ -68,11 +68,14 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   is never shared with another GStreamer on the Mac. The plugins are in `lib/gstreamer-1.0`
   (`layout.gstreamer_plugins` in `build-info.json`). GStreamer also finds them there with no
   settings, because they sit beside `libgstreamer`.
-- **The game's name**: every Windows program runs as `lib/wine/x86_64-unix/wine`. macOS shows it
-  under the program's own name (`ABZU.exe` shows as "ABZU" in the menu bar, the Dock and the app
-  switcher). `WINEPRELOADERAPPNAME` set in the environment replaces that name, up to 32 characters.
-  The loader's bundle identifier is `org.mavrik.engine`, so its preferences and saved window state
-  are its own.
+- **The game's name**: every Windows program runs as `lib/wine/x86_64-unix/wine`, and each Wine
+  process takes its program's name as its bundle name (`ABZU.exe` becomes "ABZU"), so the app menu
+  says "Hide ABZU" and "Quit ABZU". `WINEPRELOADERAPPNAME`, set in the environment of the first
+  process, replaces that name, up to 32 characters. The Dock and the app switcher show the loader's
+  file name, `wine`: LaunchServices names a program without an app bundle after its executable.
+- **Identity**: every Wine process reports the bundle identifier `org.mavrik.engine`, so its
+  preferences and saved window state are its own, never CrossOver's or another Wine's. The loader is
+  not code-signed.
 - **Crash dialog**: when a Windows program crashes, Wine shows its crash dialog, which links to this
   repository's issues. A program that does not want players to see it sets the registry value
   `HKCU\Software\Wine\WineDbg\ShowCrashDialog` to 0 in each Windows folder.
