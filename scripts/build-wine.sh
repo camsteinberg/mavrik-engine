@@ -2,7 +2,8 @@
 # build-wine.sh WORK DEPS GST_ROOT
 #
 # Configures and builds Wine from WORK/wine-src (already patched) in WORK/wine-build, and
-# installs the run-time files (make install-lib) into WORK/wine-install.
+# installs the run-time files (make install-lib) into WORK/wine-install. WORK/wine-build is removed
+# once the install is done.
 #   Unix side: x86_64, clang. The tree's Metal layer is x86_64 only. configure and make run as
 #              x86_64 (through Rosetta on Apple silicon), so the build is the same as on an Intel Mac.
 #   PE side:   i386 and x86_64 with mingw-w64 gcc (llvm-mingw is known to break Steam's login).
@@ -67,8 +68,11 @@ x86 make -j"$JOBS"
 x86 make -j"$JOBS" install-lib DESTDIR="$DEST"
 ccache -s || true
 
-# What later steps need from the build tree.
+# What later steps need from the build tree (and config.log, for the record). Then the tree goes:
+# every build starts from an empty one (ccache keeps that fast), so its objects are never used again.
 mkdir -p "$DEST/.build"
-cp include/config.h Makefile "$DEST/.build/"
+cp include/config.h Makefile config.log "$DEST/.build/"
 echo "installed:"
 find "$DEST" -maxdepth 4 -type d | sed "s|$DEST/||" | sort | sed -n "1,30p"
+cd "$WORK"
+rm -rf "$BUILD"

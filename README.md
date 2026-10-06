@@ -72,7 +72,12 @@ input:
   stops early if the tree asks for a version that is not pinned.
 - **wine**: `wine --version` prints the expected version; `wineboot --init` in a new Windows
   folder finishes with no Mono or Gecko download prompt and finds the engine's Mono; and Wine Gecko
-  loads from the engine in both the 64-bit and the 32-bit half.
+  loads from the engine in both the 64-bit and the 32-bit half. Then a small Windows program
+  ([`tools/winelibs.c`](tools/winelibs.c)), run in both halves, makes Wine's own code use GnuTLS
+  (bcrypt and schannel), MoltenVK and FreeType, and load its GStreamer and FFmpeg modules. dyld
+  lists what every Wine process loads: each library Wine opens by name must come from the engine,
+  and nothing may come from outside the engine and macOS. This matters on GitHub's Intel runner,
+  where Homebrew's libraries sit in a folder dyld searches by default.
 - **media**: GStreamer and FFmpeg load from inside the engine, never from
   `/Library/Frameworks/GStreamer.framework`, and create the elements Wine uses. On a Mac that has
   that framework, the gate leaves it in place and checks that nothing is loaded from it.
@@ -90,12 +95,15 @@ input:
 - `--with-opengl` is not passed: configure would then fail on the missing EGL headers. Left alone,
   the Mac driver uses OpenGL.framework.
 - Wine opens MoltenVK, FreeType, GnuTLS and SDL2 by file name. Each Unix module gets the run path
-  `@loader_path/../../`, which is the engine's `lib/`, so those names are found there.
+  `@loader_path/../../`, which is the engine's `lib/`, so those names are found there. The `wine`
+  gate checks that they are.
 - The Windows side is stripped of debug data; gcc leaves it in, and it makes the files five times
   larger.
 - Caches (downloads, the Unix libraries, the Wine build and ccache) make repeat builds fast. Each
   finished step leaves a stamp with its cache key, and a later build with the same key skips it.
-  The workflow's `fresh` option (or `FRESH=1` on a Mac) ignores them for a clean build.
+  The workflow's `fresh` option (or `FRESH=1` on a Mac) ignores them for a clean build. A step's
+  scratch folders (the library sources, the Wine build tree and its objects) are removed when the
+  step succeeds; ccache keeps the next build fast.
 - `MACOSX_DEPLOYMENT_TARGET` is 14.0 for everything built here. DXMT v0.80's own files need
   macOS 15.
 

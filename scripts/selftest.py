@@ -96,7 +96,8 @@ def run(engine, work):
     case(results, "addons", "an engine with Mono but no Gecko", G.gate_addons(no_gecko, ctx)[2])
 
     # wine: a wrong expected version; an engine clone without Mono and Gecko, which must prompt at
-    # wineboot; and one with Mono but no Gecko, which must prompt when mshtml loads Gecko.
+    # wineboot; one with Mono but no Gecko, which must prompt when mshtml loads Gecko; and one
+    # without its GnuTLS, which Wine's own code must then fail to load from the engine.
     gecko = ctx["inputs"]["inputs"]["wine-gecko-x86"]["version"]
     case(results, "wine", "expecting wine-0.0", G.version_check(engine, "wine-0.0")[0])
     bad = os.path.join(tmp, "no-addons-engine")
@@ -109,6 +110,17 @@ def run(engine, work):
     clone(engine, bad)
     shutil.rmtree(os.path.join(bad, "share", "wine", "gecko"))
     case(results, "wine", "an engine clone with Mono but no Gecko", G.wineboot_check(bad, gecko, timeout=600)[0])
+    shutil.rmtree(bad, ignore_errors=True)
+    # Without its GnuTLS, Wine finds none on a Mac that has none, or, on a Mac with one in dyld's
+    # fallback folders (Homebrew in /usr/local, as on GitHub's Intel runner), loads that one.
+    # Either way the gate must fail.
+    probes, required = G.winelibs_inputs(ctx)
+    gnutls = next(r for r in required if os.path.basename(r).startswith("libgnutls"))
+    bad = os.path.join(tmp, "no-gnutls-engine")
+    clone(engine, bad)
+    os.remove(os.path.join(bad, gnutls))
+    case(results, "wine", f"an engine clone without {gnutls}",
+         G.wineboot_check(bad, gecko, timeout=600, probes=probes, required=required)[0])
     shutil.rmtree(bad, ignore_errors=True)
 
     # media: a plugin with a run path into the Mac's own GStreamer.framework.
