@@ -37,5 +37,12 @@ Evidence behind the last sentence (not part of the note): mavrik-engine revision
 - `cmd /c exit 7` and `cmd /c echo`, 32- and 64-bit: the exit code 7 and the output arrive the
   same way on both revisions.
 - 64-bit Notepad, and 32-bit Notepad started by 64-bit cmd: the same on both revisions.
-- Each program was stopped by asking its window to close, then ending the prefix's programs and
-  its server; nothing of the prefix ran 10 s later, on both revisions.
+- A 32-bit Direct3D 11 test program (Wine's wined3d), started directly, two 10 s runs each: a
+  window, frames presented, exit code 0 on both revisions. Started once more and stopped: on
+  revision 1 it ran under `start.exe /exec` as a separate process (10 Wine processes), on
+  revision 2 as the launched process itself (9).
+- The 13 Notepad runs (32-bit, 64-bit, and 32-bit started by cmd) and the two stopped Direct3D
+  runs were stopped by asking the program to quit as the Dock's Quit does, then ending the
+  prefix's remaining programs and its server; nothing of the prefix ran 10 s later, on both
+  revisions. The cmd runs and the plain Direct3D runs ended by themselves and were checked after
+  `wineserver -k`; they were not stopped.
