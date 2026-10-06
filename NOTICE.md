@@ -9,7 +9,7 @@ licence texts and copyright notices, `licences/COMPONENTS.tsv` lists the parts, 
 |---|---|---|---|
 | Wine 11.0 | CodeWeavers' CrossOver 26.3.0 sources, media.codeweavers.com | LGPL-2.1-or-later | `bin/`, `lib/wine/`, `share/wine/` |
 | Third-party code built into Wine's own files | Wine's `libs/` (zlib, libpng, libjpeg, libtiff, lcms2, libxml2, libxslt, mpg123, FAudio, FluidSynth, vkd3d, musl, LDAP, capstone, compiler-rt, GSM, JPEG XR, LibTomCrypt) | each its own (BSD, MIT, zlib, LGPL and others), texts in `licences/wine/libs/` | inside Wine's files |
-| This repository's patches (0001 and 0002 from highball-engine) | `patches/` | LGPL-2.1-or-later | inside Wine's files |
+| This repository's patches (0001 and 0002 from highball-engine; 0004 from athei/wine through highball-engine) | `patches/` | LGPL-2.1-or-later | inside Wine's files |
 | Wine Mono 10.4.1 | github.com/wine-mono/wine-mono | MIT, LGPL-2.1-or-later and others (its COPYING); its notices come from its source archive: Mono and the projects in `mono/external` (BoringSSL, corefx, CoreRT, ASP.NET Web Stack, Cecil, the linker, Rx), FNA (MS-PL and MIT), FAudio, FNA3D, MojoShader, SDL3 (with HIDAPI), SDL2-CS and SDL3-CS (zlib), winforms and WPF (MIT), monoDX | `share/wine/mono/` |
 | Wine Gecko 2.47.4 | dl.winehq.org | MPL-2.0; its own notices are its about:license page, copied to `licences/wine-gecko/license.html` | `share/wine/gecko/` |
 | MoltenVK 1.4.2 | github.com/KhronosGroup/MoltenVK | Apache-2.0; includes SPIRV-Cross and SPIRV-Tools (Apache-2.0) and cereal (BSD-3-Clause) | `lib/libMoltenVK.dylib` |
