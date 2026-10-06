@@ -197,7 +197,9 @@ part:
 
 Those sources are in `release_sources` in `inputs.json` (or are inputs with the role `source`). A
 release refuses to start while any of them has no pinned size and sha256. A test build downloads
-the ones it can and prints the values to pin.
+the ones it can and prints the values to pin. On a Mac whose build takes files from a folder
+(`--from DIR`), `scripts/fetch-release-sources.sh DIR` downloads the ones that are not on GitHub,
+checks them against their pins and prints the values still to pin.
 
 ## Credits
 
