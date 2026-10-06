@@ -11,6 +11,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(cd "$1" && pwd)"
 S="$REPO/scripts"
 INPUTS="$(cat "$WORK/inputs.path")"
+. "$S/toolchain.sh" "$INPUTS"
 
 version="$(python3 "$S/buildinfo.py" keys "$INPUTS" | sed -n 's/^version=//p')"
 wine_version="$(sed 's/^Wine version //' "$WORK/wine-src/VERSION")"

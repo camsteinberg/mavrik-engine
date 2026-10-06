@@ -17,6 +17,11 @@ An input with no size or sha256 is refused in a release build. In a test build i
 values are printed and written to DEST/learned-pins.json so they can be pinned, and the build goes
 on with a warning. Every input is tried before the script fails, so one run names every input that
 is missing or does not match its pin.
+
+release_sources (the sources a release carries) are fetched too. A release build needs every one,
+pinned. A test build only warns about one it cannot get (on a Mac without curl, the sources that are
+not on GitHub and not in the --from folder), so their sizes can be learned where they can be
+downloaded; a file that does not match its pin fails the build either way.
 """
 import hashlib
 import json
@@ -26,7 +31,8 @@ import shutil
 import subprocess
 import sys
 
-SECTIONS = ("inputs", "licence_texts")
+SECTIONS = ("inputs", "licence_texts", "release_sources")
+OPTIONAL = "release_sources"  # in a test build, missing ones are only reported
 
 
 def entries(doc):
@@ -63,6 +69,10 @@ def via_curl(url, part):
 
 RELEASE = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$")
 RAW = re.compile(r"^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$")
+# A tag's source archive (GitHub makes the same bytes for a release's "Source code" link) and the
+# API's tarball of a ref.
+ARCHIVE = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/archive/refs/tags/(.+)\.tar\.gz$")
+API_TARBALL = re.compile(r"^https://api\.github\.com/repos/([^/]+)/([^/]+)/tarball/(.+)$")
 
 
 def via_gh(url, part):
@@ -75,6 +85,25 @@ def via_gh(url, part):
                        check=True)
         os.replace(os.path.join(folder, name), part)
         shutil.rmtree(folder)
+        return
+    m = ARCHIVE.match(url)
+    if m:
+        owner, repo, tag = m.groups()
+        folder = part + ".d"
+        shutil.rmtree(folder, ignore_errors=True)
+        subprocess.run(["gh", "release", "download", tag, "-R", f"{owner}/{repo}", "--archive", "tar.gz", "-D", folder],
+                       check=True)
+        names = os.listdir(folder)
+        if len(names) != 1:
+            raise LookupError(f"gh gave {names} for {url}")
+        os.replace(os.path.join(folder, names[0]), part)
+        shutil.rmtree(folder)
+        return
+    m = API_TARBALL.match(url)
+    if m:
+        owner, repo, ref = m.groups()
+        with open(part, "wb") as f:
+            subprocess.run(["gh", "api", f"/repos/{owner}/{repo}/tarball/{ref}"], stdout=f, check=True)
         return
     m = RAW.match(url)
     if m:
@@ -98,6 +127,8 @@ def obtain(url, path, source, via):
             os.replace(part, path)
             return
     if via == "gh":
+        if not any(p.match(url) for p in (RELEASE, ARCHIVE, API_TARBALL, RAW)):
+            raise LookupError("not on GitHub, and not in the --from folder")
         print(f"  downloading {url} with gh", flush=True)
         via_gh(url, part)
     else:
@@ -112,7 +143,7 @@ def fetch(inputs_path, dest, release, source, via):
     if release and missing:
         sys.exit("refusing a release build: these inputs have no pinned size or sha256: " + ", ".join(missing))
     os.makedirs(dest, exist_ok=True)
-    paths, learned, failed, absent = {}, {}, [], []
+    paths, learned, failed, absent, skipped = {}, {}, [], [], []
     for section, key, entry in entries(doc):
         name = f"{key}--{os.path.basename(entry['url'])}"
         path = os.path.join(dest, name)
@@ -121,7 +152,7 @@ def fetch(inputs_path, dest, release, source, via):
             try:
                 obtain(entry["url"], path, source, via)
             except (LookupError, subprocess.CalledProcessError) as e:
-                absent.append(f"{key}: {entry['url']} ({e})")
+                (skipped if section == OPTIONAL and not release else absent).append(f"{key}: {entry['url']} ({e})")
                 continue
         size, digest = os.path.getsize(path), sha256_of(path)
         bad = []
@@ -141,6 +172,8 @@ def fetch(inputs_path, dest, release, source, via):
     json.dump(paths, open(os.path.join(dest, "paths.json"), "w"), indent=2)
     json.dump(learned, open(os.path.join(dest, "learned-pins.json"), "w"), indent=2)
     print(f"{len(paths)} inputs checked, {len(learned)} not fully pinned")
+    for line in skipped:
+        print("::warning::release source not fetched (a test build goes on without it): " + line)
     for line in absent:
         print("::error::missing " + line)
     for line in failed:

@@ -13,7 +13,8 @@ What it does, in order:
   2. strips the PE half (mingw strip --strip-debug) and the Unix side (strip -x -S);
   3. unpacks Wine Mono and Wine Gecko into share/wine/mono and share/wine/gecko;
   4. copies the Unix libraries Wine opens by name (config.h's SONAME_* values) and everything they
-     link into lib/, flat, plus MoltenVK (thinned to x86_64);
+     link into lib/, flat, stripped (strip -x -S) like Wine's own Unix side, plus MoltenVK (thinned
+     to x86_64);
   5. adds the media component (scripts/make-media-component.sh) to lib/ and lib/gstreamer-1.0/;
   6. puts DXMT v0.80's 64-bit files in place, exactly as mavrik's s182-fullscreen branch does
      (lib/wine/x86_64-windows/{d3d11,dxgi,d3d10core,winemetal,nvapi64,nvngx}.dll and
@@ -181,15 +182,15 @@ class Assembler:
         libdir = os.path.join(self.engine, "lib")
         os.makedirs(libdir, exist_ok=True)
         # MoltenVK, thinned to the engine's architecture.
-        mvk = tempfile.mkdtemp()
         member = "MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
-        run(["tar", "-xf", self.paths["moltenvk"], "-C", mvk, member, "MoltenVK/LICENSE"])
         dest = os.path.join(libdir, "libMoltenVK.dylib")
-        run(["lipo", "-thin", "x86_64", os.path.join(mvk, member), "-output", dest])
+        with tempfile.TemporaryDirectory(prefix="moltenvk-") as mvk:
+            run(["tar", "-xf", self.paths["moltenvk"], "-C", mvk, member, "MoltenVK/LICENSE"])
+            run(["lipo", "-thin", "x86_64", os.path.join(mvk, member), "-output", dest])
+            os.makedirs(os.path.join(self.work, "notices"), exist_ok=True)
+            shutil.copy(os.path.join(mvk, "MoltenVK", "LICENSE"), os.path.join(self.work, "notices", "MoltenVK-LICENSE"))
         os.chmod(dest, 0o644)
         self.mark(dest, "moltenvk")
-        os.makedirs(os.path.join(self.work, "notices"), exist_ok=True)
-        shutil.copy(os.path.join(mvk, "MoltenVK", "LICENSE"), os.path.join(self.work, "notices", "MoltenVK-LICENSE"))
         for define, name in sorted(sonames.items()):
             if name == "libMoltenVK.dylib":
                 continue
@@ -210,6 +211,9 @@ class Assembler:
         src = os.path.realpath(os.path.join(self.deps, "lib", name))
         shutil.copyfile(src, dest)
         os.chmod(dest, 0o644)
+        # Our own builds keep a debug map naming every object file's build path; it goes.
+        run(["strip", "-x", "-S", dest], capture_output=True)
+        run(["codesign", "-f", "-s", "-", dest], capture_output=True)
         self.mark(dest, self.component_of(name))
         _, loads, _ = load_commands(dest)
         for load in loads:
@@ -247,10 +251,12 @@ class Assembler:
     # 6
     def dxmt(self):
         pin = self.inputs["inputs"]["dxmt"]
-        tmp = tempfile.mkdtemp()
-        with tarfile.open(self.paths["dxmt"]) as t:
-            t.extractall(tmp, filter="tar")
-        root = os.path.join(tmp, "v" + pin["version"])
+        with tempfile.TemporaryDirectory(prefix="dxmt-") as tmp:
+            with tarfile.open(self.paths["dxmt"]) as t:
+                t.extractall(tmp, filter="tar")
+            self.dxmt_files(pin, os.path.join(tmp, "v" + pin["version"]))
+
+    def dxmt_files(self, pin, root):
         for entry, size in pin["files"].items():
             src = os.path.join(root, entry)
             if os.path.getsize(src) != size:

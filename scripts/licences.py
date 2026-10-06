@@ -11,12 +11,14 @@
       and FILES.tsv (every file in the engine and the component it belongs to; a line with a
       '*' is a pattern). Reads WORK/contributions.json from assemble.py.
 """
-import fnmatch
+import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
+import tempfile
 
 
 def load(work):
@@ -35,6 +37,44 @@ def text_of(paths, ref, cache={}):
             cache[key] = {os.path.basename(m.name): t.extractfile(m).read().decode("utf-8", "replace")
                           for m in t.getmembers() if m.isfile() and m.name.count("/") == 1}
     return cache[key][member]
+
+
+def archive_members(paths, key, root, names):
+    """{name: bytes} for files root/NAME inside the pinned archive KEY (one pass with tar). Stops the
+    build when one is missing."""
+    with tempfile.TemporaryDirectory(prefix="notices-") as tmp:
+        r = subprocess.run(["tar", "-xf", paths[key], "-C", tmp] + [f"{root}/{n}" for n in names],
+                           capture_output=True, text=True)
+        found = {n: open(os.path.join(tmp, root, n), "rb").read() for n in names
+                 if os.path.isfile(os.path.join(tmp, root, n))}
+    missing = [n for n in names if n not in found]
+    if missing:
+        sys.exit(f"{key}: notices not in the archive: {', '.join(missing)} ({r.stderr.strip()[-300:]})")
+    return found
+
+
+def gecko_notices(inputs, engine):
+    """Wine Gecko's own notices (its about:license page), from the engine's copy of omni.ja. omni.ja
+    is Mozilla's reordered zip, which unzip reads with a warning (exit 1 or 2); the page is checked
+    against the sha256 inputs.json pins."""
+    pin = inputs["inputs"]["wine-gecko-x86"]["notices"]
+    version = inputs["inputs"]["wine-gecko-x86"]["version"]
+    jar = os.path.join(engine, "share", "wine", "gecko", f"wine-gecko-{version}-x86", pin["from"])
+    r = subprocess.run(["unzip", "-p", jar, pin["member"]], capture_output=True)
+    if r.returncode > 2 or hashlib.sha256(r.stdout).hexdigest() != pin["sha256"]:
+        sys.exit(f"Wine Gecko's {pin['member']} from {jar}: exit {r.returncode}, sha256 "
+                 f"{hashlib.sha256(r.stdout).hexdigest()}, pinned {pin['sha256']}")
+    return r.stdout
+
+
+def patch_credits(patch_file):
+    """(where the patch comes from, what it does), from its header."""
+    header = open(patch_file, encoding="utf-8").read().split("\n--- a/", 1)[0]
+    paragraphs = [p.strip() for p in header.split("\n\n") if p.strip()]
+    if paragraphs and paragraphs[0].startswith("Adopted from"):
+        origin = " ".join(paragraphs[0].split()).replace(" Its own header follows.", "")
+        return origin, paragraphs[1].splitlines()[0] if len(paragraphs) > 1 else ""
+    return "this repository (https://github.com/camsteinberg/mavrik-engine)", paragraphs[0].splitlines()[0] if paragraphs else ""
 
 
 def media_notices(work):
@@ -60,14 +100,16 @@ COMPONENT_INFO = {
     "dxmt": ("MIT (with LLVM: Apache-2.0 WITH LLVM-exception, and others listed)", "DXMT, Direct3D 10 and 11 on Metal (64-bit files)"),
     "gmp": ("LGPL-3.0-or-later OR GPL-2.0-or-later", "GNU MP, used by GnuTLS"),
     "nettle": ("LGPL-3.0-or-later OR GPL-2.0-or-later", "Nettle, used by GnuTLS"),
-    "gnutls": ("LGPL-2.1-or-later (includes libtasn1: LGPL-2.1-or-later, libunistring: LGPL-3.0-or-later OR GPL-2.0-or-later)", "GnuTLS, Wine's TLS"),
-    "freetype": ("FTL", "FreeType, Wine's font rendering"),
-    "sdl2": ("Zlib", "SDL2, Wine's game controller support"),
+    "gnutls": ("LGPL-2.1-or-later (includes libtasn1: LGPL-2.1-or-later, libunistring: LGPL-3.0-or-later OR GPL-2.0-or-later, "
+               "CRYPTOGAMS: BSD-style, inih: BSD-3-Clause, crypto-auditing: MIT)", "GnuTLS, Wine's TLS"),
+    "freetype": ("FTL (its BDF and PCF drivers: X11-style notices)", "FreeType, Wine's font rendering"),
+    "sdl2": ("Zlib (includes HIDAPI under its BSD terms, and yuv2rgb: BSD-3-Clause)", "SDL2, Wine's game controller support"),
     "mavrik-engine": ("LGPL-2.1-or-later", "this repository's build files and build record"),
     "licences": ("(the licence texts themselves)", "this folder"),
 }
-SOURCE_KEY = {"wine": "crossover-sources", "wine-mono": "wine-mono", "wine-gecko": "wine-gecko-x86",
-              "moltenvk": "moltenvk", "dxmt": "dxmt", "gmp": "gmp", "nettle": "nettle", "gnutls": "gnutls",
+# Where each component's source is (an input, or a release source).
+SOURCE_KEY = {"wine": "crossover-sources", "wine-mono": "wine-mono-source", "wine-gecko": "wine-gecko-source",
+              "moltenvk": "moltenvk", "dxmt": "dxmt-source", "gmp": "gmp", "nettle": "nettle", "gnutls": "gnutls",
               "freetype": "freetype", "sdl2": "sdl2"}
 
 
@@ -108,12 +150,23 @@ def write(work, engine, repo):
                 put_file("wine", f"libs/{lib}/{name}", os.path.join(d, name))
     put_file("mavrik-engine", "LICENSE", os.path.join(repo, "LICENSE"))
     patches = sorted(p for p in os.listdir(os.path.join(repo, "patches")) if p.endswith(".patch"))
-    put("mavrik-engine", "PATCHES.txt", "Patches applied to the Wine sources, in order (see patches/ in the "
-        "repository, and patches/README.md for why each one is there):\n" + "".join(f"  {p}\n" for p in patches))
+    lines = ["Patches applied to the Wine sources, in order. Each is in patches/ in the repository",
+             "(https://github.com/camsteinberg/mavrik-engine), with patches/README.md saying why it is there.", ""]
+    for name in patches:
+        origin, what = patch_credits(os.path.join(repo, "patches", name))
+        lines += [name, f"  {what}", f"  From: {origin}", ""]
+    put("mavrik-engine", "PATCHES.txt", "\n".join(lines))
 
     # Addons, runtime parts and our own builds.
-    put("wine-mono", "COPYING", text_of(paths, "wine-mono-copying"))
+    mono = inputs["inputs"]["wine-mono-source"]
+    for name, data in sorted(archive_members(paths, "wine-mono-source", mono["notices_root"], mono["notices"]).items()):
+        put("wine-mono", name, data)
+    put("wine-mono", "README.txt", "Wine Mono's notices: COPYING says how its parts are licensed, and the other files are "
+        "the licence and notice files of each project it is built from (Mono and the projects in mono/external, FNA, "
+        "FAudio, FNA3D, MojoShader, SDL3, SDL2-CS and SDL3-CS, winforms, WPF, monoDX), as they are in Wine Mono's "
+        f"source ({mono['url']}).\n")
     put("wine-gecko", "MPL-2.0.txt", text_of(paths, "spdx-mpl-2.0"))
+    put("wine-gecko", "license.html", gecko_notices(inputs, engine))
     put_file("moltenvk", "LICENSE", os.path.join(work, "notices", "MoltenVK-LICENSE"))
     put("moltenvk", "cereal-LICENSE", text_of(paths, "cereal-license"))
     put("moltenvk", "SPIRV-Cross-LICENSE", text_of(paths, "spirv-cross-license"))
@@ -131,8 +184,10 @@ def write(work, engine, repo):
         "winemetal.dll also carries Wine's start-up code (LGPL-2.1-or-later, see ../wine).\n")
     for key in ("gmp", "nettle", "gnutls", "freetype", "sdl2"):
         d = os.path.join(work, "deps", "share", "licences", key)
-        for name in sorted(os.listdir(d)):
-            put_file(key, name, os.path.join(d, name))
+        for dirpath, _, files in sorted(os.walk(d)):
+            for name in sorted(files):
+                src = os.path.join(dirpath, name)
+                put_file(key, os.path.relpath(src, d), src)
     for project in inputs["media_projects"]:
         put_file("media:" + project, f"{project}.txt", os.path.join(work, "media-notices", project + ".txt"))
     for ref, name in (("spdx-lgpl-2.1", "LGPL-2.1.txt"), ("spdx-lgpl-3.0", "LGPL-3.0.txt"), ("spdx-gpl-2.0", "GPL-2.0.txt"),
@@ -149,11 +204,12 @@ def write(work, engine, repo):
         else:
             licence, _ = COMPONENT_INFO[comp]
             key = SOURCE_KEY.get(comp)
-            version = inputs["inputs"][key]["version"] if key else "-"
+            pinned = (inputs["inputs"].get(key) or inputs["release_sources"][key]) if key else None
+            version = pinned["version"] if key else "-"
             if comp == "wine":
                 wine_version = open(os.path.join(work, "wine-src", "VERSION")).read().strip().replace("Wine version ", "")
                 version = f"{wine_version} (CrossOver {version} sources)"
-            source = inputs["inputs"][key]["url"] if key else "https://github.com/camsteinberg/mavrik-engine"
+            source = pinned["url"] if key else "https://github.com/camsteinberg/mavrik-engine"
             files = notices.get(comp, [])
             if comp == "licences":
                 files = ["COMPONENTS.tsv"]

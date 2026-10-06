@@ -10,6 +10,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(cd "$1" && pwd)"
 ENGINE="$WORK/out/$(cat "$WORK/out/name")"
+. "$REPO/scripts/toolchain.sh" "$(cat "$WORK/inputs.path")"
 
 python3 "$REPO/scripts/gates.py" run "$ENGINE" "$WORK"
 python3 "$REPO/scripts/gates.py" selftest "$ENGINE" "$WORK"

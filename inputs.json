@@ -32,6 +32,58 @@
       "sha256": "a16606ef0724202e6a6848ece6e0cbba64d11e2f11aefe744af1d93c6d9f99bb",
       "licence": "MIT AND LGPL-2.1-or-later AND others (see its COPYING)"
     },
+    "wine-mono-source": {
+      "role": "source",
+      "component": "wine-mono",
+      "version": "10.4.1",
+      "url": "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-10.4.1/wine-mono-10.4.1-src.tar.xz",
+      "size": 373786652,
+      "sha256": "128e335396689e466dff5e1aa0770a714dbe3d16397fc4ddbb8a80999c67323b",
+      "licence": "MIT AND LGPL-2.1-or-later AND others (see its COPYING)",
+      "notices_root": "wine-mono-10.4.1",
+      "notices": [
+        "COPYING",
+        "mono/LICENSE",
+        "mono/PATENTS.TXT",
+        "mono/THIRD-PARTY-NOTICES.TXT",
+        "mono/mono/mini/THIRD-PARTY-NOTICES.TXT",
+        "mono/mcs/class/ICSharpCode.SharpZipLib/README",
+        "mono/external/boringssl/LICENSE",
+        "mono/external/boringssl/THIRD-PARTY-NOTICES.TXT",
+        "mono/external/corefx/LICENSE.TXT",
+        "mono/external/corefx/PATENTS.TXT",
+        "mono/external/corefx/THIRD-PARTY-NOTICES.TXT",
+        "mono/external/corert/LICENSE.TXT",
+        "mono/external/corert/THIRD-PARTY-NOTICES.TXT",
+        "mono/external/aspnetwebstack/License.txt",
+        "mono/external/cecil/LICENSE.txt",
+        "mono/external/linker/LICENSE",
+        "mono/external/rx/Rx/NET/Source/license.txt",
+        "FNA/licenses/LICENSE",
+        "FNA/licenses/lzxdecoder.LICENSE",
+        "FNA/licenses/monoxna.LICENSE",
+        "FNA/wine/LICENSE",
+        "FNA/lib/FAudio/LICENSE",
+        "FNA/lib/FNA3D/LICENSE",
+        "FNA/lib/FNA3D/MojoShader/LICENSE.txt",
+        "FNA/lib/SDL2-CS/LICENSE",
+        "FNA/lib/SDL3-CS/LICENSE",
+        "FNA.NetStub/LICENSE",
+        "SDL3/LICENSE.txt",
+        "SDL3/src/hidapi/LICENSE.txt",
+        "SDL3/src/hidapi/LICENSE-bsd.txt",
+        "monoDX/LICENSE",
+        "monoDX/wine/LICENSE",
+        "winforms/LICENSE.TXT",
+        "winforms/THIRD-PARTY-NOTICES.TXT",
+        "winforms-datavisualization/LICENSE.TXT",
+        "winforms-datavisualization/THIRD-PARTY-NOTICES.TXT",
+        "wpf/LICENSE.TXT",
+        "wpf/THIRD-PARTY-NOTICES.TXT",
+        "wpf/wine/LICENSE"
+      ],
+      "note": "Wine Mono's full source, its submodules included: the release's corresponding source, and where the notices of every project in Wine Mono come from"
+    },
     "wine-gecko-x86": {
       "role": "addon",
       "component": "wine-gecko",
@@ -39,7 +91,13 @@
       "url": "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-x86.tar.xz",
       "size": 43025064,
       "sha256": "2cfc8d5c948602e21eff8a78613e1826f2d033df9672cace87fed56e8310afb6",
-      "licence": "MPL-2.0"
+      "licence": "MPL-2.0",
+      "notices": {
+        "from": "omni.ja",
+        "member": "chrome/toolkit/content/global/license.html",
+        "sha256": "a626b3badf131fa848ae4d2a344a9c6ebe7e6165911a1c4da0bf44e542287a94",
+        "note": "Gecko's own notices (about:license), the same in both archives; licences.py extracts it from the engine's copy"
+      }
     },
     "wine-gecko-x86_64": {
       "role": "addon",
@@ -141,14 +199,14 @@
       "licence": "Zlib"
     },
     "mpg123-source": {
-      "role": "notices",
-      "component": "media",
+      "role": "source",
+      "component": "media:mpg123",
       "version": "1.32.7",
       "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2",
       "size": 1117057,
       "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21",
       "licence": "LGPL-2.1-only",
-      "note": "only its COPYING and AUTHORS are used, for the media notices; GStreamer 1.28.6 builds mpg123 1.32.7"
+      "note": "the source of the libmpg123 GStreamer 1.28.6 builds (cerbero's mpg123.recipe pins this sha256); its COPYING and AUTHORS are the media notices"
     },
     "ccache": {
       "role": "tool",
@@ -357,12 +415,6 @@
       "size": 1945,
       "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
     },
-    "wine-mono-copying": {
-      "for": "wine-mono",
-      "url": "https://raw.githubusercontent.com/madewokherd/wine-mono/wine-mono-10.4.1/COPYING",
-      "size": 2423,
-      "sha256": "0265443ffc97c9450dbcf402c2430bf9fe87d7a6c92d5d7684fcecfe749bf75d"
-    },
     "spdx-mpl-2.0": {
       "for": "wine-gecko",
       "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-2.0.txt",
@@ -404,6 +456,108 @@
       "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/Apache-2.0.txt",
       "size": 10280,
       "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+    }
+  },
+  "release_sources_comment": "Sources a release carries beside the engine (with the inputs whose role is source). fetch.py downloads them for a release build, which refuses any without a pinned size and sha256; a test build downloads what it can, prints the values to pin, and goes on without the rest.",
+  "release_sources": {
+    "wine-gecko-source": {
+      "component": "wine-gecko",
+      "version": "2.47.4",
+      "url": "https://dl.winehq.org/wine/wine-gecko/2.47.4/wine-gecko-2.47.4-src.tar.xz",
+      "size": null,
+      "sha256": null,
+      "note": "not on GitHub: pinned once it is downloaded from this address"
+    },
+    "dxmt-source": {
+      "component": "dxmt",
+      "version": "0.80",
+      "url": "https://github.com/3Shain/dxmt/archive/refs/tags/v0.80.tar.gz",
+      "file": "dxmt-0.80.tar.gz",
+      "size": 655666,
+      "sha256": "79cd3a2b32749fc3890b6c2a9337f45de26fdb750014f3457bb7ebafa679492d",
+      "note": "DXMT is MIT, but winemetal.dll carries Wine's start-up code (LGPL)"
+    },
+    "gstreamer-source": {
+      "component": "media:gstreamer",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.28.6.tar.xz",
+      "size": null,
+      "sha256": "62b6b9f0ad3147a6dd6420ac64a91180b14e990695bddd353b96041611d052ca",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "gst-plugins-base-source": {
+      "component": "media:gstreamer",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.28.6.tar.xz",
+      "size": null,
+      "sha256": "0ba699c7c6c66f4ba640be78cb38a24715add9683f3e3a199f5369dc5a4f04ac",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "gst-plugins-good-source": {
+      "component": "media:gstreamer",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.28.6.tar.xz",
+      "size": null,
+      "sha256": "b0c620a4b18b6ee931b4c43bbf1760d308666dc37f730a7e7f1ad327e59ce2df",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "gst-plugins-bad-source": {
+      "component": "media:gstreamer",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.6.tar.xz",
+      "size": null,
+      "sha256": "6636f2c2289ceda52c4aba971338c81e2b5780d3381bd3673c1c116ec87587c3",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "gst-plugins-ugly-source": {
+      "component": "media:gstreamer",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-ugly/gst-plugins-ugly-1.28.6.tar.xz",
+      "size": null,
+      "sha256": "ee279da13a740fd7f060d631a673223fa3bcc8c33d350c8d0264bd332a24ecd8",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "gst-libav-source": {
+      "component": "media:gstreamer",
+      "version": "1.28.6",
+      "url": "https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.28.6.tar.xz",
+      "size": null,
+      "sha256": "71e6eafb4fff2a66d1bb0ba8d078224dfe7e3397307d8c0bba3dc23606e08f51",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "glib-source": {
+      "component": "media:glib",
+      "version": "2.82.4",
+      "url": "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz",
+      "size": null,
+      "sha256": "37dd0877fe964cd15e9a2710b044a1830fb1bd93652a6d0cb6b8b2dff187c709",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "ffmpeg-source": {
+      "component": "media:ffmpeg",
+      "version": "7.1",
+      "url": "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz",
+      "size": null,
+      "sha256": "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "proxy-libintl-source": {
+      "component": "media:proxy-libintl",
+      "version": "0.5",
+      "url": "https://github.com/frida/proxy-libintl/archive/refs/tags/0.5.tar.gz",
+      "file": "proxy-libintl-0.5.tar.gz",
+      "size": 13056,
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303",
+      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+    },
+    "cerbero-source": {
+      "component": "media:cerbero",
+      "version": "1.28.6",
+      "url": "https://api.github.com/repos/GStreamer/cerbero/tarball/refs/tags/1.28.6",
+      "file": "cerbero-1.28.6.tar.gz",
+      "size": 2975934,
+      "sha256": "f7cb0d44202dc7402b4d611369d6dfbb94586286ada8f1649da9c3d6cd724913",
+      "note": "GStreamer's build recipes and the patches they apply to GStreamer, GLib, FFmpeg, proxy-libintl and mpg123 (GitHub's mirror of gitlab.freedesktop.org/gstreamer/cerbero)"
     }
   },
   "media_projects": {
