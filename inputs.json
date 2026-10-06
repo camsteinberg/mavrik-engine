@@ -5,6 +5,13 @@
     "revision": 1,
     "macos_deployment_target": "14.0"
   },
+  "toolchain": {
+    "comment": "The Xcode every step builds with (scripts/toolchain.sh selects it). GitHub's macos-15-intel image has it at /Applications/Xcode_26.2.app. mingw-w64 gcc, bison, flex and CMake come from Homebrew and are not pinned; their versions are part of the cache keys and recorded in each engine's build-info.json.",
+    "xcode": {
+      "version": "26.2",
+      "build": "17C52"
+    }
+  },
   "inputs": {
     "crossover-sources": {
       "role": "source",
