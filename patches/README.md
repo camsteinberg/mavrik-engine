@@ -17,6 +17,10 @@ upstream ships is removed here in the change that moves the pinned source.
   exports `macdrv_functions` (`dlls/winemac.drv/d3dmetal.c`, made for D3DMetal and DXMT), and its
   layout matches what DXMT v0.80 reads. The five fallback names stay hidden, so they need no patch.
   The `winemac` gate checks both the export and the layout on every build.
+- **athei/wine's loader check (revision 2's patch 0004, removed in revision 3).** Without it, every
+  32-bit program was relaunched through `start.exe`. Wine's own setting `WINEARCH=wow64` does the
+  same with no patch: Wine names no alternate loader in that mode, so the program runs in the
+  process it starts. mavrik sets it for every Wine program it starts in a game's folder.
 - **highball-engine's 0003 (`WINEDLLPATH_PREPEND`).** mavrik puts DXMT's files straight into the
   engine instead of an overlay folder.
 - **highball-engine's other patches** fix specific games or measured faults mavrik has not met yet.

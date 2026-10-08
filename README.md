@@ -73,6 +73,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   says "Hide ABZU" and "Quit ABZU". `WINEPRELOADERAPPNAME`, set in the environment of the first
   process, replaces that name, up to 32 characters. The Dock and the app switcher show the loader's
   file name, `wine`: LaunchServices names a program without an app bundle after its executable.
+- **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
+  then runs a 32-bit program in the process it starts, like a 64-bit one, in new WoW64 mode; the
+  engine has no 32-bit Unix side. With `WINEARCH` unset or `win64`, Wine relaunches each 32-bit
+  program through `start.exe`, a second process.
 - **Identity**: every Wine process reports the bundle identifier `org.mavrik.engine`, so its
   preferences and saved window state are its own, never CrossOver's or another Wine's. The loader is
   not code-signed.
