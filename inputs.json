@@ -2,7 +2,7 @@
   "comment": "Every input the build downloads, pinned by size and SHA-256. A release build refuses any entry whose size or sha256 is null. A test build downloads it, prints the values to pin and goes on.",
   "engine": {
     "name": "mavrik-engine",
-    "revision": 2,
+    "revision": 1,
     "macos_deployment_target": "14.0"
   },
   "toolchain": {

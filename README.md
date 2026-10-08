@@ -73,9 +73,6 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   says "Hide ABZU" and "Quit ABZU". `WINEPRELOADERAPPNAME`, set in the environment of the first
   process, replaces that name, up to 32 characters. The Dock and the app switcher show the loader's
   file name, `wine`: LaunchServices names a program without an app bundle after its executable.
-- **32-bit programs**: they run in the process the program starts, like 64-bit ones, with
-  `WINEARCH` unset or `win64` (patch 0004). Wine's own loader runs them in new WoW64 mode; the
-  engine has no 32-bit Unix side.
 - **Identity**: every Wine process reports the bundle identifier `org.mavrik.engine`, so its
   preferences and saved window state are its own, never CrossOver's or another Wine's. The loader is
   not code-signed.
@@ -205,11 +202,8 @@ checks them against their pins and prints the values still to pin.
 
 - CodeWeavers, for CrossOver and for publishing its Wine sources, and the Wine project.
 - [highball-engine](https://github.com/gauthierpiarrette/highball-engine) (LGPL-2.1-or-later): the
-  closest recipe to this one. Patches 0001 and 0002 come from it unchanged, patch 0004 comes through
-  it, and the build follows its shape (pinned CrossOver sources, an Intel runner, mingw-w64 gcc, Mono
-  and Gecko unpacked).
-- Alexander Theissen ([athei/wine](https://github.com/athei/wine), LGPL-2.1-or-later), who wrote the
-  loader check in patch 0004.
+  closest recipe to this one. Patches 0001 and 0002 come from it unchanged, and the build follows
+  its shape (pinned CrossOver sources, an Intel runner, mingw-w64 gcc, Mono and Gecko unpacked).
 - [winecx-gptk](https://github.com/frankea/winecx-gptk), whose list of build gates showed which
   checks a shipped engine needs. Nothing is copied from it.
 - Gcenx, whose macOS Wine builds showed the configure options and the libraries a Mac engine needs.
