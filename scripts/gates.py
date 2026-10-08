@@ -343,7 +343,7 @@ def wine_env(engine, home):
     # GStreamer's plugin list goes in this home, as the README asks of any program that starts the engine.
     return {"PATH": f"{engine}/bin:/usr/bin:/bin", "HOME": home, "WINEPREFIX": os.path.join(home, "prefix"),
             "WINEDEBUG": "fixme-all,+mscoree,+appwizcpl", "LANG": "en_US.UTF-8", "TMPDIR": home,
-            "GST_REGISTRY_1_0": os.path.join(home, "gst-registry.bin")}
+            "GST_REGISTRY_1_0": os.path.join(home, "gst-registry.bin"), "WINEARCH": "wow64"}
 
 
 # appwiz.cpl traces "Got URL" just before it opens a Mono or Gecko download dialog; mscoree says
