@@ -1,0 +1,22 @@
+makedep reads .cpp sources like .c sources, for Valve's lsteamclient, whose Unix half is C++.
+
+From ValveSoftware/wine, branch proton_11.0 (LGPL-2.1-or-later), by Valve: the same table line in
+tools/makedep.c, without the rest of Valve's C++ support. clang compiles .cpp as C++ by its extension,
+and a C++ file's '#pragma makedep unix' then puts it in the module's Unix library.
+
+The Wine tree has no .cpp file, so this changes nothing in the engine's own build. It lets Valve's
+lsteamclient (its Unix half is C++), built as its own archive, build against this tree with Wine's own
+make. Without it makedep compiles a .cpp file as a Windows object.
+
+Upstream status: Valve's Proton patch, carried with patch 0004 as part of the Steam bridge.
+
+--- a/tools/makedep.c
++++ b/tools/makedep.c
+@@ -1237,6 +1237,7 @@
+ } parse_functions[] =
+ {
+     { ".c",   parse_c_file },
++    { ".cpp", parse_c_file },
+     { ".h",   parse_c_file },
+     { ".inl", parse_c_file },
+     { ".l",   parse_c_file },
