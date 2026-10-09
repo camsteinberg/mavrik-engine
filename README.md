@@ -95,8 +95,9 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   program through `start.exe`, a second process.
 - **Steam bridge**: when a game loads Valve's `steamclient.dll` or `steamclient64.dll`, the loader
   makes its calls go to `lsteamclient.dll` (patch 0004), which talks to the Mac Steam app. lsteamclient
-  is not in this engine; it is built from Valve's Proton source as its own archive, and a program
-  that starts the engine puts it where the game finds it. The redirect is on unless
+  is not in this engine; it is built from Valve's Proton source as its own archive
+  ([`bridge/`](bridge/README.md)), and a program that starts the engine adds its `lib/wine` files to
+  the engine's `lib/wine`. The redirect is on unless
   `PROTON_DISABLE_LSTEAMCLIENT=1` is set, as in Proton, which always ships lsteamclient. Without
   lsteamclient a 32-bit `steamclient.dll` loads as it is, but `steamclient64.dll` and
   `gameoverlayrenderer64.dll` still have their `tier0_s64.dll` and `vstdlib_s64.dll` imports sent to
