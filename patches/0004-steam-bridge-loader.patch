@@ -23,7 +23,11 @@ Left out: Valve's WINESTEAMNOEXEC mode (the page fault handler in signal_*.c and
 jumps are always written. The Unix call logs the number of jumps on the steamclient channel.
 
 lsteamclient itself is not part of this engine: it is built from Proton's source as its own archive,
-under Valve's licence. Without it the loader finds no lsteamclient.dll and loads Valve's file as it is.
+under Valve's licence. Proton always ships it, so Valve's code does not check for it. Without it, the
+loader writes no jumps and a 32-bit steamclient.dll loads as it is; but import_dll still sends the
+tier0_s64/vstdlib_s64 imports of steamclient64.dll and gameoverlayrenderer64.dll to ntdll, where each
+becomes a stub that fails when called. A program running Valve's own Windows Steam client in this
+engine, with no lsteamclient, sets PROTON_DISABLE_LSTEAMCLIENT=1, as Proton's players do.
 NotProton (github.com/NotProtonNot/NotProton) showed this bridge working on a Mac with the Mac Steam
 app; nothing is copied from it.
 
