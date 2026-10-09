@@ -71,8 +71,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
 - **The game's name**: every Windows program runs as `lib/wine/x86_64-unix/wine`, and each Wine
   process takes its program's name as its bundle name (`ABZU.exe` becomes "ABZU"), so the app menu
   says "Hide ABZU" and "Quit ABZU". `WINEPRELOADERAPPNAME`, set in the environment of the first
-  process, replaces that name, up to 32 characters, and every process it starts keeps it, so a game
-  whose launcher starts the real game keeps its name. The Dock and the app switcher show the same
+  process, replaces that name, and every process it starts keeps it, so a game whose launcher starts
+  the real game keeps its name. The name has 32 bytes: the loader writes it into its Info.plist with
+  `&`, `<` and `>` escaped (an escaped `&` takes 5 bytes, an accented or CJK character 2 or 3, an
+  emoji 4) and cuts it only between whole characters. The Dock and the app switcher show the same
   name (patch 0006): the Mac driver sets it with a private LaunchServices call, looked up at run time.
   On a macOS without that call they show the loader's file name, `wine`.
 - **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
