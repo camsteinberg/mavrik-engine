@@ -1,0 +1,22 @@
+mavrik's macOS change to Proton's steam_helper/steam.c (BSD-3-Clause, Valve), at 5b89db9: the stub
+keeps its in-place restart and logs and drops every other command it would forward to a native
+steam command. A Mac has none, and forwarding to the Steam app would open its window.
+Under BSD-3-Clause, like steam.c (Proton's LICENSE.proton).
+
+--- a/programs/steam/steam.c
++++ b/programs/steam/steam.c
+@@ -697,6 +697,14 @@
+         return TRUE;
+     }
+ 
++    /* mavrik (macOS): there is no steam-runtime-steam-remote or steam command to forward to, and
++     * forwarding to the Mac Steam app would open its window. Log and drop the request. */
++    WINE_ERR("Not forwarding");
++    for (i = 0; i < argc; ++i)
++        WINE_ERR(" %s", wine_dbgstr_a(argv[i]));
++    WINE_ERR(" to the Steam app.\n");
++    return TRUE;
++
+     if (!p__wine_unix_spawnvp)
+     {
+         module = GetModuleHandleW( L"ntdll" );

@@ -1,0 +1,88 @@
+mavrik's macOS changes to Proton's lsteamclient (ValveSoftware/Proton proton_11.0 at 5b89db9).
+Same needs NotProton found (NotProtonNot/NotProton lsteamclient/), written here:
+- unixlib.cpp: NOMINMAX; Steam_IsKnownInterface and Steam_NotifyMissingInterface are optional,
+  because the Mac client's steamclient.dylib exports neither (missing: every interface is known).
+- unix_steam_input_manual.cpp: a macOS branch for the keysym lookup (no X11 table; returns 0).
+- unix_private.h: the SDK's wchar.h first, before winbase.h's wcsncpy error macro (libc++ reads it later).
+- Makefile.in: UNIX_LIBS = -lc++, since this tree's makedep links Unix libraries with clang, not clang++.
+Proven in the S188 lab (Spacewar through the Mac Steam app). This patch changes Valve's lsteamclient, so it is
+under lsteamclient's own licence (lsteamclient/LICENSE, the Steamworks SDK licence), not this repository's.
+
+--- a/dlls/lsteamclient/Makefile.in
++++ b/dlls/lsteamclient/Makefile.in
+@@ -1,6 +1,7 @@
+ MODULE    = lsteamclient.dll
+ UNIXLIB   = lsteamclient.so
+ IMPORTS   = user32 ws2_32
++UNIX_LIBS = -lc++
+ 
+ EXTRADEFS = -DSTEAM_API_EXPORTS -Dprivate=public -Dprotected=public
+ 
+--- a/dlls/lsteamclient/unix_private.h
++++ b/dlls/lsteamclient/unix_private.h
+@@ -3,6 +3,11 @@
+ 
+ #include <stdarg.h>
+ #include <stddef.h>
++#ifdef __APPLE__
++/* mavrik (macOS): winbase.h turns wcsncpy into an error macro; libc++ reads the SDK's wchar.h
++ * after it, so it is read first here. */
++#include <wchar.h>
++#endif
+ 
+ #include <windef.h>
+ #include <winbase.h>
+--- a/dlls/lsteamclient/unix_steam_input_manual.cpp
++++ b/dlls/lsteamclient/unix_steam_input_manual.cpp
+@@ -192,6 +192,12 @@
+         return vk_to_xkeysym[win_vk];
+     return 0;
+ }
++#elif defined(__APPLE__)
++/* mavrik (macOS): there is no X11 keysym table to map onto. */
++uint32_t manual_convert_nNativeKeyCode( uint32_t win_vk )
++{
++    return 0;
++}
+ #else
+ #error You must implement VK<->Native keysym conversion for this platform.
+ #endif
+--- a/dlls/lsteamclient/unixlib.cpp
++++ b/dlls/lsteamclient/unixlib.cpp
+@@ -1,3 +1,6 @@
++/* mavrik (macOS): Wine's windef.h defines min and max as macros unless NOMINMAX is set, which
++ * breaks std::max below. */
++#define NOMINMAX
+ #include "ntstatus.h"
+ #define WIN32_NO_STATUS
+ #include "unix_private.h"
+@@ -795,8 +798,10 @@
+     LOAD_FUNC( Steam_GetAPICallResult );
+     LOAD_FUNC( Steam_FreeLastCallback );
+     LOAD_FUNC( Steam_ReleaseThreadLocalMemory );
+-    LOAD_FUNC( Steam_IsKnownInterface );
+-    LOAD_FUNC( Steam_NotifyMissingInterface );
++    /* mavrik (macOS): the Mac client's steamclient.dylib exports neither of these two. */
++    p_Steam_IsKnownInterface = (decltype(p_Steam_IsKnownInterface))dlsym( steamclient, "Steam_IsKnownInterface" );
++    p_Steam_NotifyMissingInterface = (decltype(p_Steam_NotifyMissingInterface))dlsym( steamclient, "Steam_NotifyMissingInterface" );
++    if (!p_Steam_IsKnownInterface) TRACE( "no Steam_IsKnownInterface, every interface counts as known\n" );
+ 
+     TRACE( "Loaded host steamclient from %s\n", debugstr_a(path) );
+     return 0;
+@@ -851,14 +856,14 @@
+ template< typename Params >
+ static NTSTATUS steamclient_Steam_IsKnownInterface( Params *params, bool wow64 )
+ {
+-    params->_ret = p_Steam_IsKnownInterface( params->version );
++    params->_ret = p_Steam_IsKnownInterface ? p_Steam_IsKnownInterface( params->version ) : true;
+     return 0;
+ }
+ 
+ template< typename Params >
+ static NTSTATUS steamclient_Steam_NotifyMissingInterface( Params *params, bool wow64 )
+ {
+-    p_Steam_NotifyMissingInterface( params->pipe, params->version );
++    if (p_Steam_NotifyMissingInterface) p_Steam_NotifyMissingInterface( params->pipe, params->version );
+     return 0;
+ }
+ 
