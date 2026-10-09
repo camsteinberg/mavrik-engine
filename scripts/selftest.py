@@ -44,6 +44,10 @@ def cc(src_text, out_path, *args):
     os.remove(src)
 
 
+def out_text(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout.strip()
+
+
 def clone(src, dest):
     subprocess.run(["cp", "-c", "-R", src, dest], check=True)
 
@@ -255,6 +259,30 @@ def run(engine, work):
     case(results, "playback", "an engine clone without lib/gstreamer-1.0/libgstlibav.dylib", G.playback_check(bad, ctx)[0],
          r"mediaprobe(32|64)\.exe: (mf|wm)-(video|audio) failed|libgstlibav\.dylib")
     shutil.rmtree(bad, ignore_errors=True)
+
+    # steamredirect: the bridge turned off with Valve's own switch, so the steamclient DLL's export stays its own.
+    case(results, "steamredirect", "the bridge turned off with PROTON_DISABLE_LSTEAMCLIENT=1",
+         G.steamredirect_check(engine, ctx, {"PROTON_DISABLE_LSTEAMCLIENT": "1"})[0],
+         r"steamprobe(32|64)\.exe: redirect failed")
+
+    # dockname: an engine clone whose Mac driver cannot find LaunchServices' naming call (the name it looks
+    # up is changed in winemac.so, which is then signed again), so the Dock keeps "wine". The probe's windows
+    # must still appear: the driver goes on quietly without the call.
+    if out_text(["lsappinfo", "front"]):
+        bad = os.path.join(tmp, "no-naming-call-engine")
+        clone(engine, bad)
+        winemac = os.path.join(bad, "lib", "wine", "x86_64-unix", "winemac.so")
+        data = open(winemac, "rb").read()
+        name = b"_LSSetApplicationInformationItem"
+        assert data.count(name) == 1, f"winemac.so names {name.decode()} {data.count(name)} times"
+        os.remove(winemac)  # a new file, not the clone's shared blocks
+        open(winemac, "wb").write(data.replace(name, b"_LSSetApplicationInformationXxxx"))
+        subprocess.run(["codesign", "-s", "-", "-f", winemac], check=True, capture_output=True)
+        case(results, "dockname", "an engine clone whose winemac.so cannot find _LSSetApplicationInformationItem",
+             G.dockname_check(bad, ctx)[0], r"dockprobe(32|64)\.exe: the Dock shows 'wine'")
+        shutil.rmtree(bad, ignore_errors=True)
+    else:
+        skipped(results, "dockname", "an engine clone without the naming call", "no login session with a Dock")
 
     shutil.rmtree(tmp, ignore_errors=True)
     covered = {r["gate"] for r in results}

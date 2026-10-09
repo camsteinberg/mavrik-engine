@@ -45,8 +45,14 @@ The gates:
   playback      a Windows program decodes a movie (H.264 and AAC in MP4) in both halves through Media
                 Foundation and through the Windows Media reader; GStreamer's plugins load from the
                 engine's lib/gstreamer-1.0, and nothing from outside the engine and macOS
+  steamredirect Valve's Steam bridge in the loader (patch 0004): in both halves, a Windows program loads
+                a DLL named steamclient64.dll or steamclient.dll, and its export jumps into the
+                lsteamclient.dll beside it (tools/steamprobe.c builds all three). No Steam needed
+  dockname      a Windows program started with WINEPRELOADERAPPNAME shows a window and starts a 32-bit
+                child that shows its own; the Dock and the app switcher show that name for both, not
+                "wine" (patch 0006, read with lsappinfo). A machine with no login session reports SKIP
 
-A gate returns PASS, FAIL or, for d3d11 only, SKIP with its reason.
+A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 """
 import fnmatch
 import json
@@ -477,14 +483,15 @@ def run_probes(wine, probes, env, log, timeout=300):
     return problems, probed, ran
 
 
-def probe_check(engine, probes, required=(), timeout=900):
-    """A fresh prefix (wineboot --init), then each (Windows program, arguments) of probes. dyld lists
+def probe_check(engine, probes, required=(), timeout=900, extra_env=None):
+    """A fresh prefix (wineboot --init), then each (Windows program, arguments) of probes, with
+    extra_env added to Wine's environment. dyld lists
     what every Wine process loads: nothing may come from outside the engine and macOS, and once every
     probe ran to the end, each of `required` (paths in the engine) must be among the loaded images.
     Returns (problems, the probes' results, the engine's loaded images). Kills everything the prefix
     started and removes it, whatever happens."""
     home = tempfile.mkdtemp(prefix="probe-")
-    env = dict(wine_env(engine, home), DYLD_PRINT_LIBRARIES="1")
+    env = dict(wine_env(engine, home), DYLD_PRINT_LIBRARIES="1", **(extra_env or {}))
     wine = os.path.join(engine, "bin", "wine")
     log = os.path.join(home, "probe.log")
     problems, probed, images = [], [], []
@@ -900,11 +907,116 @@ def gate_playback(engine, ctx):
                           f"({', '.join(os.path.basename(p) for p in plugins)}), nothing from outside it"), problems
 
 
+# ---------------------------------------------------------------- steamredirect and dockname
+
+def steamredirect_probes(work):
+    """For each half, a folder holding steamprobeNN.exe and its two DLLs, all from tools/steamprobe.c:
+    a stand-in for Valve's steamclient (steamclient64.dll or steamclient.dll) and for lsteamclient.dll."""
+    src = os.path.join(REPO, "tools", "steamprobe.c")
+    probes = []
+    for bits, client in (("64", "steamclient64"), ("32", "steamclient")):
+        folder = os.path.join(work, "tools", "steamredirect" + bits)
+        os.makedirs(folder, exist_ok=True)
+        for name, extra in ((client + ".dll", ["-DPROBE_DLL=1", "-shared"]),
+                            ("lsteamclient.dll", ["-DPROBE_DLL=2", "-shared"]), (f"steamprobe{bits}.exe", [])):
+            path = os.path.join(folder, name)
+            if stale(path, src):
+                subprocess.run([PE_COMPILERS[bits], "-O1", "-s"] + extra + ["-o", path, src], check=True)
+        probes.append(os.path.join(folder, f"steamprobe{bits}.exe"))
+    return probes
+
+
+def steamredirect_check(engine, ctx, extra_env=None):
+    probes = [(p, []) for p in steamredirect_probes(ctx["work"])]
+    problems, probed, loaded = probe_check(engine, probes, extra_env=extra_env)
+    return problems, probed
+
+
+def gate_steamredirect(engine, ctx):
+    problems, probed = steamredirect_check(engine, ctx)
+    return not problems, "; ".join(probed), problems
+
+
+DOCK_NAME = "Gate Dock Name"
+
+
+def ls_info(pid, key):
+    """One item of LaunchServices' information on the process pid, or None."""
+    r = out(["lsappinfo", "info", "-only", key, str(pid)], timeout=30)
+    m = re.search(r'^"[^"]+"="(.*)"\s*$', r.stdout.strip())
+    return m.group(1) if m else None
+
+
+def pids_named(name):
+    """The processes whose name is name. Wine names each process after its Windows program, by its
+    Unix path or, for a program another one started, its Windows path."""
+    r = out(["/bin/ps", "-axo", "pid=,comm="])
+    found = []
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and re.split(r"[/\\]", parts[1].strip())[-1] == name:
+            found.append(int(parts[0]))
+    return found
+
+
+def dockname_check(engine, ctx, title=DOCK_NAME, timeout=60):
+    """A fresh prefix, then dockprobe64.exe with WINEPRELOADERAPPNAME=title: it shows a window and starts
+    dockprobe32.exe (a 32-bit child, as a game's launcher starts the game), which shows its own. Once each
+    is a Dock app, its LaunchServices name (what the Dock and the app switcher show) must be title.
+    Returns (problems, the names seen). Kills everything the prefix started and removes it."""
+    probes = {bits: compile_pe_tool(ctx["work"], "dockprobe", bits, ["user32"]) for bits in ("64", "32")}
+    home = tempfile.mkdtemp(prefix="dock-")
+    env = wine_env(engine, home)
+    wine, server = os.path.join(engine, "bin", "wine"), os.path.join(engine, "bin", "wineserver")
+    log = os.path.join(home, "dock.log")
+    problems, names = [], {}
+    try:
+        prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, 900)
+        if prompt or code != 0:
+            problems.append(f"wineboot --init: {prompt or 'exit %s' % code}")
+            return problems, names
+        out([server, "-w"], env=env, timeout=300)
+        child = "Z:" + probes["32"].replace("/", "\\")
+        with open(log, "a") as f:
+            proc = subprocess.Popen([wine, probes["64"], child], stdout=f, stderr=subprocess.STDOUT,
+                                    env=dict(env, WINEDEBUG="fixme-all", WINEPRELOADERAPPNAME=title))
+        programs = [os.path.basename(p) for p in (probes["64"], probes["32"])]
+        deadline = time.time() + timeout
+        while time.time() < deadline and len(names) < len(programs):
+            for program in programs:
+                for pid in pids_named(program):
+                    if program not in names and ls_info(pid, "ApplicationType") == "Foreground":
+                        time.sleep(1)  # the name is set before the process turns into a Dock app
+                        names[program] = ls_info(pid, "name")
+            if proc.poll() is not None:
+                break
+            time.sleep(0.5)
+        for program in programs:
+            if program not in names:
+                problems.append(f"{program} never became a Dock app (a window) in {timeout} s")
+            elif names[program] != title:
+                problems.append(f"{program}: the Dock shows '{names[program]}', not '{title}'")
+    finally:
+        out([server, "-k"], env=env, timeout=60)
+        if os.path.exists(log):
+            shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-dock-last.log"))
+        shutil.rmtree(home, ignore_errors=True)
+    return problems, names
+
+
+def gate_dockname(engine, ctx):
+    if not out(["lsappinfo", "front"], timeout=30).stdout.strip():
+        return None, "SKIP: no login session with a Dock on this machine", []
+    problems, names = dockname_check(engine, ctx)
+    seen = "; ".join(f"{p}: '{n}'" for p, n in names.items())
+    return not problems, f"WINEPRELOADERAPPNAME '{DOCK_NAME}'; the Dock's names: {seen}", problems
+
+
 GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", gate_pe32),
          ("winemac", gate_winemac), ("addons", gate_addons), ("wine", gate_wine),
          ("media", gate_media), ("licences", gate_licences), ("nogpl", gate_nogpl),
          ("identity", gate_identity), ("buildpaths", gate_buildpaths), ("d3d11", gate_d3d11),
-         ("playback", gate_playback)]
+         ("playback", gate_playback), ("steamredirect", gate_steamredirect), ("dockname", gate_dockname)]
 
 
 # ---------------------------------------------------------------- running

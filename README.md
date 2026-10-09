@@ -71,12 +71,19 @@ folder and macOS is used, and no file names the machine or the folders it was bu
 - **The game's name**: every Windows program runs as `lib/wine/x86_64-unix/wine`, and each Wine
   process takes its program's name as its bundle name (`ABZU.exe` becomes "ABZU"), so the app menu
   says "Hide ABZU" and "Quit ABZU". `WINEPRELOADERAPPNAME`, set in the environment of the first
-  process, replaces that name, up to 32 characters. The Dock and the app switcher show the loader's
-  file name, `wine`: LaunchServices names a program without an app bundle after its executable.
+  process, replaces that name, up to 32 characters, and every process it starts keeps it, so a game
+  whose launcher starts the real game keeps its name. The Dock and the app switcher show the same
+  name (patch 0006): the Mac driver sets it with a private LaunchServices call, looked up at run time.
+  On a macOS without that call they show the loader's file name, `wine`.
 - **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
   then runs a 32-bit program in the process it starts, like a 64-bit one, in new WoW64 mode; the
   engine has no 32-bit Unix side. With `WINEARCH` unset or `win64`, Wine relaunches each 32-bit
   program through `start.exe`, a second process.
+- **Steam bridge**: when a game loads Valve's `steamclient.dll` or `steamclient64.dll`, the loader
+  makes its calls go to `lsteamclient.dll` (patch 0004), which talks to the Mac Steam app. lsteamclient
+  is not in this engine; it is built from Valve's Proton source as its own archive, and a program
+  that starts the engine puts it where the game finds it. Without it, Valve's file loads as it is.
+  `PROTON_DISABLE_LSTEAMCLIENT=1` turns the redirect off.
 - **Identity**: every Wine process reports the bundle identifier `org.mavrik.engine`, so its
   preferences and saved window state are its own, never CrossOver's or another Wine's. The loader is
   not code-signed.
@@ -124,6 +131,14 @@ property the case breaks):
   one-second movie ([`tools/media/sample.mp4`](tools/media/), H.264 and AAC) in both halves, through
   Media Foundation and through the Windows Media reader, the two ways games play video. GStreamer's
   plugins load from the engine's `lib/gstreamer-1.0`, and nothing from outside the engine and macOS.
+- **steamredirect**: Valve's Steam bridge in the loader (patch 0004). A small Windows program
+  ([`tools/steamprobe.c`](tools/steamprobe.c)), in both halves, loads a DLL named `steamclient64.dll`
+  or `steamclient.dll` with a stand-in `lsteamclient.dll` beside it, and calls an export: the call
+  must land in lsteamclient's export of the same name. No Steam is needed.
+- **dockname**: a small Windows program ([`tools/dockprobe.c`](tools/dockprobe.c)) started with
+  `WINEPRELOADERAPPNAME` shows a window and starts a 32-bit copy of itself that shows its own. The
+  Dock and the app switcher must show that name for both, read with `lsappinfo`. A machine with no
+  login session reports SKIP.
 
 ## Build notes
 
@@ -211,6 +226,11 @@ checks them against their pins and prints the values still to pin.
 - [winecx-gptk](https://github.com/frankea/winecx-gptk), whose list of build gates showed which
   checks a shipped engine needs. Nothing is copied from it.
 - Gcenx, whose macOS Wine builds showed the configure options and the libraries a Mac engine needs.
+- Valve, for Proton's Steam bridge: patches 0004 and 0005 are Valve's loader change and makedep line
+  from ValveSoftware/wine (`proton_11.0`), ported to this tree.
+- [NotProton](https://github.com/NotProtonNot/NotProton), which showed Valve's bridge working on a Mac
+  with the Mac Steam app. Nothing is copied from it.
+- Chromium, Firefox and WebKit, whose way of naming a process in the Dock patch 0006 follows.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors.
 - The media component's script started as mavrik's own `make-media-component.sh`.
 
