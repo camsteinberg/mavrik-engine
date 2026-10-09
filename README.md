@@ -82,8 +82,13 @@ folder and macOS is used, and no file names the machine or the folders it was bu
 - **Steam bridge**: when a game loads Valve's `steamclient.dll` or `steamclient64.dll`, the loader
   makes its calls go to `lsteamclient.dll` (patch 0004), which talks to the Mac Steam app. lsteamclient
   is not in this engine; it is built from Valve's Proton source as its own archive, and a program
-  that starts the engine puts it where the game finds it. Without it, Valve's file loads as it is.
-  `PROTON_DISABLE_LSTEAMCLIENT=1` turns the redirect off.
+  that starts the engine puts it where the game finds it. The redirect is on unless
+  `PROTON_DISABLE_LSTEAMCLIENT=1` is set, as in Proton, which always ships lsteamclient. Without
+  lsteamclient a 32-bit `steamclient.dll` loads as it is, but `steamclient64.dll` and
+  `gameoverlayrenderer64.dll` still have their `tier0_s64.dll` and `vstdlib_s64.dll` imports sent to
+  ntdll, which has none of those functions: each becomes a stub that fails when called. So a program
+  that runs Valve's own Windows Steam client in this engine, with no lsteamclient, sets
+  `PROTON_DISABLE_LSTEAMCLIENT=1`, the switch Proton's players use as a launch option.
 - **Identity**: every Wine process reports the bundle identifier `org.mavrik.engine`, so its
   preferences and saved window state are its own, never CrossOver's or another Wine's. The loader is
   not code-signed.
