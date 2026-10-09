@@ -50,7 +50,9 @@ The gates:
                 lsteamclient.dll beside it (tools/steamprobe.c builds all three). No Steam needed
   dockname      a Windows program started with WINEPRELOADERAPPNAME shows a window and starts a 32-bit
                 child that shows its own; the Dock and the app switcher show that name for both, not
-                "wine" (patch 0006, read with lsappinfo). A machine with no login session reports SKIP
+                "wine" (patch 0006, read with lsappinfo), for a plain title, one with '&', '<' and '>',
+                and one with accented, CJK and emoji characters. Gates run outside a login (Aqua)
+                session report SKIP
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 """
@@ -937,14 +939,21 @@ def gate_steamredirect(engine, ctx):
     return not problems, "; ".join(probed), problems
 
 
-DOCK_NAME = "Gate Dock Name"
+# The titles the dockname gate gives WINEPRELOADERAPPNAME, each within the loader's 32-byte name slot
+# once escaped: a plain one; one with the characters XML escapes (a raw '&' or '<' makes Core Foundation
+# reject the loader's whole Info.plist); and one with accented, CJK and emoji characters.
+DOCK_NAMES = ["Gate Dock Name", "Gate & Dock <Name>", "Gâte Dock 名前 🎮"]
 
 
 def ls_info(pid, key):
-    """One item of LaunchServices' information on the process pid, or None."""
-    r = out(["lsappinfo", "info", "-only", key, str(pid)], timeout=30)
+    """One item of LaunchServices' information on the process pid, or None. Any \\uXXXX escapes in
+    lsappinfo's output are read back as the characters they stand for."""
+    r = out(["lsappinfo", "info", "-only", key, str(pid)], timeout=30, encoding="utf-8", errors="replace")
     m = re.search(r'^"[^"]+"="(.*)"\s*$', r.stdout.strip())
-    return m.group(1) if m else None
+    if not m:
+        return None
+    value = re.sub(r"\\[uU]([0-9a-fA-F]{4})", lambda u: chr(int(u.group(1), 16)), m.group(1))
+    return value.encode("utf-16", "surrogatepass").decode("utf-16")
 
 
 def pids_named(name):
@@ -959,57 +968,83 @@ def pids_named(name):
     return found
 
 
-def dockname_check(engine, ctx, title=DOCK_NAME, timeout=60):
-    """A fresh prefix, then dockprobe64.exe with WINEPRELOADERAPPNAME=title: it shows a window and starts
-    dockprobe32.exe (a 32-bit child, as a game's launcher starts the game), which shows its own. Once each
-    is a Dock app, its LaunchServices name (what the Dock and the app switcher show) must be title.
-    Returns (problems, the names seen). Kills everything the prefix started and removes it."""
+def dock_names_once(wine, probes, env, log, title, timeout):
+    """dockprobe64.exe with WINEPRELOADERAPPNAME=title: it shows a window and starts dockprobe32.exe (a
+    32-bit child, as a game's launcher starts the game), which shows its own. Once each is a Dock app,
+    its LaunchServices name (what the Dock and the app switcher show) must be title. Only processes that
+    started after this run began count, so a probe left by another run is never read.
+    Returns (problems, the names seen)."""
+    programs = [os.path.basename(p) for p in (probes["64"], probes["32"])]
+    before = {program: set(pids_named(program)) for program in programs}
+    child = "Z:" + probes["32"].replace("/", "\\")
+    with open(log, "a") as f:
+        proc = subprocess.Popen([wine, probes["64"], child], stdout=f, stderr=subprocess.STDOUT,
+                                env=dict(env, WINEDEBUG="fixme-all", WINEPRELOADERAPPNAME=title))
+    problems, names = [], {}
+    deadline = time.time() + timeout
+    while time.time() < deadline and len(names) < len(programs):
+        for program in programs:
+            new = [pid for pid in pids_named(program) if pid not in before[program]]
+            if len(new) > 1:
+                problems.append(f"{program}: {len(new)} new processes ({new}); cannot tell which is the probe")
+                return problems, names
+            if new and program not in names and ls_info(new[0], "ApplicationType") == "Foreground":
+                time.sleep(1)  # the name is set before the process turns into a Dock app
+                names[program] = ls_info(new[0], "name")
+        if proc.poll() is not None:
+            break
+        time.sleep(0.5)
+    for program in programs:
+        if program not in names:
+            problems.append(f"{program} never became a Dock app (a window) in {timeout} s")
+        elif names[program] != title:
+            problems.append(f"{program}: the Dock shows '{names[program]}', not '{title}'")
+    return problems, names
+
+
+def dockname_check(engine, ctx, titles=DOCK_NAMES, timeout=60):
+    """A fresh prefix, then for each of titles the two probes (dock_names_once), with everything the
+    prefix started ended between titles. Returns (problems, {title: the names seen}). Kills everything
+    the prefix started and removes it."""
     probes = {bits: compile_pe_tool(ctx["work"], "dockprobe", bits, ["user32"]) for bits in ("64", "32")}
     home = tempfile.mkdtemp(prefix="dock-")
     env = wine_env(engine, home)
     wine, server = os.path.join(engine, "bin", "wine"), os.path.join(engine, "bin", "wineserver")
     log = os.path.join(home, "dock.log")
-    problems, names = [], {}
+    problems, seen = [], {}
     try:
         prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, 900)
         if prompt or code != 0:
             problems.append(f"wineboot --init: {prompt or 'exit %s' % code}")
-            return problems, names
+            return problems, seen
         out([server, "-w"], env=env, timeout=300)
-        child = "Z:" + probes["32"].replace("/", "\\")
-        with open(log, "a") as f:
-            proc = subprocess.Popen([wine, probes["64"], child], stdout=f, stderr=subprocess.STDOUT,
-                                    env=dict(env, WINEDEBUG="fixme-all", WINEPRELOADERAPPNAME=title))
-        programs = [os.path.basename(p) for p in (probes["64"], probes["32"])]
-        deadline = time.time() + timeout
-        while time.time() < deadline and len(names) < len(programs):
-            for program in programs:
-                for pid in pids_named(program):
-                    if program not in names and ls_info(pid, "ApplicationType") == "Foreground":
-                        time.sleep(1)  # the name is set before the process turns into a Dock app
-                        names[program] = ls_info(pid, "name")
-            if proc.poll() is not None:
-                break
-            time.sleep(0.5)
-        for program in programs:
-            if program not in names:
-                problems.append(f"{program} never became a Dock app (a window) in {timeout} s")
-            elif names[program] != title:
-                problems.append(f"{program}: the Dock shows '{names[program]}', not '{title}'")
+        for title in titles:
+            found, seen[title] = dock_names_once(wine, probes, env, log, title, timeout)
+            problems += [f"'{title}': {p}" for p in found]
+            out([server, "-k"], env=env, timeout=60)
+            out([server, "-w"], env=env, timeout=60)
     finally:
         out([server, "-k"], env=env, timeout=60)
         if os.path.exists(log):
             shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-dock-last.log"))
         shutil.rmtree(home, ignore_errors=True)
-    return problems, names
+    return problems, seen
+
+
+def login_session():
+    """The launchd session this process runs in ("Aqua" is a user's login session, where a window can
+    become a Dock app; "Background" is, for one, an ssh login's), or "" if launchctl does not say."""
+    return out(["launchctl", "managername"], timeout=30).stdout.strip()
 
 
 def gate_dockname(engine, ctx):
-    if not out(["lsappinfo", "front"], timeout=30).stdout.strip():
-        return None, "SKIP: no login session with a Dock on this machine", []
-    problems, names = dockname_check(engine, ctx)
-    seen = "; ".join(f"{p}: '{n}'" for p, n in names.items())
-    return not problems, f"WINEPRELOADERAPPNAME '{DOCK_NAME}'; the Dock's names: {seen}", problems
+    session = login_session()
+    if session != "Aqua":
+        return None, (f"SKIP: the gates run in launchd's '{session or 'unknown'}' session, not a login (Aqua) "
+                      "session, so no window can become a Dock app"), []
+    problems, seen = dockname_check(engine, ctx)
+    names = "; ".join(f"'{t}': " + ", ".join(f"{p} '{n}'" for p, n in s.items()) for t, s in seen.items())
+    return not problems, f"the Dock's names: {names}", problems
 
 
 GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", gate_pe32),

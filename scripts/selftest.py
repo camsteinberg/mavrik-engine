@@ -44,10 +44,6 @@ def cc(src_text, out_path, *args):
     os.remove(src)
 
 
-def out_text(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout.strip()
-
-
 def clone(src, dest):
     subprocess.run(["cp", "-c", "-R", src, dest], check=True)
 
@@ -268,7 +264,7 @@ def run(engine, work):
     # dockname: an engine clone whose Mac driver cannot find LaunchServices' naming call (the name it looks
     # up is changed in winemac.so, which is then signed again), so the Dock keeps "wine". The probe's windows
     # must still appear: the driver goes on quietly without the call.
-    if out_text(["lsappinfo", "front"]):
+    if G.login_session() == "Aqua":
         bad = os.path.join(tmp, "no-naming-call-engine")
         clone(engine, bad)
         winemac = os.path.join(bad, "lib", "wine", "x86_64-unix", "winemac.so")
@@ -281,8 +277,20 @@ def run(engine, work):
         case(results, "dockname", "an engine clone whose winemac.so cannot find _LSSetApplicationInformationItem",
              G.dockname_check(bad, ctx)[0], r"dockprobe(32|64)\.exe: the Dock shows 'wine'")
         shutil.rmtree(bad, ignore_errors=True)
+
+        # dockname: titles past the loader's 32-byte name slot once escaped, one of '&' (5 bytes each
+        # escaped) and one of CJK characters (3 bytes each). The Dock must show each cut between whole
+        # escapes or whole characters; a cut inside one makes Core Foundation reject the loader's
+        # Info.plist, and the Dock then shows "wine", which these rows do not accept.
+        long_titles = {"&&&&&&&": "&&&&&&", "名前" * 5 + "名": "名前" * 5}
+        problems = G.dockname_check(engine, ctx, titles=list(long_titles))[0]
+        for title, shown in long_titles.items():
+            case(results, "dockname", f"the title '{title}', past the 32-byte name slot once escaped",
+                 [p for p in problems if p.startswith(f"'{title}': ") or not p.startswith("'")],
+                 r"dockprobe(32|64)\.exe: " + re.escape(f"the Dock shows '{shown}', not '{title}'"))
     else:
-        skipped(results, "dockname", "an engine clone without the naming call", "no login session with a Dock")
+        skipped(results, "dockname", "an engine clone without the naming call, and titles past the name slot",
+                "not in a login (Aqua) session")
 
     shutil.rmtree(tmp, ignore_errors=True)
     covered = {r["gate"] for r in results}

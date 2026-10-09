@@ -144,8 +144,11 @@ property the case breaks):
   must land in lsteamclient's export of the same name. No Steam is needed.
 - **dockname**: a small Windows program ([`tools/dockprobe.c`](tools/dockprobe.c)) started with
   `WINEPRELOADERAPPNAME` shows a window and starts a 32-bit copy of itself that shows its own. The
-  Dock and the app switcher must show that name for both, read with `lsappinfo`. A machine with no
-  login session reports SKIP.
+  Dock and the app switcher must show that name for both, read with `lsappinfo`, for three titles: a
+  plain one, one with `&`, `<` and `>`, and one with accented, CJK and emoji characters. Only probes
+  started by the gate's own run are read. When the gates run outside a login session (`launchctl
+  managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate reports
+  SKIP; inside one, it runs and passes or fails.
 
 ## Build notes
 
@@ -208,8 +211,11 @@ An engine built on a Mac is for testing only. Releases come only from the GitHub
 ## Releases
 
 A run started with `publish_release` publishes a prerelease after every gate and the self-test
-pass. It carries the engine, its `.sha256`, the gate results and the source of every LGPL and MPL
-part:
+pass. A dockname SKIP is not a pass for a release: if the runner reports SKIP, the prerelease is not
+published until the same recipe commit has passed dockname on a Mac in a login session, and that
+run's `gates/results.json` goes with the release's gate results. The workflow does not enforce this
+yet; whoever starts the release checks it. A release carries the engine, its `.sha256`, the gate
+results and the source of every LGPL and MPL part:
 
 - Wine (the CrossOver source archive, with this repository's patches in the recipe), GnuTLS,
   Nettle and GMP, Wine Mono and Wine Gecko;
