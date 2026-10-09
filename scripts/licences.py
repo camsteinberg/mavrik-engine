@@ -9,7 +9,13 @@
       Writes ENGINE/licences/: one folder per component with its full licence texts and
       copyright notices, COMPONENTS.tsv (component, version, licence, source, notice files)
       and FILES.tsv (every file in the engine and the component it belongs to; a line with a
-      '*' is a pattern). Reads WORK/contributions.json from assemble.py.
+      '*' is a pattern). Reads WORK/contributions.json from assemble.py. Stops if the engine holds
+      a Steam bridge file: those are never Wine's, and belong only in the bridge's own archive.
+
+  licences.py bridge WORK BRIDGE REPO
+      Writes BRIDGE/licences/ the same way for the Steam bridge's own archive (bridge/assemble.py):
+      lsteamclient under Valve's Steamworks SDK licence, steam.exe under BSD-3-Clause, and the Wine
+      start-up code both carry under the LGPL.
 """
 import hashlib
 import json
@@ -109,7 +115,14 @@ COMPONENT_INFO = {
     "sdl2": ("Zlib (includes HIDAPI under its BSD terms, and yuv2rgb: BSD-3-Clause)", "SDL2, Wine's game controller support"),
     "mavrik-engine": ("LGPL-2.1-or-later", "this repository's build files and build record"),
     "licences": ("(the licence texts themselves)", "this folder"),
+    # The Steam bridge's own archive (licences.py bridge), never the engine.
+    "lsteamclient": ("Steamworks SDK License (Valve's, a contract: see lsteamclient/LICENSE)",
+                     "Valve's lsteamclient from Proton, with mavrik's macOS changes (bridge/patches/)"),
+    "steam-helper": ("BSD-3-Clause (Valve)", "Valve's steam.exe stub from Proton's steam_helper, with mavrik's macOS change"),
+    "mavrik-steam-bridge": ("LGPL-2.1-or-later", "this repository's bridge build files, build record and notice"),
 }
+# The Steam bridge's files: built only by bridge/build.sh, packed only in the bridge's archive.
+BRIDGE_FILES = {"lsteamclient.dll": "lsteamclient", "lsteamclient.so": "lsteamclient", "steam.exe": "steam-helper"}
 # Where each component's source is (an input, or a release source).
 SOURCE_KEY = {"wine": "crossover-sources", "wine-mono": "wine-mono-source", "wine-gecko": "wine-gecko-source",
               "moltenvk": "moltenvk", "dxmt": "dxmt-source", "gmp": "gmp", "nettle": "nettle", "gnutls": "gnutls",
@@ -119,6 +132,10 @@ SOURCE_KEY = {"wine": "crossover-sources", "wine-mono": "wine-mono-source", "win
 def write(work, engine, repo):
     paths, inputs = load(work)
     contrib = json.load(open(os.path.join(work, "contributions.json")))
+    bridge = sorted(p for p in contrib if os.path.basename(p) in BRIDGE_FILES)
+    if bridge:
+        sys.exit(f"the engine holds Steam bridge files ({', '.join(bridge)}): they are Valve's lsteamclient and stub, "
+                 "never Wine's, and are built and packed only as the bridge's own archive (bridge/)")
     lic = os.path.join(engine, "licences")
     if os.path.exists(lic):
         shutil.rmtree(lic)
@@ -249,11 +266,78 @@ def write(work, engine, repo):
     print(f"licences: {len(rows)} components, {len(lines)} lines in FILES.tsv")
 
 
+def write_bridge(work, bridge, repo):
+    """The Steam bridge's licence folder. Its files are Valve's code (lsteamclient under the Steamworks
+    SDK licence, steam.exe under BSD-3-Clause), each with Wine's start-up code (winecrt0, LGPL) linked in."""
+    pin = json.load(open(os.path.join(repo, "bridge", "inputs.json")))["inputs"]["proton-source"]
+    proton = os.path.join(work, "bridge", "proton")
+    lic = os.path.join(bridge, "licences")
+    if os.path.exists(lic):
+        shutil.rmtree(lic)
+    notices = {}
+
+    def put(component, name, data):
+        p = os.path.join(lic, component, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb" if isinstance(data, bytes) else "w") as f:
+            f.write(data)
+        notices.setdefault(component, []).append(os.path.relpath(p, lic))
+
+    put("lsteamclient", "LICENSE", open(os.path.join(proton, "lsteamclient", "LICENSE"), "rb").read())
+    put("steam-helper", "LICENSE.proton", open(os.path.join(proton, "LICENSE.proton"), "rb").read())
+    put("wine", "COPYING.LIB", open(os.path.join(work, "wine-src", "COPYING.LIB"), "rb").read())
+    put("wine", "README.txt", "Every Windows file in this archive (lsteamclient.dll and steam.exe, both halves) carries Wine's\n"
+        "start-up code (dlls/winecrt0), which is under the LGPL-2.1-or-later (COPYING.LIB). Its source is the\n"
+        "engine's: CodeWeavers' CrossOver sources and the patches in https://github.com/camsteinberg/mavrik-engine.\n")
+    put("mavrik-steam-bridge", "LICENSE", open(os.path.join(repo, "LICENSE"), "rb").read())
+    lines = ["mavrik's changes to Valve's sources, applied in order. Each is in bridge/patches/ in the repository",
+             "(https://github.com/camsteinberg/mavrik-engine), with its reason and its licence in its header.", ""]
+    for name in sorted(p for p in os.listdir(os.path.join(repo, "bridge", "patches")) if p.endswith(".patch")):
+        header = open(os.path.join(repo, "bridge", "patches", name), encoding="utf-8").read().split("\n--- a/", 1)[0]
+        lines += [name] + ["  " + l for l in header.strip().splitlines()] + [""]
+    put("mavrik-steam-bridge", "PATCHES.txt", "\n".join(lines))
+
+    files = {}
+    for dirpath, _, names in os.walk(bridge):
+        for n in names:
+            rel = os.path.relpath(os.path.join(dirpath, n), bridge)
+            if rel.startswith("licences/"):
+                continue
+            files[rel] = BRIDGE_FILES.get(n, "mavrik-steam-bridge")
+    commit = pin["commit"]
+    source = f"https://github.com/ValveSoftware/Proton/tree/{commit}"
+    version = f"Proton {pin['version']}, with bridge/patches"
+    wine_version = open(os.path.join(work, "wine-src", "VERSION")).read().strip().replace("Wine version ", "")
+    cx = json.load(open(open(os.path.join(work, "inputs.path")).read().strip()))["inputs"]["crossover-sources"]
+    rows = [("lsteamclient", version, source + "/lsteamclient"),
+            ("steam-helper", version, source + "/steam_helper"),
+            ("wine", f"{wine_version} (CrossOver {cx['version']} sources), start-up code only", cx["url"]),
+            ("mavrik-steam-bridge", "-", "https://github.com/camsteinberg/mavrik-engine/tree/main/bridge"),
+            ("licences", "-", "-")]
+    notices["licences"] = ["COMPONENTS.tsv"]
+    licence_of = dict(COMPONENT_INFO, wine=(COMPONENT_INFO["wine"][0] + ", the start-up code inside each Windows file", ""))
+    open(os.path.join(lic, "COMPONENTS.tsv"), "w").write(
+        "component\tversion\tlicence\tsource\tnotices (in this folder)\n" +
+        "".join(f"{c}\t{v}\t{licence_of[c][0]}\t{s}\t{','.join(notices.get(c, []))}\n" for c, v, s in rows))
+    open(os.path.join(lic, "FILES.tsv"), "w").write(
+        "file or pattern\tcomponent\n" + "".join(f"{p}\t{c}\n" for p, c in sorted(files.items()) + [("licences/*", "licences")]))
+    open(os.path.join(lic, "README.txt"), "w").write(
+        "This folder lists every part of this archive and its licence.\n\n"
+        "lsteamclient is Valve's, under the Steamworks SDK licence (lsteamclient/LICENSE). steam.exe is Valve's,\n"
+        "under BSD-3-Clause (steam-helper/LICENSE.proton). Both carry Wine's start-up code (wine/). COMPONENTS.tsv\n"
+        "names each part, its version, its licence, where its source is and its notice files; FILES.tsv names\n"
+        "every file and the part it belongs to.\n\n"
+        "Built by mavrik from Valve's Proton source. Not made, endorsed or supported by Valve.\n")
+    print(f"bridge licences: {len(rows)} components, {len(files) + 1} lines in FILES.tsv")
+
+
 def main(argv):
     if len(argv) == 3 and argv[1] == "media-notices":
         media_notices(argv[2])
     elif len(argv) == 5 and argv[1] == "write":
         write(argv[2], argv[3], argv[4])
+    elif len(argv) == 5 and argv[1] == "bridge":
+        write_bridge(argv[2], argv[3], argv[4])
     else:
         sys.exit(__doc__)
 
