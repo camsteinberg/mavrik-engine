@@ -74,6 +74,9 @@ def patch_credits(patch_file):
     if paragraphs and paragraphs[0].startswith("Adopted from"):
         origin = " ".join(paragraphs[0].split()).replace(" Its own header follows.", "")
         return origin, paragraphs[1].splitlines()[0] if len(paragraphs) > 1 else ""
+    if len(paragraphs) > 1 and paragraphs[1].startswith("From "):
+        # Ported from another project: the second paragraph names it.
+        return " ".join(paragraphs[1].split())[5:].split(". ")[0].rstrip(".") + ".", paragraphs[0].splitlines()[0]
     return "this repository (https://github.com/camsteinberg/mavrik-engine)", paragraphs[0].splitlines()[0] if paragraphs else ""
 
 

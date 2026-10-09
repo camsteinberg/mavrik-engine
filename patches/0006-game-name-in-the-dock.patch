@@ -1,0 +1,106 @@
+The Dock and the app switcher show the program's name (or the name its launcher gives it), not "wine".
+
+LaunchServices names a program that has no app bundle after its executable, so every Windows program
+showed as "wine" in the Dock and in the app switcher, while its app menu already said "Quit ABZU"
+(CrossOver Hack 13438 rewrites the loader's bundle name, from WINEPRELOADERAPPNAME or the program's
+file name). This patch makes the Dock and the app switcher use that same name:
+
+- dlls/winemac.drv/cocoa_app.m: just before a process becomes a Dock app (its first window), the Mac
+  driver sets its LaunchServices display name to the bundle name, from inside the process, with
+  LaunchServices' private _LSSetApplicationInformationItem and _kLSDisplayNameKey. Chromium used this
+  call to name its helper processes (base/mac/mac_util.mm, SetProcessName), and Firefox
+  (ipc/glue/ProcessUtils_mac.mm) and WebKit (WebProcessCocoa.mm) still do. The symbols are looked up
+  at run time with dlsym, as the driver already does for IOKit's private display calls: on a macOS
+  without them nothing happens and the name stays "wine". A failed call is logged on the error
+  channel.
+- loader/main.c: WINEPRELOADERAPPNAME is no longer removed from the environment once read, so every
+  process the program starts takes the same name. A game whose launcher starts the real game keeps its
+  name in the Dock. Wine's own background programs inherit it too; they show no window, so no Dock
+  icon. CrossOver's CW HACK 22144 still sets a per-program name when it runs (only with WINEDLLPATH set).
+
+Upstream status: not offered yet; to be offered to WineHQ with the lab evidence. It relies on a
+private macOS call, which WineHQ may decline.
+
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -23,6 +23,7 @@
+ #import "cocoa_event.h"
+ #import "cocoa_window.h"
+ #import "cocoa_icon_utils.h"
++#include <dlfcn.h>
+ 
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+ 
+@@ -83,6 +84,50 @@
+ static NSString* WineLocalizedString(unsigned int stringID)
+ {
+     return ((NSDictionary*)localized_strings)[@(stringID)];
++}
++
++
++/***********************************************************************
++ *              set_display_name
++ *
++ * Give the process the name the Dock and the app switcher show.  They
++ * take it from LaunchServices, which names a program that has no app
++ * bundle after its executable ("wine").  LaunchServices' private
++ * _LSSetApplicationInformationItem sets it from inside the process, as
++ * Chromium did for its helper processes and Firefox and WebKit do.  It
++ * is looked up at run time: on a macOS without it, the name stays as it
++ * was.
++ */
++static void set_display_name(NSString* name)
++{
++    typedef CFTypeRef (*LSGetCurrentApplicationASNFunc)(void);
++    typedef OSStatus (*LSSetApplicationInformationItemFunc)(int, CFTypeRef, CFStringRef, CFStringRef, CFDictionaryRef*);
++    static LSGetCurrentApplicationASNFunc pLSGetCurrentApplicationASN;
++    static LSSetApplicationInformationItemFunc pLSSetApplicationInformationItem;
++    static CFStringRef* pLSDisplayNameKey;
++    static dispatch_once_t once;
++    CFTypeRef asn;
++    OSStatus status;
++
++    dispatch_once(&once, ^{
++        void* handle = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_LAZY | RTLD_LOCAL);
++        if (handle)
++        {
++            pLSGetCurrentApplicationASN = dlsym(handle, "_LSGetCurrentApplicationASN");
++            pLSSetApplicationInformationItem = dlsym(handle, "_LSSetApplicationInformationItem");
++            pLSDisplayNameKey = dlsym(handle, "_kLSDisplayNameKey");
++        }
++    });
++
++    if (![name length] || !pLSGetCurrentApplicationASN || !pLSSetApplicationInformationItem ||
++        !pLSDisplayNameKey || !*pLSDisplayNameKey)
++        return;
++    if (!(asn = pLSGetCurrentApplicationASN()))
++        return;
++    /* -2 is the current session, as WebKit and Chromium pass. */
++    status = pLSSetApplicationInformationItem(-2, asn, *pLSDisplayNameKey, (CFStringRef)name, NULL);
++    if (status)
++        ERR(@"could not set the display name: %d\n", (int)status);
+ }
+ 
+ 
+@@ -325,6 +370,9 @@
+                 }
+             }
+ 
++            /* The Dock and the app switcher show the same name as the app menu. */
++            set_display_name([[NSBundle mainBundle] objectForInfoDictionaryKey:(NSString*)kCFBundleNameKey]);
++
+             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+ 
+             if (activateIfTransformed)
+--- a/loader/main.c
++++ b/loader/main.c
+@@ -205,7 +205,8 @@
+     const char* new_bundle_name = getenv("WINEPRELOADERAPPNAME");
+     size_t new_bundle_name_len;
+ 
+-    unsetenv("WINEPRELOADERAPPNAME");
++    /* WINEPRELOADERAPPNAME stays in the environment, so every process the program starts takes the
++     * same name: a game whose launcher starts the real game keeps its name in the Dock. */
+ 
+     if (!new_bundle_name && argc < 2)
+         return;
