@@ -7,19 +7,26 @@ file name). This patch makes the Dock and the app switcher use that same name:
 
 - dlls/winemac.drv/cocoa_app.m: just before a process becomes a Dock app (its first window), the Mac
   driver sets its LaunchServices display name to the bundle name, from inside the process, with
-  LaunchServices' private _LSSetApplicationInformationItem and _kLSDisplayNameKey. Chromium used this
-  call to name its helper processes (base/mac/mac_util.mm, SetProcessName), and Firefox
-  (ipc/glue/ProcessUtils_mac.mm) and WebKit (WebProcessCocoa.mm) still do. The symbols are looked up
-  at run time with dlsym, as the driver already does for IOKit's private display calls: on a macOS
-  without them nothing happens and the name stays "wine". A failed call is logged on the error
-  channel.
+  LaunchServices' private _LSSetApplicationInformationItem and _kLSDisplayNameKey. Firefox
+  (ipc/glue/ProcessUtils_mac.mm) and WebKit (WebProcessCocoa.mm) use this call today; Chromium used it
+  for its helper processes until 2013. The symbols are looked up at run time with dlsym, as the driver
+  already does for IOKit's private display calls: on a macOS without them nothing happens and the name
+  stays "wine". A failed call is logged on the error channel.
 - loader/main.c: WINEPRELOADERAPPNAME is no longer removed from the environment once read, so every
   process the program starts takes the same name. A game whose launcher starts the real game keeps its
   name in the Dock. Wine's own background programs inherit it too; they show no window, so no Dock
   icon. CrossOver's CW HACK 22144 still sets a per-program name when it runs (only with WINEDLLPATH set).
+- loader/main.c: the name is written into the Info.plist's XML with '&', '<' and '>' escaped, and cut
+  only between whole characters and escapes. Hack 13438 wrote it raw and cut it by bytes: a title such
+  as "Ratchet & Clank", or a file name cut inside a UTF-8 character, made Core Foundation reject the
+  whole Info.plist (plutil: "Encountered unknown ampersand-escape sequence", "Unable to convert string
+  to correct encoding"), losing the name, the bundle identifier and LSUIElement. The slot stays 32
+  bytes, so an escaped '&' takes 5 of them.
 
-Upstream status: not offered yet; to be offered to WineHQ with the lab evidence. It relies on a
-private macOS call, which WineHQ may decline.
+Upstream status: not offered yet. WineHQ's loader has no bundle-name rewrite (its CFBundleName is
+"Wine"), so the WineHQ offer takes the name from the program's file name in the Mac driver; the
+loader parts change CrossOver's own hack and go to CodeWeavers. The display-name call is private,
+which WineHQ may decline.
 
 --- a/dlls/winemac.drv/cocoa_app.m
 +++ b/dlls/winemac.drv/cocoa_app.m
@@ -94,7 +101,49 @@ private macOS call, which WineHQ may decline.
              if (activateIfTransformed)
 --- a/loader/main.c
 +++ b/loader/main.c
-@@ -205,7 +205,8 @@
+@@ -179,6 +179,41 @@
+ #ifdef __APPLE__
+ #define min(a,b)   (((a) < (b)) ? (a) : (b))
+ /***********************************************************************
++ *           copy_xml_name
++ *
++ * Copy as much of name (len bytes of UTF-8) as fits in max bytes of XML
++ * text: '&', '<' and '>' escaped, and never an escape or a character cut
++ * in half.  An unescaped '&' or '<' would make Core Foundation reject the
++ * whole Info.plist.  With dest NULL, only count.  Returns the bytes used.
++ */
++static size_t copy_xml_name( char* dest, size_t max, const char* name, size_t len )
++{
++    size_t in = 0, out = 0;
++
++    while (in < len)
++    {
++        const char* piece = name + in;
++        size_t piece_len = 1, used = 1;
++
++        if (name[in] == '&') piece = "&amp;", piece_len = 5;
++        else if (name[in] == '<') piece = "&lt;", piece_len = 4;
++        else if (name[in] == '>') piece = "&gt;", piece_len = 4;
++        else
++        {
++            /* a UTF-8 lead byte and its continuation bytes go together */
++            while (in + used < len && (name[in + used] & 0xc0) == 0x80) used++;
++            piece_len = used;
++        }
++
++        if (out + piece_len > max) break;
++        if (dest) memcpy(dest + out, piece, piece_len);
++        out += piece_len;
++        in += used;
++    }
++    return out;
++}
++
++/***********************************************************************
+  *           apple_override_bundle_name
+  *
+  * Rewrite the bundle name in the Info.plist embedded in the loader.
+@@ -205,7 +240,8 @@
      const char* new_bundle_name = getenv("WINEPRELOADERAPPNAME");
      size_t new_bundle_name_len;
  
@@ -104,3 +153,22 @@ private macOS call, which WineHQ may decline.
  
      if (!new_bundle_name && argc < 2)
          return;
+@@ -248,7 +284,7 @@
+     else
+         new_bundle_name_len = strlen(new_bundle_name);
+ 
+-    if (!new_bundle_name_len)
++    if (!copy_xml_name(NULL, max_bundle_name_len, new_bundle_name, new_bundle_name_len))
+         return;
+ 
+     start = (vm_address_t)bundle_name;
+@@ -258,8 +294,7 @@
+     if (vm_protect(mach_task_self(), start, end - start, 0,
+                    VM_PROT_READ|VM_PROT_WRITE|VM_PROT_EXECUTE|VM_PROT_COPY) == KERN_SUCCESS)
+     {
+-        size_t copy_len = min(new_bundle_name_len, max_bundle_name_len);
+-        memcpy(bundle_name, new_bundle_name, copy_len);
++        size_t copy_len = copy_xml_name(bundle_name, max_bundle_name_len, new_bundle_name, new_bundle_name_len);
+         memcpy(bundle_name + copy_len, suffix, suffix_len);
+         if (copy_len < max_bundle_name_len)
+             memset(bundle_name + copy_len + suffix_len, ' ', max_bundle_name_len - copy_len);
