@@ -31,6 +31,11 @@ mpeg2dec and dtsdec (GPL or patent-encumbered).
 
 Never bundled or downloaded: D3DMetal (Apple's Game Porting Toolkit, under Apple's licence).
 
+Not in the engine: Valve's Steam bridge (lsteamclient and the steam.exe stub). It is built from
+[`bridge/`](bridge/) as its own archive, with its own licence folder: lsteamclient under Valve's
+Steamworks SDK licence, steam.exe under BSD-3-Clause, both carrying Wine's start-up code (LGPL). The
+engine's licence step refuses those files, so they are never listed as Wine's.
+
 A release also carries the corresponding source of every LGPL and MPL part (see "Releases" in the
 README); for the media component that is the tarballs GStreamer's build recipes (cerbero 1.28.6)
 built it from, and cerbero with its patches.
