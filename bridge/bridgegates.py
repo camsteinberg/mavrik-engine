@@ -27,7 +27,7 @@ The gates:
                  loads a stand-in steamclient DLL, its export jumps into lsteamclient, whose Windows
                  half calls its Unix half through the 64-bit or the wow64 call table, and the answer
                  comes back (bridge/tools/bridgeprobe.c). STEAM_COMPAT_CLIENT_INSTALL_PATH points at
-                 an empty folder, so no Steam library is loaded and no Steam app is touched
+                 a stand-in Steam library the gate builds inside the clone, so no Steam app is touched
 """
 import json
 import os
@@ -169,13 +169,35 @@ def with_engine(bridge, ctx, files=None):
     return engine
 
 
-def steamredirect_check(bridge, ctx, files=None, extra_env=None):
+# A stand-in for the Mac Steam app's steamclient.dylib. lsteamclient's Unix half needs a Steam library
+# that exports these five (steamclient_init in Proton's unixlib.cpp); without one, every call into
+# lsteamclient fails an assert and the program aborts. Like the Mac client's, it exports neither
+# Steam_IsKnownInterface nor Steam_NotifyMissingInterface, so the probe's call is answered by patch
+# 0002's fallback (1). The probe calls none of these.
+STEAM_STANDIN_C = """void *CreateInterface(void) { return 0; }
+int Steam_BGetCallback(void) { return 0; }
+int Steam_GetAPICallResult(void) { return 0; }
+void Steam_FreeLastCallback(void) { }
+void Steam_ReleaseThreadLocalMemory(void) { }
+"""
+STEAM_STANDIN = "steam-standin/steamclient.dylib"
+
+
+def steamredirect_check(bridge, ctx, files=None, extra_env=None, standin_extra=""):
+    """The probes on an engine clone with the bridge's files (or `files`) and, inside the clone (so
+    dyld's list holds nothing from outside the engine and macOS), the stand-in Steam library that
+    STEAM_COMPAT_CLIENT_INSTALL_PATH points at. standin_extra adds code to the stand-in."""
     engine = with_engine(bridge, ctx, files)
-    empty = tempfile.mkdtemp(prefix="no-steam-", dir=os.path.dirname(engine))
+    standin = os.path.join(engine, STEAM_STANDIN)
     try:
-        env = dict({"STEAM_COMPAT_CLIENT_INSTALL_PATH": empty}, **(extra_env or {}))
+        os.makedirs(os.path.dirname(standin))
+        src = standin + ".c"
+        open(src, "w").write(STEAM_STANDIN_C + standin_extra)
+        subprocess.run(["clang", "-arch", "x86_64", "-dynamiclib", "-o", standin, src], check=True)
+        os.remove(src)
+        env = dict({"STEAM_COMPAT_CLIENT_INSTALL_PATH": os.path.dirname(standin)}, **(extra_env or {}))
         problems, probed, loaded = G.probe_check(engine, [(p, []) for p in probes(ctx["work"])],
-                                                 required=[UNIX], extra_env=env)
+                                                 required=[UNIX, STEAM_STANDIN], extra_env=env)
     finally:
         shutil.rmtree(os.path.dirname(engine), ignore_errors=True)
     return problems, probed
@@ -183,7 +205,7 @@ def steamredirect_check(bridge, ctx, files=None, extra_env=None):
 
 def gate_steamredirect(bridge, ctx):
     problems, probed = steamredirect_check(bridge, ctx)
-    return not problems, "; ".join(probed) + f"; {UNIX} loaded", problems
+    return not problems, "; ".join(probed) + f"; {UNIX} and the stand-in Steam library loaded", problems
 
 
 GATES = [("files", gate_files), ("calltables", gate_calltables), ("unsigned", gate_unsigned), ("links", gate_links),
@@ -280,6 +302,11 @@ def selftest(bridge, work):
     problems = steamredirect_check(bridge, ctx, files=list(PE))[0]
     T.case(results, "steamredirect", "the bridge's files without lsteamclient.so",
            [p for p in problems if UNIX not in p], r"bridgeprobe(32|64)\.exe: unixlib failed")
+    # steamredirect: a stand-in Steam library that answers Steam_IsKnownInterface itself, with 5, so the
+    # call check must see the answer that came through the Unix half from the Steam library.
+    T.case(results, "steamredirect", "a stand-in Steam library whose Steam_IsKnownInterface answers 5",
+           steamredirect_check(bridge, ctx, standin_extra="signed char Steam_IsKnownInterface(const char *v) { return 5; }\n")[0],
+           r"bridgeprobe(32|64)\.exe: call failed \(Steam_IsKnownInterface answered 5 ")
 
     shutil.rmtree(tmp, ignore_errors=True)
     missing = [name for name, _ in GATES if name not in {r["gate"] for r in results}]
