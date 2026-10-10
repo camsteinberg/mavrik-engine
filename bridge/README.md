@@ -74,7 +74,7 @@ bad input, and the gate must fail for that gate's reason:
 | links | it loads only `@rpath/ntdll.so` and macOS's libraries; its only run path is `@loader_path/` | the real Unix half with `/opt/homebrew/lib` added |
 | licences | every file covered; lsteamclient and steam.exe labelled by their part, never wine | `lsteamclient.so` labelled wine |
 | buildpaths | no file names the build machine's folders | a notice naming the work folder |
-| steamredirect | with the real lsteamclient added to a clone of the engine, in both halves: a stand-in `steamclient` DLL's export jumps into lsteamclient, lsteamclient's Unix half is loaded with its call table, and its answer comes back ([`tools/bridgeprobe.c`](tools/bridgeprobe.c)). No Steam library loads (`STEAM_COMPAT_CLIENT_INSTALL_PATH` is an empty folder). | the bridge turned off with `PROTON_DISABLE_LSTEAMCLIENT=1`; the files without `lsteamclient.so` |
+| steamredirect | with the real lsteamclient added to a clone of the engine, in both halves: a stand-in `steamclient` DLL's export jumps into lsteamclient, lsteamclient's Unix half is loaded with its call table, and its answer comes back ([`tools/bridgeprobe.c`](tools/bridgeprobe.c)). `STEAM_COMPAT_CLIENT_INSTALL_PATH` points at a stand-in Steam library the gate builds (lsteamclient aborts without one); like the Mac Steam app's, it lacks `Steam_IsKnownInterface`, so patch 0002's fallback answers. No Steam app is touched. | the bridge turned off with `PROTON_DISABLE_LSTEAMCLIENT=1`; the files without `lsteamclient.so`; a stand-in Steam library that answers `Steam_IsKnownInterface` itself |
 
 ## Releases
 

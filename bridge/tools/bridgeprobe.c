@@ -8,8 +8,9 @@
  * With the bridge, loading the stand-in loads lsteamclient.dll from the engine, and the stand-in's export
  * jumps into lsteamclient's. lsteamclient's Windows half then calls its Unix half (lsteamclient.so,
  * through the 64-bit call table or, in a 32-bit program, the wow64 one). The gate points
- * STEAM_COMPAT_CLIENT_INSTALL_PATH at an empty folder, so no Steam library loads; the Unix half then
- * answers 1 ("every interface is known", mavrik's patch for a Steam library without the function).
+ * STEAM_COMPAT_CLIENT_INSTALL_PATH at a stand-in Steam library (lsteamclient aborts without one) that,
+ * like the Mac Steam app's, lacks Steam_IsKnownInterface; the Unix half then answers 1 ("every
+ * interface is known", mavrik's patch for a Steam library without the function).
  * Three checks, in order, each printed as a "check" line, then "done":
  *   redirect  lsteamclient.dll is loaded and the stand-in's export is still at its own address
  *   unixlib   lsteamclient.dll's Unix half is loaded, with its call table (Wine's own query)
