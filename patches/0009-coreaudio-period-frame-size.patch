@@ -1,0 +1,245 @@
+Sound in games that keep little queued no longer drops out: Wine sets the Mac's audio piece size to its own period.
+
+From upstream Wine (wine-mirror/wine, LGPL-2.1-or-later): commits 56a4347 by Giovanni Mascellani and
+07c7fcc, 8e09602 and da0b084 by Zhiyi Zhang, carried unchanged in this order. They came after CrossOver
+26.3.0 and apply to it with no fuzz:
+
+- 56a4347acac16b1445a55719e1fddd9c6f9581b5, Giovanni Mascellani: "winecoreaudio.drv: Avoid a division
+  by zero." Carried because 07c7fcc's context sits next to it and does not apply without it.
+- 07c7fcc86fe504415191095c42146362e2d3d93f, Zhiyi Zhang: "winecoreaudio: Set the requested period
+  frame size when creating audio streams." The fix: the stream's period is clamped to the device's
+  allowed range and set as the device's buffer frame size (kAudioDevicePropertyBufferFrameSize).
+- 8e09602ca6e41d21fc6ee07b3a48ddeb6350a644, Zhiyi Zhang: "winecoreaudio: Add a helper to get device
+  sample rate."
+- da0b08472b4b46b202618056ad7c784b0f51acc8, Zhiyi Zhang: "winecoreaudio: Return the actual Core Audio
+  device period frame size." The device period Wine reports is the Mac's piece size (512 frames at
+  48 kHz is 10.67 ms), not a fixed 10 ms; its test in dlls/mmdevapi/tests/render.c accepts 106667.
+
+Why mavrik needs it: Wine never set the Mac's piece size, so the Mac pulled 512 frames at a time while a
+game's sound library (SDL2's WASAPI backend, as in Rogue Legacy) added 480 frames per 10 ms tick and only
+once 480 or fewer were queued. The queue often ran dry and Wine filled the gap with silence, so the sound
+was choppy. Upstream's own message names the same fault ("crackling sound").
+
+Upstream status: in Wine master since 2026-08-17. Remove this patch when the pinned CrossOver sources
+carry these commits.
+
+--- a/dlls/winecoreaudio.drv/coreaudio.c
++++ b/dlls/winecoreaudio.drv/coreaudio.c
+@@ -103,9 +103,6 @@
+     WAVEFORMATEX *fmt;
+     BYTE *local_buffer, *cap_buffer, *wrap_buffer, *resamp_buffer, *tmp_buffer;
+ };
+-
+-static const REFERENCE_TIME def_period = 100000;
+-static const REFERENCE_TIME min_period = 50000;
+ 
+ static ULONG_PTR zero_bits = 0;
+ 
+@@ -720,10 +717,101 @@
+ 
+     return id;
+ }
++
++static HRESULT get_device_period_frame_range(AudioDeviceID dev_id, EDataFlow flow,
++                                             unsigned int *min_period_frames,
++                                             unsigned int *max_period_frames)
++{
++    AudioObjectPropertyAddress addr;
++    AudioValueRange range;
++    UInt32 size;
++    OSStatus sc;
+ 
++    addr.mSelector = kAudioDevicePropertyBufferFrameSizeRange;
++    addr.mScope = get_scope(flow);
++    addr.mElement = kAudioObjectPropertyElementMain;
++    size = sizeof(range);
++    sc = AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, &range);
++    if (sc != noErr)
++    {
++        WARN("Failed to get device buffer frame size range: %x\n", (int)sc);
++        return osstatus_to_hresult(sc);
++    }
++
++    *min_period_frames = range.mMinimum;
++    *max_period_frames = range.mMaximum;
++    return S_OK;
++}
++
++static HRESULT get_device_period_frame_size(AudioDeviceID dev_id, EDataFlow flow,
++                                            unsigned int *period_frames)
++{
++    AudioObjectPropertyAddress addr;
++    UInt32 size;
++    OSStatus sc;
++
++    addr.mSelector = kAudioDevicePropertyBufferFrameSize;
++    addr.mScope = get_scope(flow);
++    addr.mElement = kAudioObjectPropertyElementMain;
++    size = sizeof(*period_frames);
++    sc = AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, period_frames);
++    if (sc != noErr)
++    {
++        WARN("Failed to get device buffer frame size: %x\n", (int)sc);
++        return osstatus_to_hresult(sc);
++    }
++
++    return S_OK;
++}
++
++static HRESULT set_device_period_frame_size(AudioDeviceID dev_id, EDataFlow flow,
++                                            unsigned int period_frames)
++{
++    AudioObjectPropertyAddress addr;
++    UInt32 size;
++    OSStatus sc;
++
++    addr.mSelector = kAudioDevicePropertyBufferFrameSize;
++    addr.mScope = get_scope(flow);
++    addr.mElement = kAudioObjectPropertyElementMain;
++    size = sizeof(period_frames);
++    sc = AudioObjectSetPropertyData(dev_id, &addr, 0, NULL, size, &period_frames);
++    if (sc != noErr)
++    {
++        WARN("Failed to set device buffer frame size: %x\n", (int)sc);
++        return osstatus_to_hresult(sc);
++    }
++
++    return S_OK;
++}
++
++static HRESULT get_device_sample_rate(AudioDeviceID dev_id, EDataFlow flow,
++                                      unsigned int *n_samples_per_sec)
++{
++    AudioObjectPropertyAddress addr;
++    Float64 rate;
++    UInt32 size;
++    OSStatus sc;
++
++    addr.mSelector = kAudioDevicePropertyNominalSampleRate;
++    addr.mScope = get_scope(flow);
++    addr.mElement = kAudioObjectPropertyElementMain;
++    size = sizeof(Float64);
++    sc = AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, &rate);
++    if (sc != noErr)
++    {
++        WARN("Unable to get device nominal sample rate: %x\n", (int)sc);
++        return osstatus_to_hresult(sc);
++    }
++
++    *n_samples_per_sec = rate;
++    return S_OK;
++}
++
+ static NTSTATUS unix_create_stream(void *args)
+ {
+     struct create_stream_params *params = args;
++    unsigned int min_period_frames, max_period_frames;
+     struct coreaudio_stream *stream;
+     AURenderCallbackStruct input;
+     OSStatus sc;
+@@ -742,12 +830,27 @@
+         goto end;
+     }
+ 
+-    stream->period = params->period;
+-    stream->period_frames = muldiv(params->period, stream->fmt->nSamplesPerSec, 10000000);
++    stream->period_frames = muldiv(params->period, stream->fmt->nSamplesPerSec, 10000000);
++    if (stream->period_frames == 0)
++    {
++        params->result = E_INVALIDARG;
++        goto end;
++    }
++
+     stream->dev_id = dev_id_from_device(params->device);
+     stream->flow = params->flow;
+     stream->flags = params->flags;
+     stream->share = params->share;
++
++    if (FAILED(params->result = get_device_period_frame_range(stream->dev_id, stream->flow,
++                                                              &min_period_frames,
++                                                              &max_period_frames)))
++        goto end;
++
++    stream->period_frames = max(min_period_frames, min(stream->period_frames, max_period_frames));
++    stream->period = muldiv(stream->period_frames, 10000000, stream->fmt->nSamplesPerSec);
++    if (FAILED(params->result = set_device_period_frame_size(stream->dev_id, stream->flow, stream->period_frames)))
++        goto end;
+ 
+     stream->bufsize_frames = muldiv(params->duration, stream->fmt->nSamplesPerSec, 10000000);
+     if(params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
+@@ -1024,7 +1127,6 @@
+     AudioObjectPropertyAddress addr;
+     AudioChannelLayout *layout;
+     AudioBufferList *buffers;
+-    Float64 rate;
+     UInt32 size;
+     OSStatus sc;
+     int i;
+@@ -1097,15 +1199,8 @@
+         params->fmt->dwChannelMask = get_channel_mask(params->fmt->Format.nChannels);
+     }
+ 
+-    addr.mSelector = kAudioDevicePropertyNominalSampleRate;
+-    size = sizeof(Float64);
+-    sc = AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, &rate);
+-    if(sc != noErr){
+-        WARN("Unable to get _NominalSampleRate property: %x\n", (int)sc);
+-        params->result = osstatus_to_hresult(sc);
++    if(FAILED(params->result = get_device_sample_rate(dev_id, params->flow, &params->fmt->Format.nSamplesPerSec)))
+         return STATUS_SUCCESS;
+-    }
+-    params->fmt->Format.nSamplesPerSec = rate;
+ 
+     params->fmt->Format.wBitsPerSample = 32;
+     params->fmt->SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+@@ -1142,12 +1237,34 @@
+ static NTSTATUS unix_get_device_period(void *args)
+ {
+     struct get_device_period_params *params = args;
++    unsigned int n_samples_per_sec;
++    AudioDeviceID dev_id;
+ 
++    dev_id = dev_id_from_device(params->device);
++    if (FAILED(params->result = get_device_sample_rate(dev_id, params->flow, &n_samples_per_sec)))
++        return STATUS_SUCCESS;
++
+     if (params->def_period)
+-        *params->def_period = def_period;
++    {
++        unsigned int period_frames;
++
++        if (FAILED(params->result = get_device_period_frame_size(dev_id, params->flow, &period_frames)))
++            return STATUS_SUCCESS;
++
++        *params->def_period = muldiv(period_frames, 10000000, n_samples_per_sec);
++    }
++
+     if (params->min_period)
+-        *params->min_period = min_period;
++    {
++        unsigned int min_period_frames, max_period_frames;
+ 
++        if (FAILED(params->result = get_device_period_frame_range(dev_id, params->flow,
++                                                                  &min_period_frames, &max_period_frames)))
++            return STATUS_SUCCESS;
++
++        *params->min_period = muldiv(min_period_frames, 10000000, n_samples_per_sec);
++    }
++
+     params->result = S_OK;
+ 
+     return STATUS_SUCCESS;
+--- a/dlls/mmdevapi/tests/render.c
++++ b/dlls/mmdevapi/tests/render.c
+@@ -994,8 +994,9 @@
+      * 441 observed with Vista, 448 with w7 on the same HW! */
+     hr = IAudioClient_GetDevicePeriod(ac, &defp, &minp);
+     ok(hr == S_OK, "GetDevicePeriod failed: %08lx\n", hr);
+-    /* some wineXYZ.drv use 20ms, not seen on native */
+-    ok(defp == 100000 || broken(defp == 101587) || defp == 200000,
++    /* some wineXYZ.drv use 20ms, not seen on native
++     * winecoreaudio.drv uses 512 frames at 48KHz by default, so the period is ~10.66ms */
++    ok(defp == 100000 || broken(defp == 101587) || defp == 200000 || defp == 106667,
+        "Expected 10ms default period: %lu\n", (ULONG)defp);
+     ok(minp != 0, "Minimum period is 0\n");
+     ok(minp <= defp, "Minimum period is greater than default period\n");
