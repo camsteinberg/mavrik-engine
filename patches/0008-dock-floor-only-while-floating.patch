@@ -1,0 +1,34 @@
+Wine's Dock floor no longer holds an inactive full-screen window above other apps.
+
+Wine commit ad8a3f5eb2 ("winemac.drv: Use a window level higher than kCGDockWindowLevel for
+WS_EX_TOPMOST windows", 2025) made every always-on-top window sit above the Dock, at level 21, and
+adjustWindowLevels: applies that floor also while Wine is not the active app. A game in DXGI
+exclusive full screen is always on top, so after Cmd-Tab to another app the game's window stayed in
+front of that app's windows: the player could not reach them. Before the Dock floor, the same block
+(commit 7161df136f, 2016) lifted such a window to the floating level (3), which is also above every
+other app's normal windows.
+
+minimumLevelForActive: in cocoa_window.m already gives an inactive full-screen window the normal level,
+because WindowsFloatWhenInactive defaults to "nonfullscreen". The floors then overrode exactly the
+windows that option exists for. With this patch, only a window that minimumLevelForActive: puts at a
+floating level (or higher) gets the floors: an inactive full-screen window stays at the normal level,
+and Cmd-Tab back raises it again (27 while active, as before). Topmost windows that are not full screen
+keep the Dock floor. Wine master has the same code (checked 2026-10-12).
+
+Upstream status: offered to WineHQ with the bug report (winemac.drv).
+
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -780,7 +780,11 @@
+             NSInteger origLevel = [window level];
+             NSInteger newLevel = [window minimumLevelForActive:active];
+ 
+-            if (window.floating)
++            // Only a window that -minimumLevelForActive: puts at a floating level gets
++            // the floors.  A floating full-screen window while Wine is inactive gets the
++            // normal level there (WindowsFloatWhenInactive), so the active app's windows
++            // can come in front of it.
++            if (window.floating && newLevel >= NSFloatingWindowLevel)
+             {
+                 if (minFloatingLevel <= maxNonfloatingLevel)
+                     minFloatingLevel = maxNonfloatingLevel + 1;
