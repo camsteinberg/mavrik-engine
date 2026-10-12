@@ -84,6 +84,8 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   program can find the engine's processes by their path. When no link can be made, the Mac driver
   still names the process in the Dock and the app switcher with a private LaunchServices call (patch
   0006), looked up at run time; the menu bar then shows `wine`.
+- **Sound**: Wine sets the Mac output device's buffer frame size to its own period when a stream starts, and
+  reports the device's real period (512 frames at 48 kHz, 10.67 ms) to games (patch 0009, upstream Wine's).
 - **Full screen**: a game's always-on-top full-screen window drops to the normal window level while
   the engine is not the active app (patch 0008), so Cmd-Tab can leave a full-screen game. Other
   always-on-top windows stay above the Dock, as in Wine.
@@ -262,6 +264,8 @@ checks them against their pins and prints the values still to pin.
 - [NotProton](https://github.com/NotProtonNot/NotProton), which showed Valve's bridge working on a Mac
   with the Mac Steam app. Nothing is copied from it.
 - Chromium, Firefox and WebKit, whose way of naming a process in the Dock patch 0006 follows.
+- Wine's developers, whose commits patch 0009 carries unchanged (Zhiyi Zhang's Core Audio period fix and
+  Giovanni Mascellani's guard).
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
   through a link named after it.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors.
