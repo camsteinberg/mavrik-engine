@@ -74,9 +74,18 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   process, replaces that name, and every process it starts keeps it, so a game whose launcher starts
   the real game keeps its name. The name has 32 bytes: the loader writes it into its Info.plist with
   `&`, `<` and `>` escaped (an escaped `&` takes 5 bytes, an accented or CJK character 2 or 3, an
-  emoji 4) and cuts it only between whole characters. The Dock and the app switcher show the same
-  name (patch 0006): the Mac driver sets it with a private LaunchServices call, looked up at run time.
-  On a macOS without that call they show the loader's file name, `wine`.
+  emoji 4) and cuts it only between whole characters. The menu bar, Cmd-Tab, the Dock and the app
+  switcher show the same name (patch 0007): each program starts through a symbolic link to the loader
+  named after it, in `winetemp-<loader's inode, size and time>/` in the user's temp folder (macOS's
+  window server takes a program's name only from the file it was started through). The link's name is
+  cut to 31 bytes between whole characters, with `/` shown as `∕` (U+2215) and control characters
+  dropped. The process's executable is still the loader inside the engine (`proc_pidpath`), so a
+  program can find the engine's processes by their path. When no link can be made, the Mac driver
+  still names the process in the Dock and the app switcher with a private LaunchServices call (patch
+  0006), looked up at run time; the menu bar then shows `wine`.
+- **Full screen**: a game's always-on-top full-screen window drops to the normal window level while
+  the engine is not the active app (patch 0008), so Cmd-Tab can leave a full-screen game. Other
+  always-on-top windows stay above the Dock, as in Wine.
 - **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
   then runs a 32-bit program in the process it starts, like a 64-bit one, in new WoW64 mode; the
   engine has no 32-bit Unix side. With `WINEARCH` unset or `win64`, Wine relaunches each 32-bit
@@ -143,12 +152,19 @@ property the case breaks):
   or `steamclient.dll` with a stand-in `lsteamclient.dll` beside it, and calls an export: the call
   must land in lsteamclient's export of the same name. No Steam is needed.
 - **dockname**: a small Windows program ([`tools/dockprobe.c`](tools/dockprobe.c)) started with
-  `WINEPRELOADERAPPNAME` shows a window and starts a 32-bit copy of itself that shows its own. The
-  Dock and the app switcher must show that name for both, read with `lsappinfo`, for three titles: a
-  plain one, one with `&`, `<` and `>`, and one with accented, CJK and emoji characters. Only probes
-  started by the gate's own run are read. When the gates run outside a login session (`launchctl
-  managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate reports
-  SKIP; inside one, it runs and passes or fails.
+  `WINEPRELOADERAPPNAME` shows a window and starts a 32-bit copy of itself that shows its own. For
+  both, the Dock and the app switcher (LaunchServices, read with `lsappinfo`) and the menu bar and
+  Cmd-Tab (the window server's owner name, read with [`tools/procnames.c`](tools/procnames.c), no
+  screen capture) must show that name exactly, for three titles: a plain one, one with `&`, `<` and
+  `>`, and one with accented, CJK and emoji characters. Three more titles show the rules: a CJK title
+  of 36 bytes is cut between whole characters (to 30 bytes in both), `AC/DC Gate` shows as `AC∕DC
+  Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
+  program's executable (`proc_pidpath`) must be the loader inside the engine. A title no link can carry
+  (`..`) must still reach the Dock through patch 0006. Only probes started by the gate's own run are
+  read, and the gate removes the links it caused. When the gates run outside a login session
+  (`launchctl managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate
+  reports SKIP; inside one, it runs and passes or fails. Two self-test rows need revision 4's
+  `ntdll.so` (CrossOver's hack as shipped), named in `SELFTEST_OLD_NTDLL`; without it they are not run.
 
 ## Build notes
 
@@ -244,6 +260,8 @@ checks them against their pins and prints the values still to pin.
 - [NotProton](https://github.com/NotProtonNot/NotProton), which showed Valve's bridge working on a Mac
   with the Mac Steam app. Nothing is copied from it.
 - Chromium, Firefox and WebKit, whose way of naming a process in the Dock patch 0006 follows.
+- CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
+  through a link named after it.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors.
 - The media component's script started as mavrik's own `make-media-component.sh`.
 
