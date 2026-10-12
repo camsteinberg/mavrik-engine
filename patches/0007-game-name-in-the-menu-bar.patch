@@ -25,9 +25,11 @@ patch adapts that hack and keeps its structure, so CodeWeavers' later changes st
   program's file name, and then the variable is not set from it, so a launcher's own name does not
   pass to the game it starts.
 - The name is made safe for a file name and for the window server: "/" becomes U+2215 (division
-  slash), control characters (C0, DEL and C1) are dropped, and it is cut to 31 bytes between whole
-  characters (the window server keeps 31 bytes, and none of a name cut inside a character). "." and
-  ".." are not used.
+  slash), control characters (C0, DEL and C1) are dropped, and it is cut between whole characters
+  where its decomposed (NFD) UTF-8 form still fits in 31 bytes. The window server keeps a process's
+  name decomposed, at most 31 bytes of it, and none of it when the cut falls inside a character: a
+  30-byte Japanese title whose katakana "ゲ" decomposes to 6 bytes showed no name at all. The cut uses
+  Core Foundation, which ntdll already links. "." and ".." are not used.
 - A name already in the folder that is not a link to this loader (a link to an engine that moved, a
   hard link, a file) is replaced in one step, through a temporary name and rename(). EEXIST from a
   program started at the same moment counts as success.
@@ -46,7 +48,7 @@ hack.
 
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
-@@ -555,11 +555,56 @@
+@@ -555,14 +555,79 @@
          exe_name_len = strlen(exe_name);
  
      if (exe_name_len)
@@ -56,55 +58,78 @@ hack.
          ret = NULL;
  
      free(exe_path_copy);
-+    return ret;
-+}
+     return ret;
+ }
 +
-+/* The name for the link: the window server keeps at most 31 bytes of a
-+ * process's name, and none of it when the cut falls inside a character.
-+ * A file name cannot hold '/', so it becomes U+2215 (division slash), and
-+ * control characters (C0, DEL and C1) are dropped.  NULL when nothing
-+ * usable is left.
++/* The name for the link.  The window server shows a process's name
++ * decomposed (NFD), keeps at most 31 bytes of that, and none of it when the
++ * cut falls inside a character.  So the name is cut between whole
++ * characters, where its decomposed UTF-8 form still fits in 31 bytes.  A
++ * file name cannot hold '/', so it becomes U+2215 (division slash), and
++ * control characters (C0, DEL and C1) are dropped.  NULL when nothing usable
++ * is left.
 + */
 +static char *link_name(const char *name)
 +{
-+    char *ret = malloc(32);
-+    size_t len = 0;
++    static const UniChar division_slash = 0x2215;
++    CFStringRef str = CFStringCreateWithCString(NULL, name, kCFStringEncodingUTF8);
++    CFMutableStringRef out;
++    CFIndex i = 0, len, used = 0, size;
++    char *ret = NULL;
 +
-+    while (*name)
++    if (!str)
++        return NULL;
++    out = CFStringCreateMutable(NULL, 0);
++    len = CFStringGetLength(str);
++    while (i < len)
 +    {
-+        const unsigned char *c = (const unsigned char *)name;
-+        const char *piece = name;
-+        size_t piece_len = 1, used = 1;
-+
-+        if (c[0] < 0x20 || c[0] == 0x7f || (c[0] == 0xc2 && c[1] >= 0x80 && c[1] <= 0x9f))
-+        {
-+            name += c[0] == 0xc2 ? 2 : 1;
++        CFRange range = CFStringGetRangeOfComposedCharactersAtIndex(str, i);
++        UniChar c = CFStringGetCharacterAtIndex(str, i);
++        CFStringRef piece;
++        CFMutableStringRef decomposed;
++        CFIndex bytes = 0;
+ 
++        i = range.location + range.length;
++        if (c < 0x20 || (c >= 0x7f && c <= 0x9f))
 +            continue;
-+        }
-+        if (c[0] == '/')
-+            piece = "\xe2\x88\x95", piece_len = 3;
++        if (c == '/')
++            piece = CFStringCreateWithCharacters(NULL, &division_slash, 1);
 +        else
-+        {
-+            /* a UTF-8 lead byte and its continuation bytes go together */
-+            while ((c[used] & 0xc0) == 0x80) used++;
-+            piece_len = used;
-+        }
-+        if (len + piece_len > 31) break;
-+        memcpy(ret + len, piece, piece_len);
-+        len += piece_len;
-+        name += used;
++            piece = CFStringCreateWithSubstring(NULL, str, range);
++        decomposed = CFStringCreateMutableCopy(NULL, 0, piece);
++        CFStringNormalize(decomposed, kCFStringNormalizationFormD);
++        CFStringGetBytes(decomposed, CFRangeMake(0, CFStringGetLength(decomposed)), kCFStringEncodingUTF8, 0,
++                         false, NULL, 0, &bytes);
++        CFRelease(decomposed);
++        if (used + bytes <= 31)
++            CFStringAppend(out, piece);
++        CFRelease(piece);
++        if (used + bytes > 31)
++            break;
++        used += bytes;
 +    }
-+    ret[len] = 0;
++    CFRelease(str);
 +
-+    if (!len || !strcmp(ret, ".") || !strcmp(ret, ".."))
++    size = CFStringGetMaximumSizeForEncoding(CFStringGetLength(out), kCFStringEncodingUTF8) + 1;
++    if (used && (ret = malloc(size)) && !CFStringGetCString(out, ret, size, kCFStringEncodingUTF8))
 +    {
 +        free(ret);
-+        return NULL;
++        ret = NULL;
 +    }
-     return ret;
- }
- 
-@@ -608,7 +653,8 @@
++    CFRelease(out);
++
++    if (ret && (!strcmp(ret, ".") || !strcmp(ret, "..")))
++    {
++        free(ret);
++        ret = NULL;
++    }
++    return ret;
++}
++
+ /* Returns a path to $TMPDIR/winetemp-<wineloader_inode>-<wineloader_size_in_bytes>-<wineloader_mtime_sec>-<-wineloader_mtime_nsec>
+  * The intention is that all links to the same wineloader will go in the same directory, and a different directory
+  * will be used if wineloader is updated or modified.
+@@ -608,7 +673,8 @@
  
  static char *create_preloader_link(const char *wineloader_path, const char *exe_name)
  {
@@ -114,7 +139,7 @@ hack.
      char *linkpath = create_tempdir(wineloader_path);
  
      if (!linkpath)
-@@ -617,39 +663,81 @@
+@@ -617,39 +683,81 @@
      if (strlcat(linkpath, exe_name, MAX_PATH) >= MAX_PATH)
          goto fail;
  
@@ -132,11 +157,12 @@ hack.
  
 -    /* Try a hard link first, to avoid the little "alias" arrow that the Dock puts on the icon.
 -     * But if that fails, fall back to a symlink.
+-     */
+-    if (!link(wineloader_path, linkpath) || !symlink(wineloader_path, linkpath))
 +    /* A symlink, not a hard link: the process's executable path (proc_pidpath)
 +     * stays the loader itself, inside Wine's own folder, where a launcher
 +     * looks for the processes it started.
-      */
--    if (!link(wineloader_path, linkpath) || !symlink(wineloader_path, linkpath))
++     */
 +    if (len < 0 && errno == ENOENT)
 +    {
 +        /* EEXIST: a program started at the same moment made it. */
@@ -175,30 +201,31 @@ hack.
  {
 -    char *app_name = extract_exe_name(image_path);
 -    if (app_name)
-+    const char *title = getenv("WINEPRELOADERAPPNAME");
-+    char *app_name = title && *title ? strdup(title) : image_path ? extract_exe_name(image_path) : NULL;
-+    char *name, *ret = NULL;
-+
-+    if (!app_name)
-+        return NULL;
-+    if ((name = link_name(app_name)))
-     {
+-    {
 -        char *preloader_path = create_preloader_link(*wineloader_path, app_name);
 -        if (preloader_path)
 -        {
 -            free(*wineloader_path);
 -            *wineloader_path = preloader_path;
 -        }
++    const char *title = getenv("WINEPRELOADERAPPNAME");
++    char *app_name = title && *title ? strdup(title) : image_path ? extract_exe_name(image_path) : NULL;
++    char *name, *ret = NULL;
+ 
+-        /* Pass the app name to the preloader through an env var. */
+-        setenv("WINEPRELOADERAPPNAME", app_name, 1);
+-        free(app_name);
++    if (!app_name)
++        return NULL;
++    if ((name = link_name(app_name)))
++    {
 +        ret = create_preloader_link(wineloader_path, name);
 +        free(name);
 +    }
 +    free(app_name);
 +    return ret;
 +}
- 
--        /* Pass the app name to the preloader through an env var. */
--        setenv("WINEPRELOADERAPPNAME", app_name, 1);
--        free(app_name);
++
 +#ifdef HAVE_WINE_PRELOADER
 +static void replace_wineloader_path_with_link(char **wineloader_path, const char *image_path)
 +{
@@ -214,7 +241,7 @@ hack.
  
  
  static void preloader_exec( char **argv, const char *image_path )
-@@ -677,11 +765,20 @@
+@@ -677,11 +785,20 @@
  #if defined(__APPLE__) && !defined(HAVE_WINE_PRELOADER)
      /* CW HACK 22144: Create and exec a more descriptively-named link to the loader,
       * which will show up as the icon name in the Dock.
