@@ -946,11 +946,13 @@ def gate_steamredirect(engine, ctx):
 
 
 # The titles the dockname gate gives WINEPRELOADERAPPNAME, each within the loader's 32-byte name slot
-# once escaped and within the window server's 31 bytes, so both must show it exactly: a plain one; one
-# with the characters XML escapes (a raw '&' or '<' makes Core Foundation reject the loader's whole
-# Info.plist); and one with accented, CJK and emoji characters.
+# once escaped and within the window server's 31 bytes decomposed, so both must show it exactly (the
+# window server in its decomposed form): a plain one; one with the characters XML escapes (a raw '&' or
+# '<' makes Core Foundation reject the loader's whole Info.plist); and one with accented, CJK and emoji
+# characters.
 DOCK_NAMES = ["Gate Dock Name", "Gate & Dock <Name>", "Gâte Dock 名前 🎮"]
-# Titles each source shows changed, as dock_cases says: a CJK title of 36 bytes, cut in both; one with
+# Titles each source shows changed, as dock_cases says: a CJK title of 36 bytes, cut in both (to 30
+# bytes for the Dock; to 27 for the window server, where its katakana "ゲ" takes 6 bytes decomposed); one with
 # '/', which a file name cannot hold; and "Control", the name of one of Wine's own programs, which the
 # loader started through a link of that name must not run instead of the game.
 DOCK_CUT_NAMES = ["日本語のゲーム名前テスト", "AC/DC Gate", "Control"]
@@ -972,22 +974,37 @@ def slot_name(title, slot=32):
 
 
 def link_name(title):
-    """The name of the link patch 0007 starts a program through, which the window server shows: control
-    characters dropped, '/' as U+2215, cut to 31 bytes between whole characters."""
-    name, used = "", 0
+    """The name of the link patch 0007 starts a program through: control characters dropped, '/' as
+    U+2215, cut between whole characters (a character with its combining marks) where the decomposed
+    (NFD) UTF-8 form still fits in 31 bytes."""
+    clusters = []
     for ch in title:
         if unicodedata.category(ch) == "Cc":
             continue
         ch = "\u2215" if ch == "/" else ch
-        if used + len(ch.encode()) > 31:
+        if clusters and unicodedata.combining(ch):
+            clusters[-1] += ch
+        else:
+            clusters.append(ch)
+    name, used = "", 0
+    for c in clusters:
+        size = len(unicodedata.normalize("NFD", c).encode())
+        if used + size > 31:
             break
-        name, used = name + ch, used + len(ch.encode())
+        name, used = name + c, used + size
     return name
+
+
+def window_server_name(title):
+    """What the window server shows for a program started through patch 0007's link: the link's name,
+    decomposed (NFD), as macOS keeps it (S193 lab: 'Gâte' reads back with a combining accent)."""
+    return unicodedata.normalize("NFD", link_name(title))
 
 
 def dock_cases(exact=DOCK_NAMES, changed=DOCK_CUT_NAMES):
     """(title, LaunchServices' name, the window server's name) for each title."""
-    return [(t, t, t) for t in exact] + [(t, slot_name(t), link_name(t)) for t in changed] + [DOCK_FALLBACK]
+    return ([(t, t, window_server_name(t)) for t in exact] + [(t, slot_name(t), window_server_name(t)) for t in changed]
+            + [DOCK_FALLBACK])
 
 
 def link_folder(engine):
