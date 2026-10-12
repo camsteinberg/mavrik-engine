@@ -49,10 +49,15 @@ The gates:
                 a DLL named steamclient64.dll or steamclient.dll, and its export jumps into the
                 lsteamclient.dll beside it (tools/steamprobe.c builds all three). No Steam needed
   dockname      a Windows program started with WINEPRELOADERAPPNAME shows a window and starts a 32-bit
-                child that shows its own; the Dock and the app switcher show that name for both, not
-                "wine" (patch 0006, read with lsappinfo), for a plain title, one with '&', '<' and '>',
-                and one with accented, CJK and emoji characters. Gates run outside a login (Aqua)
-                session report SKIP
+                child that shows its own; for both, LaunchServices (the Dock and the app switcher,
+                patch 0006, read with lsappinfo) and the window server (the menu bar and Cmd-Tab,
+                patch 0007, its owner name read with CGWindowListCopyWindowInfo) show that name, not
+                "wine", for a plain title, one with '&', '<' and '>', and one with accented, CJK and
+                emoji characters; a CJK title past 31 bytes is cut between whole characters, '/' shows
+                as U+2215 in the window server, and a title "Control" still starts the program, not
+                Wine's control panel; each program's executable (proc_pidpath) is the engine's own
+                loader, inside the engine; and a title no link can carry ("..") still reaches the Dock
+                through patch 0006. Gates run outside a login (Aqua) session report SKIP
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 """
@@ -67,6 +72,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 
 from assemble import NOT_CARRIED
 
@@ -940,9 +946,64 @@ def gate_steamredirect(engine, ctx):
 
 
 # The titles the dockname gate gives WINEPRELOADERAPPNAME, each within the loader's 32-byte name slot
-# once escaped: a plain one; one with the characters XML escapes (a raw '&' or '<' makes Core Foundation
-# reject the loader's whole Info.plist); and one with accented, CJK and emoji characters.
+# once escaped and within the window server's 31 bytes, so both must show it exactly: a plain one; one
+# with the characters XML escapes (a raw '&' or '<' makes Core Foundation reject the loader's whole
+# Info.plist); and one with accented, CJK and emoji characters.
 DOCK_NAMES = ["Gate Dock Name", "Gate & Dock <Name>", "Gâte Dock 名前 🎮"]
+# Titles each source shows changed, as dock_cases says: a CJK title of 36 bytes, cut in both; one with
+# '/', which a file name cannot hold; and "Control", the name of one of Wine's own programs, which the
+# loader started through a link of that name must not run instead of the game.
+DOCK_CUT_NAMES = ["日本語のゲーム名前テスト", "AC/DC Gate", "Control"]
+# A title no link can be named after: the program starts from the loader itself, so the window server
+# keeps "wine", and LaunchServices shows the title only through patch 0006's call, the fallback.
+DOCK_FALLBACK = ("..", "..", "wine")
+
+
+def slot_name(title, slot=32):
+    """The name patch 0006 gives LaunchServices: as much of title as fits the loader's Info.plist name
+    slot once '&', '<' and '>' are escaped, cut between whole characters and escapes."""
+    name, used = "", 0
+    for ch in title:
+        cost = {"&": 5, "<": 4, ">": 4}.get(ch, len(ch.encode()))
+        if used + cost > slot:
+            break
+        name, used = name + ch, used + cost
+    return name
+
+
+def link_name(title):
+    """The name of the link patch 0007 starts a program through, which the window server shows: control
+    characters dropped, '/' as U+2215, cut to 31 bytes between whole characters."""
+    name, used = "", 0
+    for ch in title:
+        if unicodedata.category(ch) == "Cc":
+            continue
+        ch = "\u2215" if ch == "/" else ch
+        if used + len(ch.encode()) > 31:
+            break
+        name, used = name + ch, used + len(ch.encode())
+    return name
+
+
+def dock_cases(exact=DOCK_NAMES, changed=DOCK_CUT_NAMES):
+    """(title, LaunchServices' name, the window server's name) for each title."""
+    return [(t, t, t) for t in exact] + [(t, slot_name(t), link_name(t)) for t in changed] + [DOCK_FALLBACK]
+
+
+def link_folder(engine):
+    """Where patch 0007 (CW HACK 22144's folder) keeps the links to this engine's loader: the user's temp
+    folder, winetemp-<inode>-<size>-<mtime seconds>-<mtime nanoseconds> of the loader."""
+    st = os.stat(os.path.join(engine, LOADER))
+    tmp = out(["getconf", "DARWIN_USER_TEMP_DIR"]).stdout.strip().rstrip("/")
+    return f"{tmp}/winetemp-{st.st_ino}-{st.st_size}-{st.st_mtime_ns // 10**9}-{st.st_mtime_ns % 10**9}"
+
+
+def proc_names(work, pid):
+    """(the window server's owner name of pid's windows, pid's executable path), "-" where none
+    (tools/procnames.c)."""
+    tool = compile_tool(work, "procnames", frameworks=("CoreGraphics", "CoreFoundation"))
+    fields = out([tool, str(pid)], timeout=30, encoding="utf-8", errors="replace").stdout.rstrip("\n").split("\t")
+    return (fields[1], fields[2]) if len(fields) == 3 else ("-", "-")
 
 
 def ls_info(pid, key):
@@ -957,30 +1018,35 @@ def ls_info(pid, key):
 
 
 def pids_named(name):
-    """The processes whose name is name. Wine names each process after its Windows program, by its
-    Unix path or, for a program another one started, its Windows path."""
+    """The processes whose name is name, in any case (as Windows compares names). Wine names each process
+    after its Windows program, by its Unix path or, for a program another one started, its Windows
+    path."""
     r = out(["/bin/ps", "-axo", "pid=,comm="])
     found = []
     for line in r.stdout.splitlines():
         parts = line.split(None, 1)
-        if len(parts) == 2 and re.split(r"[/\\]", parts[1].strip())[-1] == name:
+        if len(parts) == 2 and re.split(r"[/\\]", parts[1].strip())[-1].lower() == name.lower():
             found.append(int(parts[0]))
     return found
 
 
-def dock_names_once(wine, probes, env, log, title, timeout):
+def dock_names_once(wine, probes, env, log, case, timeout, root, work):
     """dockprobe64.exe with WINEPRELOADERAPPNAME=title: it shows a window and starts dockprobe32.exe (a
-    32-bit child, as a game's launcher starts the game), which shows its own. Once each is a Dock app,
-    its LaunchServices name (what the Dock and the app switcher show) must be title. Only processes that
-    started after this run began count, so a probe left by another run is never read.
-    Returns (problems, the names seen)."""
+    32-bit child, as a game's launcher starts the game), which shows its own. case is (title, the
+    LaunchServices name, the window server's name). Once each is a Dock app, its LaunchServices name
+    (what the Dock and the app switcher show) and the window server's owner name of its windows (what
+    the menu bar and Cmd-Tab show) must be the case's, and its executable must be inside root (the
+    engine). Wine's control panel must not start. Only processes that started after this run began
+    count, so a probe left by another run is never read.
+    Returns (problems, {program: (LaunchServices' name, the window server's name)})."""
+    title, want_ls, want_ws = case
     programs = [os.path.basename(p) for p in (probes["64"], probes["32"])]
-    before = {program: set(pids_named(program)) for program in programs}
+    before = {program: set(pids_named(program)) for program in programs + ["control.exe"]}
     child = "Z:" + probes["32"].replace("/", "\\")
     with open(log, "a") as f:
         proc = subprocess.Popen([wine, probes["64"], child], stdout=f, stderr=subprocess.STDOUT,
                                 env=dict(env, WINEDEBUG="fixme-all", WINEPRELOADERAPPNAME=title))
-    problems, names = [], {}
+    problems, names, paths = [], {}, {}
     deadline = time.time() + timeout
     while time.time() < deadline and len(names) < len(programs):
         for program in programs:
@@ -990,27 +1056,44 @@ def dock_names_once(wine, probes, env, log, title, timeout):
                 return problems, names
             if new and program not in names and ls_info(new[0], "ApplicationType") == "Foreground":
                 time.sleep(1)  # the name is set before the process turns into a Dock app
-                names[program] = ls_info(new[0], "name")
+                owner, paths[program] = proc_names(work, new[0])
+                while owner == "-" and time.time() < deadline:  # a window not yet listed
+                    time.sleep(0.5)
+                    owner, paths[program] = proc_names(work, new[0])
+                names[program] = (ls_info(new[0], "name"), owner)
         if proc.poll() is not None:
             break
         time.sleep(0.5)
+    control = [pid for pid in pids_named("control.exe") if pid not in before["control.exe"]]
+    if control:
+        problems.append(f"Wine's control panel started (control.exe, {control}), not the program")
     for program in programs:
         if program not in names:
             problems.append(f"{program} never became a Dock app (a window) in {timeout} s")
-        elif names[program] != title:
-            problems.append(f"{program}: the Dock shows '{names[program]}', not '{title}'")
+            continue
+        ls, ws = names[program]
+        if ls != want_ls:
+            problems.append(f"{program}: the Dock shows '{ls}', not '{want_ls}'")
+        if ws != want_ws:
+            problems.append(f"{program}: the window server shows '{ws}', not '{want_ws}'")
+        if not os.path.realpath(paths[program]).startswith(root):
+            problems.append(f"{program}: started from {paths[program]}, outside the engine")
     return problems, names
 
 
-def dockname_check(engine, ctx, titles=DOCK_NAMES, timeout=60):
-    """A fresh prefix, then for each of titles the two probes (dock_names_once), with everything the
-    prefix started ended between titles. Returns (problems, {title: the names seen}). Kills everything
-    the prefix started and removes it."""
+def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
+    """A fresh prefix, then for each case of cases (dock_cases(); a plain title means that title in
+    both sources) the two probes (dock_names_once), with everything the prefix started ended between
+    cases, and extra_env added to Wine's environment. Returns (problems, {title: the names seen}). Kills
+    everything the prefix started, removes it, and removes the links patch 0007 made to this engine's
+    loader."""
+    cases = [(c, c, c) if isinstance(c, str) else c for c in (cases or dock_cases())]
     probes = {bits: compile_pe_tool(ctx["work"], "dockprobe", bits, ["user32"]) for bits in ("64", "32")}
     home = tempfile.mkdtemp(prefix="dock-")
-    env = wine_env(engine, home)
+    env = dict(wine_env(engine, home), **(extra_env or {}))
     wine, server = os.path.join(engine, "bin", "wine"), os.path.join(engine, "bin", "wineserver")
     log = os.path.join(home, "dock.log")
+    root = os.path.realpath(engine).rstrip("/") + "/"
     problems, seen = [], {}
     try:
         prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, 900)
@@ -1018,9 +1101,9 @@ def dockname_check(engine, ctx, titles=DOCK_NAMES, timeout=60):
             problems.append(f"wineboot --init: {prompt or 'exit %s' % code}")
             return problems, seen
         out([server, "-w"], env=env, timeout=300)
-        for title in titles:
-            found, seen[title] = dock_names_once(wine, probes, env, log, title, timeout)
-            problems += [f"'{title}': {p}" for p in found]
+        for case in cases:
+            found, seen[case[0]] = dock_names_once(wine, probes, env, log, case, timeout, root, ctx["work"])
+            problems += [f"'{case[0]}': {p}" for p in found]
             out([server, "-k"], env=env, timeout=60)
             out([server, "-w"], env=env, timeout=60)
     finally:
@@ -1028,6 +1111,7 @@ def dockname_check(engine, ctx, titles=DOCK_NAMES, timeout=60):
         if os.path.exists(log):
             shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-dock-last.log"))
         shutil.rmtree(home, ignore_errors=True)
+        shutil.rmtree(link_folder(engine), ignore_errors=True)
     return problems, seen
 
 
@@ -1043,8 +1127,10 @@ def gate_dockname(engine, ctx):
         return None, (f"SKIP: the gates run in launchd's '{session or 'unknown'}' session, not a login (Aqua) "
                       "session, so no window can become a Dock app"), []
     problems, seen = dockname_check(engine, ctx)
-    names = "; ".join(f"'{t}': " + ", ".join(f"{p} '{n}'" for p, n in s.items()) for t, s in seen.items())
-    return not problems, f"the Dock's names: {names}", problems
+    names = "; ".join(f"'{t}': " + ", ".join(f"{p} '{ls}' / '{ws}'" for p, (ls, ws) in s.items())
+                      for t, s in seen.items())
+    return not problems, (f"the names (Dock / window server): {names}; every program's executable is the "
+                          "engine's loader"), problems
 
 
 GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", gate_pe32),
