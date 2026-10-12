@@ -1,0 +1,241 @@
+The menu bar, Cmd-Tab and the Dock show the game's name, not "wine".
+
+From CodeWeavers' CrossOver 26.3.0 sources, CW HACK 22144 in dlls/ntdll/unix/loader.c
+(LGPL-2.1-or-later), adapted as described below: every Windows program starts through a symbolic link
+named after it.
+
+macOS's window server takes a program's name once, from the file name it was started through, and
+never changes it. Wine's loader file is called "wine", so the menu bar and Cmd-Tab read "wine" for every
+game, even after patch 0006 renames the process in LaunchServices. Renaming later (0006's call, the
+private CPSSetProcessName, NSProcessInfo, argv[0]) does not reach the window server; the file name does.
+
+CrossOver already has this route: CW HACK 22144 (CodeWeavers, in dlls/ntdll/unix/loader.c) execs each
+Windows program through a link named after it, in a per-loader folder in the user's temp folder. This
+patch adapts that hack and keeps its structure, so CodeWeavers' later changes still apply:
+
+- No WINEDLLPATH condition. The hack ran only with WINEDLLPATH set, because a hard link needs ntdll.so
+  beside it. A symbolic link does not: the loader and ntdll find their folder through the link's real
+  path.
+- A symbolic link, not a hard link. The process's executable path (proc_pidpath) then stays the loader
+  inside the engine, which a launcher uses to find and stop the processes it started, and to know an
+  engine folder is in use. Through a hard link the process would sit in the temp folder. CrossOver
+  chose the hard link to avoid the Dock's alias arrow; this patch accepts that risk.
+- The name is WINEPRELOADERAPPNAME when it is set (a launcher's game title, which patch 0006 keeps for
+  the program's children), and it is never overwritten. Only when it is unset is the name the
+  program's file name, and then the variable is not set from it, so a launcher's own name does not
+  pass to the game it starts.
+- The name is made safe for a file name and for the window server: "/" becomes U+2215 (division
+  slash), control characters (C0, DEL and C1) are dropped, and it is cut to 31 bytes between whole
+  characters (the window server keeps 31 bytes, and none of a name cut inside a character). "." and
+  ".." are not used.
+- A name already in the folder that is not a link to this loader (a link to an engine that moved, a
+  hard link, a file) is replaced in one step, through a temporary name and rename(). EEXIST from a
+  program started at the same moment counts as success.
+- If the link cannot be made or exec'd, the loader is exec'd directly, as before; patch 0006's
+  LaunchServices rename then still names the Dock.
+- extract_exe_name returned the file name with its extension, though its comment says it follows
+  CW hack 13438's rule (which drops it); it now drops the extension, so the link and the app menu
+  agree ("notepad", not "notepad.exe").
+
+WINELOADERNOEXEC, which loader_exec sets before every exec, still keeps the started loader from
+reading its file name as a builtin program: a game titled "Control" starts the game, not Wine's
+control panel. The dockname gate checks that title.
+
+Upstream status: the change to CW HACK 22144 is offered to CodeWeavers. WineHQ's loader has no such
+hack.
+
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -555,11 +555,56 @@
+         exe_name_len = strlen(exe_name);
+ 
+     if (exe_name_len)
+-        ret = strdup(exe_name);
++        ret = strndup(exe_name, exe_name_len);
+     else
+         ret = NULL;
+ 
+     free(exe_path_copy);
++    return ret;
++}
++
++/* The name for the link: the window server keeps at most 31 bytes of a
++ * process's name, and none of it when the cut falls inside a character.
++ * A file name cannot hold '/', so it becomes U+2215 (division slash), and
++ * control characters (C0, DEL and C1) are dropped.  NULL when nothing
++ * usable is left.
++ */
++static char *link_name(const char *name)
++{
++    char *ret = malloc(32);
++    size_t len = 0;
++
++    while (*name)
++    {
++        const unsigned char *c = (const unsigned char *)name;
++        const char *piece = name;
++        size_t piece_len = 1, used = 1;
++
++        if (c[0] < 0x20 || c[0] == 0x7f || (c[0] == 0xc2 && c[1] >= 0x80 && c[1] <= 0x9f))
++        {
++            name += c[0] == 0xc2 ? 2 : 1;
++            continue;
++        }
++        if (c[0] == '/')
++            piece = "\xe2\x88\x95", piece_len = 3;
++        else
++        {
++            /* a UTF-8 lead byte and its continuation bytes go together */
++            while ((c[used] & 0xc0) == 0x80) used++;
++            piece_len = used;
++        }
++        if (len + piece_len > 31) break;
++        memcpy(ret + len, piece, piece_len);
++        len += piece_len;
++        name += used;
++    }
++    ret[len] = 0;
++
++    if (!len || !strcmp(ret, ".") || !strcmp(ret, ".."))
++    {
++        free(ret);
++        return NULL;
++    }
+     return ret;
+ }
+ 
+@@ -608,7 +653,8 @@
+ 
+ static char *create_preloader_link(const char *wineloader_path, const char *exe_name)
+ {
+-    struct stat st;
++    char target[MAX_PATH], *tmppath;
++    ssize_t len;
+     char *linkpath = create_tempdir(wineloader_path);
+ 
+     if (!linkpath)
+@@ -617,39 +663,81 @@
+     if (strlcat(linkpath, exe_name, MAX_PATH) >= MAX_PATH)
+         goto fail;
+ 
+-    /* If the link already exists, use it (if it's in this dir, it points to the right place). */
+-    if (!stat(linkpath, &st))
+-        return linkpath;
++    /* If the link already exists and points to this loader, use it. */
++    len = readlink(linkpath, target, sizeof(target) - 1);
++    if (len >= 0)
++    {
++        target[len] = 0;
++        if (!strcmp(target, wineloader_path))
++            return linkpath;
++    }
+ 
+-    /* Try a hard link first, to avoid the little "alias" arrow that the Dock puts on the icon.
+-     * But if that fails, fall back to a symlink.
++    /* A symlink, not a hard link: the process's executable path (proc_pidpath)
++     * stays the loader itself, inside Wine's own folder, where a launcher
++     * looks for the processes it started.
+      */
+-    if (!link(wineloader_path, linkpath) || !symlink(wineloader_path, linkpath))
++    if (len < 0 && errno == ENOENT)
++    {
++        /* EEXIST: a program started at the same moment made it. */
++        if (!symlink(wineloader_path, linkpath) || errno == EEXIST)
++            return linkpath;
++        goto fail;
++    }
++
++    /* Something else has the name (a link to a moved loader, a hard link, a
++     * file): replace it in one step.
++     */
++    if (asprintf(&tmppath, "%s.%d.tmp", linkpath, (int)getpid()) < 0)
++        goto fail;
++    if (!symlink(wineloader_path, tmppath) && !rename(tmppath, linkpath))
++    {
++        free(tmppath);
+         return linkpath;
++    }
++    unlink(tmppath);
++    free(tmppath);
+ 
+ fail:
+     free(linkpath);
+     return NULL;
+ }
+ 
+-static void replace_wineloader_path_with_link(char **wineloader_path, const char *image_path)
++/* Returns the link to exec in place of the loader, or NULL.  The name is
++ * WINEPRELOADERAPPNAME, which a launcher sets to the game's title and which
++ * the program's own children keep; only when it is unset is the name taken
++ * from the program's file name.  The variable is never overwritten, and not
++ * set from the file name either, so a launcher's name does not pass to the
++ * programs it starts.
++ */
++static char *wineloader_link(const char *wineloader_path, const char *image_path)
+ {
+-    char *app_name = extract_exe_name(image_path);
+-    if (app_name)
++    const char *title = getenv("WINEPRELOADERAPPNAME");
++    char *app_name = title && *title ? strdup(title) : image_path ? extract_exe_name(image_path) : NULL;
++    char *name, *ret = NULL;
++
++    if (!app_name)
++        return NULL;
++    if ((name = link_name(app_name)))
+     {
+-        char *preloader_path = create_preloader_link(*wineloader_path, app_name);
+-        if (preloader_path)
+-        {
+-            free(*wineloader_path);
+-            *wineloader_path = preloader_path;
+-        }
++        ret = create_preloader_link(wineloader_path, name);
++        free(name);
++    }
++    free(app_name);
++    return ret;
++}
+ 
+-        /* Pass the app name to the preloader through an env var. */
+-        setenv("WINEPRELOADERAPPNAME", app_name, 1);
+-        free(app_name);
++#ifdef HAVE_WINE_PRELOADER
++static void replace_wineloader_path_with_link(char **wineloader_path, const char *image_path)
++{
++    char *preloader_path = wineloader_link(*wineloader_path, image_path);
++    if (preloader_path)
++    {
++        free(*wineloader_path);
++        *wineloader_path = preloader_path;
+     }
+ }
+ #endif
++#endif
+ 
+ 
+ static void preloader_exec( char **argv, const char *image_path )
+@@ -677,11 +765,20 @@
+ #if defined(__APPLE__) && !defined(HAVE_WINE_PRELOADER)
+     /* CW HACK 22144: Create and exec a more descriptively-named link to the loader,
+      * which will show up as the icon name in the Dock.
+-     * When the preloader is not being used, WINEDLLPATH needs to be set correctly for
+-     * the loader to find ntdll.so, so don't even attempt this unless WINEDLLPATH is set.
++     * The loader finds ntdll.so through the real path of the link, so no WINEDLLPATH is
++     * needed.  If the link cannot be made or exec'd, exec the loader itself.
+      */
+-    if (getenv("WINEDLLPATH"))
+-        replace_wineloader_path_with_link( &(argv[1]), image_path );
++    {
++        char *link_path = wineloader_link( argv[1], image_path );
++        if (link_path)
++        {
++            char *loader = argv[1];
++            argv[1] = link_path;
++            execv( argv[1], argv + 1 );
++            argv[1] = loader;
++            free( link_path );
++        }
++    }
+ #endif
+ 
+     execv( argv[1], argv + 1 );
