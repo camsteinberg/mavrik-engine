@@ -77,9 +77,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   emoji 4) and cuts it only between whole characters. The menu bar, Cmd-Tab, the Dock and the app
   switcher show the same name (patch 0007): each program starts through a symbolic link to the loader
   named after it, in `winetemp-<loader's inode, size and time>/` in the user's temp folder (macOS's
-  window server takes a program's name only from the file it was started through). The link's name is
-  cut to 31 bytes between whole characters, with `/` shown as `∕` (U+2215) and control characters
-  dropped. The process's executable is still the loader inside the engine (`proc_pidpath`), so a
+  window server takes a program's name only from the file it was started through). The window server
+  keeps the name decomposed (NFD), at most 31 bytes of it, so the link's name is cut between whole
+  characters where its decomposed form fits 31 bytes (an accent or a katakana voicing mark takes 3 more
+  bytes, a Korean syllable 9), with `/` shown as `∕` (U+2215) and control characters dropped. The process's executable is still the loader inside the engine (`proc_pidpath`), so a
   program can find the engine's processes by their path. When no link can be made, the Mac driver
   still names the process in the Dock and the app switcher with a private LaunchServices call (patch
   0006), looked up at run time; the menu bar then shows `wine`.
@@ -156,9 +157,10 @@ property the case breaks):
   both, the Dock and the app switcher (LaunchServices, read with `lsappinfo`) and the menu bar and
   Cmd-Tab (the window server's owner name, read with [`tools/procnames.c`](tools/procnames.c), no
   screen capture) must show that name exactly, for three titles: a plain one, one with `&`, `<` and
-  `>`, and one with accented, CJK and emoji characters. Three more titles show the rules: a CJK title
-  of 36 bytes is cut between whole characters (to 30 bytes in both), `AC/DC Gate` shows as `AC∕DC
-  Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
+  `>`, and one with accented, CJK and emoji characters (the window server's name compared in its
+  decomposed form, as macOS keeps it). Three more titles show the rules: a Japanese title of 36 bytes
+  is cut between whole characters (to 30 bytes in the Dock, to 27 in the window server, where its
+  "ゲ" decomposes to 6), `AC/DC Gate` shows as `AC∕DC Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
   program's executable (`proc_pidpath`) must be the loader inside the engine. A title no link can carry
   (`..`) must still reach the Dock through patch 0006. Only probes started by the gate's own run are
   read, and the gate removes the links it caused. When the gates run outside a login session
