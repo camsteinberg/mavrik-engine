@@ -34,6 +34,11 @@ CX_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 # The CrossOver tree's crash-dialog link (programs/winedbg/winedbg.rc).
 CX_CRASH_LINK = 'then <a href="https://www.codeweavers.com/support/tickets/enter/">file a bug report</a>'
 USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { return mavrik_selftest_value(); }\n"
+# An ntdll with CrossOver's CW HACK 22144 as CodeWeavers ship it (the link only with WINEDLLPATH set, and
+# a hard link first): revision 4's lib/wine/x86_64-unix/ntdll.so, from the same tree and patches 0001 to
+# 0006, so without patch 0007. Take it from the 11.0-cx26.3.0-r4 release archive and name it in
+# SELFTEST_OLD_NTDLL; without it the dockname rows that need it are not run.
+OLD_NTDLL_SHA256 = "00a4da2f0e1c22ee146e3172b35b305908857ea4ff865b5ee0ba2fbd52d9d658"
 
 
 def cc(src_text, out_path, *args):
@@ -262,8 +267,9 @@ def run(engine, work):
          r"steamprobe(32|64)\.exe: redirect failed")
 
     # dockname: an engine clone whose Mac driver cannot find LaunchServices' naming call (the name it looks
-    # up is changed in winemac.so, which is then signed again), so the Dock keeps "wine". The probe's windows
-    # must still appear: the driver goes on quietly without the call.
+    # up is changed in winemac.so, which is then signed again), with the title no link can carry, so the
+    # Dock keeps "wine" (patch 0007's link names the process for every other title; the call is its
+    # fallback). The probe's windows must still appear: the driver goes on quietly without the call.
     if G.login_session() == "Aqua":
         bad = os.path.join(tmp, "no-naming-call-engine")
         clone(engine, bad)
@@ -275,22 +281,52 @@ def run(engine, work):
         open(winemac, "wb").write(data.replace(name, b"_LSSetApplicationInformationXxxx"))
         subprocess.run(["codesign", "-s", "-", "-f", winemac], check=True, capture_output=True)
         case(results, "dockname", "an engine clone whose winemac.so cannot find _LSSetApplicationInformationItem",
-             G.dockname_check(bad, ctx)[0], r"dockprobe(32|64)\.exe: the Dock shows 'wine'")
+             G.dockname_check(bad, ctx, cases=[G.DOCK_FALLBACK])[0],
+             r"dockprobe(32|64)\.exe: the Dock shows 'wine', not '\.\.'")
         shutil.rmtree(bad, ignore_errors=True)
 
         # dockname: titles past the loader's 32-byte name slot once escaped, one of '&' (5 bytes each
         # escaped) and one of CJK characters (3 bytes each). The Dock must show each cut between whole
         # escapes or whole characters; a cut inside one makes Core Foundation reject the loader's
         # Info.plist, and the Dock then shows "wine", which these rows do not accept.
+        # The window server shows the CJK one cut too (patch 0007's 31 bytes), to the same characters.
         long_titles = {"&&&&&&&": "&&&&&&", "名前" * 5 + "名": "名前" * 5}
-        problems = G.dockname_check(engine, ctx, titles=list(long_titles))[0]
+        problems = G.dockname_check(engine, ctx, cases=list(long_titles))[0]
         for title, shown in long_titles.items():
             case(results, "dockname", f"the title '{title}', past the 32-byte name slot once escaped",
                  [p for p in problems if p.startswith(f"'{title}': ") or not p.startswith("'")],
-                 r"dockprobe(32|64)\.exe: " + re.escape(f"the Dock shows '{shown}', not '{title}'"))
+                 r"dockprobe(32|64)\.exe: the (Dock|window server) shows " + re.escape(f"'{shown}', not '{title}'"))
+
+        # dockname, the window server and the executable: an engine clone with revision 4's ntdll.so
+        # (CW HACK 22144 as shipped, see OLD_NTDLL_SHA256). Without WINEDLLPATH no link is made, so the
+        # window server must show "wine" while LaunchServices (patch 0006) still shows the title. With
+        # WINEDLLPATH set, the hack starts each program through a hard link in the user's temp folder,
+        # so the executable must be reported outside the engine: only those problems are kept, because
+        # the hack also names each program after its file there.
+        old = os.environ.get("SELFTEST_OLD_NTDLL")
+        if old:
+            if G.out(["shasum", "-a", "256", old]).stdout.split()[:1] != [OLD_NTDLL_SHA256]:
+                raise SystemExit(f"selftest setup: SELFTEST_OLD_NTDLL {old} is not revision 4's ntdll.so")
+            bad = os.path.join(tmp, "old-ntdll-engine")
+            clone(engine, bad)
+            ntdll = os.path.join(bad, "lib", "wine", "x86_64-unix", "ntdll.so")
+            os.remove(ntdll)
+            shutil.copy2(old, ntdll)
+            case(results, "dockname", "an engine clone with an ntdll that makes the link only with WINEDLLPATH set",
+                 G.dockname_check(bad, ctx, cases=["Gate Dock Name"])[0],
+                 r"dockprobe(32|64)\.exe: the window server shows 'wine', not 'Gate Dock Name'")
+            problems = G.dockname_check(bad, ctx, cases=["Gate Dock Name"],
+                                        extra_env={"WINEDLLPATH": os.path.join(bad, "lib", "wine")})[0]
+            case(results, "dockname", "the same clone with WINEDLLPATH set, so each program starts through a hard link",
+                 [p for p in problems if p.endswith(", outside the engine")],
+                 r"dockprobe(32|64)\.exe: started from \S*/winetemp-[^/]+/[^/]+, outside the engine")
+            shutil.rmtree(bad, ignore_errors=True)
+        else:
+            skipped(results, "dockname", "an ntdll with CrossOver's link condition, and one with its hard link",
+                    "SELFTEST_OLD_NTDLL is not set")
     else:
-        skipped(results, "dockname", "an engine clone without the naming call, and titles past the name slot",
-                "not in a login (Aqua) session")
+        skipped(results, "dockname", "an engine clone without the naming call, titles past the name slot, an ntdll "
+                "with CrossOver's link condition, and one with its hard link", "not in a login (Aqua) session")
 
     shutil.rmtree(tmp, ignore_errors=True)
     covered = {r["gate"] for r in results}
