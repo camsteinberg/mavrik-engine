@@ -57,7 +57,10 @@ The gates:
                 as U+2215 in the window server, and a title "Control" still starts the program, not
                 Wine's control panel; each program's executable (proc_pidpath) is the engine's own
                 loader, inside the engine; and a title no link can carry ("..") still reaches the Dock
-                through patch 0006. Gates run outside a login (Aqua) session report SKIP
+                through patch 0006; and with no title and an argv[0] that is not UTF-8, the program still
+                starts (no link) and its 32-bit child keeps its own name. The executable path is checked
+                as proc_pidpath gives it, without resolving links. Gates run outside a login (Aqua)
+                session report SKIP
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 """
@@ -959,6 +962,12 @@ DOCK_CUT_NAMES = ["日本語のゲーム名前テスト", "AC/DC Gate", "Control
 # A title no link can be named after: the program starts from the loader itself, so the window server
 # keeps "wine", and LaunchServices shows the title only through patch 0006's call, the fallback.
 DOCK_FALLBACK = ("..", "..", "wine")
+# No title, and an argv[0] that is not UTF-8 (a lead byte and 40 continuation bytes), which the loader's
+# first process would name its link after: the bounded cut must refuse it (no link: the window server
+# keeps "wine") and the program must start. Its 32-bit child keeps its own file's name, since no title
+# is set and none is made up from a file name.
+DOCK_NO_TITLE = (None, {"dockprobe64.exe": "dockprobe64", "dockprobe32.exe": "dockprobe32"},
+                 {"dockprobe64.exe": "wine", "dockprobe32.exe": "dockprobe32"}, b"\xc3" + b"\x80" * 40)
 
 
 def slot_name(title, slot=32):
@@ -1004,7 +1013,7 @@ def window_server_name(title):
 def dock_cases(exact=DOCK_NAMES, changed=DOCK_CUT_NAMES):
     """(title, LaunchServices' name, the window server's name) for each title."""
     return ([(t, t, window_server_name(t)) for t in exact] + [(t, slot_name(t), window_server_name(t)) for t in changed]
-            + [DOCK_FALLBACK])
+            + [DOCK_FALLBACK, DOCK_NO_TITLE])
 
 
 def link_folder(engine):
@@ -1056,13 +1065,17 @@ def dock_names_once(wine, probes, env, log, case, timeout, root, work):
     engine). Wine's control panel must not start. Only processes that started after this run began
     count, so a probe left by another run is never read.
     Returns (problems, {program: (LaunchServices' name, the window server's name)})."""
-    title, want_ls, want_ws = case
+    title, want_ls, want_ws = case[:3]
+    argv0 = case[3] if len(case) > 3 else None
     programs = [os.path.basename(p) for p in (probes["64"], probes["32"])]
     before = {program: set(pids_named(program)) for program in programs + ["control.exe"]}
     child = "Z:" + probes["32"].replace("/", "\\")
+    run_env = dict(env, WINEDEBUG="fixme-all")
+    if title is not None:
+        run_env["WINEPRELOADERAPPNAME"] = title
     with open(log, "a") as f:
-        proc = subprocess.Popen([wine, probes["64"], child], stdout=f, stderr=subprocess.STDOUT,
-                                env=dict(env, WINEDEBUG="fixme-all", WINEPRELOADERAPPNAME=title))
+        proc = subprocess.Popen([argv0 or wine, probes["64"], child], executable=wine, stdout=f,
+                                stderr=subprocess.STDOUT, env=run_env)
     problems, names, paths = [], {}, {}
     deadline = time.time() + timeout
     while time.time() < deadline and len(names) < len(programs):
@@ -1089,11 +1102,14 @@ def dock_names_once(wine, probes, env, log, case, timeout, root, work):
             problems.append(f"{program} never became a Dock app (a window) in {timeout} s")
             continue
         ls, ws = names[program]
-        if ls != want_ls:
-            problems.append(f"{program}: the Dock shows '{ls}', not '{want_ls}'")
-        if ws != want_ws:
-            problems.append(f"{program}: the window server shows '{ws}', not '{want_ws}'")
-        if not os.path.realpath(paths[program]).startswith(root):
+        ls_wanted = want_ls[program] if isinstance(want_ls, dict) else want_ls
+        ws_wanted = want_ws[program] if isinstance(want_ws, dict) else want_ws
+        if ls != ls_wanted:
+            problems.append(f"{program}: the Dock shows '{ls}', not '{ls_wanted}'")
+        if ws != ws_wanted:
+            problems.append(f"{program}: the window server shows '{ws}', not '{ws_wanted}'")
+        # The raw path, as mavrik's Stop and engine checks read it (no realpath on the process side).
+        if not paths[program].startswith(root):
             problems.append(f"{program}: started from {paths[program]}, outside the engine")
     return problems, names
 
@@ -1119,8 +1135,9 @@ def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
             return problems, seen
         out([server, "-w"], env=env, timeout=300)
         for case in cases:
-            found, seen[case[0]] = dock_names_once(wine, probes, env, log, case, timeout, root, ctx["work"])
-            problems += [f"'{case[0]}': {p}" for p in found]
+            label = case[0] if case[0] is not None else "(no title, argv[0] not UTF-8)"
+            found, seen[label] = dock_names_once(wine, probes, env, log, case, timeout, root, ctx["work"])
+            problems += [f"'{label}': {p}" for p in found]
             out([server, "-k"], env=env, timeout=60)
             out([server, "-w"], env=env, timeout=60)
     finally:

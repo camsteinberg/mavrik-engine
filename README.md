@@ -164,7 +164,9 @@ property the case breaks):
   is cut between whole characters (to 30 bytes in the Dock, to 27 in the window server, where its
   "ゲ" decomposes to 6), `AC/DC Gate` shows as `AC∕DC Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
   program's executable (`proc_pidpath`) must be the loader inside the engine. A title no link can carry
-  (`..`) must still reach the Dock through patch 0006. Only probes started by the gate's own run are
+  (`..`) must still reach the Dock through patch 0006. With no title and an argv[0] that is not UTF-8,
+  the program must still start (no link, so the window server keeps `wine`) and its 32-bit child keeps
+  its own name. The executable path is checked as `proc_pidpath` gives it, without resolving links. Only probes started by the gate's own run are
   read, and the gate removes the links it caused. When the gates run outside a login session
   (`launchctl managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate
   reports SKIP; inside one, it runs and passes or fails. Two self-test rows need revision 4's
