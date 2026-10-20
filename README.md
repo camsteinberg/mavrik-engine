@@ -276,6 +276,8 @@ checks them against their pins and prints the values still to pin.
 
 ## Licence
 
-The recipe, the scripts and the patches are LGPL-2.1-or-later ([LICENSE](LICENSE)), like Wine.
+The recipe, the scripts and the patches are LGPL-2.1-or-later ([LICENSE](LICENSE)), like Wine,
+except `bridge/patches/0002` (Steamworks SDK licence) and `0003` (BSD-3-Clause); see
+[bridge/README.md](bridge/README.md#licence).
 [NOTICE.md](NOTICE.md) lists every part the engine carries, where it comes from and its licence.
 Inside each engine, `licences/` holds the full licence texts and copyright notices.
