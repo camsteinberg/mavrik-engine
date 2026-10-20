@@ -229,7 +229,10 @@ bash scripts/pack.sh WORK       # the .tar.xz and its .sha256
   from `DIR`, a folder of files downloaded by hand from the addresses in `inputs.json`. Every file is
   checked against its pin either way.
 
-An engine built on a Mac is for testing only. Releases come only from the GitHub workflow.
+Releases are meant to come from the GitHub workflow, which has not built one yet. Until it does,
+prereleases are built on a Mac by these same scripts and checked by the same gates and self-test:
+revisions 3 to 5 were, and their release notes say so. Any other engine built on a Mac is for testing
+only.
 
 ## Releases
 
