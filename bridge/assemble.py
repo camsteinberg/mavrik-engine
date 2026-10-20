@@ -4,7 +4,9 @@
   bridge/assemble.py WORK
 
 Reads WORK/bridge/install (bridge/build.sh) and makes WORK/bridge/out/<name>, where <name> is
-mavrik-steam-bridge-proton-<commit>-r<revision>:
+mavrik-steam-bridge-r<revision>-proton-<commit>-engine-r<engine revision>. The engine revision comes from
+the engine's inputs.json (WORK/inputs.path), and must be the revision of the engine in WORK/out, since the
+bridge is built against that engine's tree and links its ntdll.so:
   lib/wine/i386-windows/{lsteamclient.dll,steam.exe}
   lib/wine/x86_64-windows/{lsteamclient.dll,steam.exe}
   lib/wine/x86_64-unix/lsteamclient.so
@@ -53,7 +55,13 @@ def main(argv):
     work = os.path.abspath(argv[1])
     doc = json.load(open(os.path.join(REPO, "bridge", "inputs.json")))
     pin, info = doc["inputs"]["proton-source"], doc["bridge"]
-    name = f"{info['name']}-proton-{pin['commit'][:7]}-r{info['revision']}"
+    engine_revision = json.load(open(open(os.path.join(work, "inputs.path")).read().strip()))["engine"]["revision"]
+    engine_name = open(os.path.join(work, "out", "name")).read().strip()
+    engine_info = json.load(open(os.path.join(work, "out", engine_name, "build-info.json")))
+    if engine_info.get("revision") != engine_revision:
+        sys.exit(f"the engine in WORK/out ({engine_name}) is revision {engine_info.get('revision')}, "
+                 f"but its inputs.json says {engine_revision}: run the engine's steps first")
+    name = f"{info['name']}-r{info['revision']}-proton-{pin['commit'][:7]}-engine-r{engine_revision}"
     src = os.path.join(work, "bridge", "install")
     out = os.path.join(work, "bridge", "out", name)
     if os.path.exists(out):
@@ -69,8 +77,6 @@ def main(argv):
 
     def git(*a):
         return subprocess.run(["git", "-C", REPO] + list(a), capture_output=True, text=True).stdout.strip()
-    engine_name = open(os.path.join(work, "out", "name")).read().strip()
-    engine_info = json.load(open(os.path.join(work, "out", engine_name, "build-info.json")))
     patches = sorted(p for p in os.listdir(os.path.join(REPO, "bridge", "patches")) if p.endswith(".patch"))
     record = {
         "name": name,
