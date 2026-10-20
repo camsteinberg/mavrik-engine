@@ -3,7 +3,7 @@
  "bridge": {
   "name": "mavrik-steam-bridge",
   "revision": 1,
-  "engine": "built and gated against the engine scripts/build.sh made in the same work folder (cx26.3.0-r4 or later: patch 0004 is the loader half of the bridge)"
+  "engine": "built and gated against the engine scripts/build.sh made in the same work folder (cx26.3.0-r5: patch 0004 is the loader half of the bridge; r5's 0007 to 0009 touch none of the bridge's files)"
  },
  "inputs": {
   "proton-source": {
@@ -12,8 +12,8 @@
    "version": "proton_11.0 at 5b89db9 (2026-09-04)",
    "commit": "5b89db940e0ebe3a137a6009a3589232fe084c09",
    "url": "https://api.github.com/repos/ValveSoftware/Proton/tarball/5b89db940e0ebe3a137a6009a3589232fe084c09",
-   "size": null,
-   "sha256": null,
+   "size": 93581284,
+   "sha256": "f0c4af459b21f7de5f2683b7397511c4efebf0066cff9f431727599b04386099",
    "members": ["lsteamclient", "steam_helper", "LICENSE", "LICENSE.proton"],
    "tree_sha256": "813b6a38670f4aa4a73b78dc2d5a98c0c2caea65c064bfcbb722e7a820950cd1",
    "tree_files": 3137,
