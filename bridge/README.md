@@ -44,7 +44,10 @@ yet.
 
 ## The archive
 
-`mavrik-steam-bridge-proton-<commit>-r<revision>.tar.xz` holds one folder:
+`mavrik-steam-bridge-r<revision>-proton-<commit>-engine-r<engine revision>.tar.xz` holds one folder.
+The bridge is built against one engine revision (config.h must match, and the Unix half links that
+engine's `ntdll.so`), so the name carries it: a new engine revision makes a new archive name. The
+engine revision is read from the engine's `inputs.json`.
 
 | Path | What it holds |
 |---|---|
