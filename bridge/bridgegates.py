@@ -29,6 +29,7 @@ The gates:
                  comes back (bridge/tools/bridgeprobe.c). STEAM_COMPAT_CLIENT_INSTALL_PATH points at
                  a stand-in Steam library the gate builds inside the clone, so no Steam app is touched
 """
+import fnmatch
 import json
 import os
 import shutil
@@ -125,9 +126,15 @@ def bridge_licence_problems(bridge):
         rows = G.read_tsv(os.path.join(bridge, "licences", "FILES.tsv"))
     except OSError:
         return problems, count
-    for rel, comp in ((r[0], r[1]) for r in rows):
+    # Each file as FILES.tsv resolves it (an exact row, else the first pattern that matches), so a
+    # pattern row cannot label a bridge file wine unseen.
+    exact = {r[0]: r[1] for r in rows if "*" not in r[0]}
+    patterns = [(r[0], r[1]) for r in rows if "*" in r[0]]
+    for path in G.walk(bridge):
+        rel = os.path.relpath(path, bridge)
         want = BRIDGE_FILES.get(os.path.basename(rel))
-        if want and comp != want:
+        comp = exact.get(rel) or next((c for p, c in patterns if fnmatch.fnmatchcase(rel, p)), None)
+        if want and comp is not None and comp != want:
             problems.append(f"{rel} is labelled {comp}, but it is {want}'s")
     return problems, count
 
@@ -239,13 +246,34 @@ def run_gates(bridge, work):
     return all(r["result"] == "PASS" for r in results)
 
 
+def both_probes(problems, what):
+    """A steamredirect case must fail in both halves: a probe that did not fail for `what` adds a
+    problem that is not about it, so the case fails."""
+    return problems + [f"bridgeprobe{bits}.exe did not fail: no '{what}'" for bits in ("32", "64")
+                       if not any(p.startswith(f"bridgeprobe{bits}.exe: {what}") for p in problems)]
+
+
 def selftest(bridge, work):
     """Each gate fed a bad input: a made-up file or a clone of the bridge with one thing broken. Every
     problem the gate reports must be about that one thing (selftest.case)."""
-    import selftest as T
     bridge = os.path.abspath(bridge)
     ctx = context(work)
     tmp = tempfile.mkdtemp(prefix="bridge-selftest-", dir=os.path.join(ctx["work"], "bridge"))
+    try:
+        results = selftest_cases(bridge, ctx, tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    missing = [name for name, _ in GATES if name not in {r["gate"] for r in results}]
+    if missing:
+        results.append({"gate": "selftest", "result": "FAIL", "detail": "gates with no bad-input case: " + ", ".join(missing),
+                        "problems": missing})
+    G.report(results, "Steam bridge gate self-test (each gate must fail on a bad input, for that gate's reason)")
+    json.dump(results, open(os.path.join(ctx["work"], "bridge", "gates", "selftest.json"), "w"), indent=2)
+    return all(r["result"] == "PASS" for r in results)
+
+
+def selftest_cases(bridge, ctx, tmp):
+    import selftest as T
     results = []
 
     def broken(label):
@@ -278,7 +306,7 @@ def selftest(bridge, work):
     T.case(results, "links", "lsteamclient.so with the run path /opt/homebrew/lib", links_problems(os.path.join(bad, UNIX)),
            r"has the run path /opt/homebrew/lib$")
 
-    # licences: lsteamclient labelled wine, the S188 lab's mistake.
+    # licences: lsteamclient labelled wine, a mistake an earlier test build made.
     bad = broken("licences")
     files = os.path.join(bad, "licences", "FILES.tsv")
     text = open(files).read()
@@ -295,27 +323,20 @@ def selftest(bridge, work):
 
     # steamredirect: the bridge turned off with Valve's own switch, so lsteamclient never loads.
     T.case(results, "steamredirect", "the bridge turned off with PROTON_DISABLE_LSTEAMCLIENT=1",
-           steamredirect_check(bridge, ctx, extra_env={"PROTON_DISABLE_LSTEAMCLIENT": "1"})[0],
-           r"bridgeprobe(32|64)\.exe: redirect failed")
+           both_probes(steamredirect_check(bridge, ctx, extra_env={"PROTON_DISABLE_LSTEAMCLIENT": "1"})[0], "redirect failed"),
+           r"^bridgeprobe(32|64)\.exe: redirect failed")
     # steamredirect: the Unix half left out, so lsteamclient's Windows half has nothing to call. The
     # check that it was loaded is left out too, since it cannot be.
     problems = steamredirect_check(bridge, ctx, files=list(PE))[0]
     T.case(results, "steamredirect", "the bridge's files without lsteamclient.so",
-           [p for p in problems if UNIX not in p], r"bridgeprobe(32|64)\.exe: unixlib failed")
+           both_probes([p for p in problems if UNIX not in p], "unixlib failed"), r"^bridgeprobe(32|64)\.exe: unixlib failed")
     # steamredirect: a stand-in Steam library that answers Steam_IsKnownInterface itself, with 5, so the
     # call check must see the answer that came through the Unix half from the Steam library.
     T.case(results, "steamredirect", "a stand-in Steam library whose Steam_IsKnownInterface answers 5",
-           steamredirect_check(bridge, ctx, standin_extra="signed char Steam_IsKnownInterface(const char *v) { return 5; }\n")[0],
-           r"bridgeprobe(32|64)\.exe: call failed \(Steam_IsKnownInterface answered 5 ")
-
-    shutil.rmtree(tmp, ignore_errors=True)
-    missing = [name for name, _ in GATES if name not in {r["gate"] for r in results}]
-    if missing:
-        results.append({"gate": "selftest", "result": "FAIL", "detail": "gates with no bad-input case: " + ", ".join(missing),
-                        "problems": missing})
-    G.report(results, "Steam bridge gate self-test (each gate must fail on a bad input, for that gate's reason)")
-    json.dump(results, open(os.path.join(ctx["work"], "bridge", "gates", "selftest.json"), "w"), indent=2)
-    return all(r["result"] == "PASS" for r in results)
+           both_probes(steamredirect_check(bridge, ctx, standin_extra="signed char Steam_IsKnownInterface(const char *v) { return 5; }\n")[0],
+                       "call failed (Steam_IsKnownInterface answered 5 "),
+           r"^bridgeprobe(32|64)\.exe: call failed \(Steam_IsKnownInterface answered 5 ")
+    return results
 
 
 def main(argv):
