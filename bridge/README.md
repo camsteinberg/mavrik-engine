@@ -15,7 +15,8 @@ can be changed or withdrawn alone.
   `steam_helper/`, `LICENSE` and `LICENSE.proton` only. Pinned in [`inputs.json`](inputs.json) by
   the commit, the tarball's size and sha256, and a digest of the unpacked tree. GitHub makes a
   commit's tarball when asked, and its compression can change, so the tree digest is what pins the
-  code (NotProton pins its Proton source the same way).
+  code (NotProton pins its Proton source the same way). A changed tarball fails the fetch on its
+  sha256; it is re-pinned once `proton.py` confirms it unpacks to the same tree digest.
 - **mavrik's patches** ([`patches/`](patches/)), applied in order, no fuzz:
   - `0001-register-components.patch`: adds `dlls/lsteamclient` and `programs/steam` to configure,
     so Wine's own make builds them.
@@ -26,7 +27,7 @@ can be changed or withdrawn alone.
     forward to a native `steam` is logged and dropped, because forwarding would open Steam's window.
 - **The engine's own tree**: the bridge is compiled in a clone of the engine's patched Wine sources,
   configured exactly as the engine (config.h must match), with the engine's toolchain and caches.
-  This is the route the S188 lab proved with Spacewar.
+  An earlier test build proved this route with Spacewar.
 
 ## Building
 
@@ -55,7 +56,7 @@ engine revision is read from the engine's `inputs.json`.
 | `lib/wine/x86_64-windows/` | `lsteamclient.dll` and `steam.exe`, 64-bit |
 | `lib/wine/x86_64-unix/` | `lsteamclient.so`, the Unix half, unsigned |
 | `NOTICE.txt` | what this is and whose it is; not made by Valve |
-| `licences/` | Valve's Steamworks SDK licence, BSD-3-Clause for the stub, the LGPL for Wine's start-up code, `COMPONENTS.tsv` and `FILES.tsv` |
+| `licences/` | `README.txt`; Valve's Steamworks SDK licence (`lsteamclient/`); BSD-3-Clause for the stub (`steam-helper/`); the LGPL for Wine's start-up code and Proton's `cxx.h`, with a `README.txt` (`wine/`); this repository's `LICENSE` and `PATCHES.txt`, every patch's header (`mavrik-steam-bridge/`); `COMPONENTS.tsv` and `FILES.tsv` |
 | `build-info.json` | the Proton commit, the patches, the engine it was built and gated with, every file's sha256 |
 
 A program that starts the engine adds `lib/wine/*` to the engine's own `lib/wine`. That is the single
@@ -81,9 +82,24 @@ bad input, and the gate must fail for that gate's reason:
 
 ## Releases
 
-None yet. A built bridge stays on the machine that built it until the user decides how it may ship
-(the Steamworks SDK licence is a contract with narrow grants; a letter to Valve is drafted). `pack.sh`
-publishes nothing, and the workflow neither builds nor uploads the bridge.
+A bridge release is a prerelease on this repository's releases page, tagged
+`steam-bridge-r<revision>-engine-r<engine revision>`. It pairs with exactly one engine release, the
+revision in its name: `steam-bridge-r1-engine-r5` goes with `11.0-cx26.3.0-r5` and no other engine.
+A new engine revision gets its own bridge build and prerelease.
+
+A bridge prerelease carries:
+
+- the archive (`.tar.xz`) and its `.sha256`;
+- the gate and self-test results (`.gates.json`, `.gates-selftest.json`) and `.build-info.json`;
+- the corresponding source: Proton's tarball at the pinned commit, and the bridge's patches
+  (`0001` to `0003`). Wine's start-up code, the LGPL part both halves carry, is built from the
+  engine's sources: the CrossOver source archive attached to the paired engine release (for r5,
+  [`crossover-sources-26.3.0.tar.gz`](https://github.com/camsteinberg/mavrik-engine/releases/download/11.0-cx26.3.0-r5/crossover-sources-26.3.0.tar.gz)).
+  The recipe and scripts are this repository at the release's tag.
+
+The GitHub workflow does not build the bridge yet. Until it does, a bridge prerelease is built on a
+Mac by the four steps above, against the paired engine, and checked by the same gates and self-test.
+`pack.sh` publishes nothing.
 
 ## Licence
 
@@ -99,4 +115,5 @@ publishes nothing, and the workflow neither builds nor uploads the bridge.
 
 Credits: Valve, for Proton's lsteamclient, steam_helper and the loader change; NotProton
 (github.com/NotProtonNot/NotProton), which first showed lsteamclient working on a Mac with the Mac
-Steam app. Nothing is copied from NotProton.
+Steam app, and the changes it needs there. Patch 0002 meets the same needs, written independently.
+Nothing is copied from NotProton.
