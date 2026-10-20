@@ -4,14 +4,16 @@
 # Builds Valve's Steam bridge for the engine that scripts/build.sh built in WORK: lsteamclient (its
 # i386 and x86_64 Windows halves and its x86_64 Unix half) and the steam.exe stub, from Valve's Proton
 # source at the commit bridge/inputs.json pins, with the patches in bridge/patches/. The way Proton,
-# NotProton and the S188 lab build them: as Wine modules, by Wine's own make, against the engine's
-# own Wine tree. Run it after scripts/build.sh; the engine's tree and caches are only read.
+# NotProton and an earlier test build with Spacewar built them: as Wine modules, by Wine's own make,
+# against the engine's own Wine tree. Run it after scripts/build.sh. The engine's tree and Wine are only
+# read; the compiles share the engine's ccache in WORK/ccache, and add to it.
 #   1. fetch.py     Proton's tarball, checked against its pins, into WORK/bridge/downloads
 #   2. proton.py    lsteamclient/, steam_helper/ and Valve's two licence files, checked against the
 #                   pinned tree digest, into WORK/bridge/proton
 #   3. the tree     an APFS clone of the engine's patched WORK/wine-src as WORK/bridge/wine-src, with
 #                   dlls/lsteamclient and programs/steam added and bridge/patches/*.patch applied
-#   4. configure    exactly as scripts/build-wine.sh does; config.h must equal the engine's
+#   4. configure    exactly as scripts/build-wine.sh does; config.h and the configure command line
+#                   (from config.log, without the source folder) must equal the engine's
 #   5. make         only dlls/lsteamclient/all and programs/steam/all, and what they need (Wine's
 #                   tools, headers, import libraries, ntdll.so to link against), as x86_64
 #   6. the files    into WORK/bridge/install/lib/wine/<arch>/, laid out as in the engine
@@ -22,7 +24,7 @@
 # Environment: FETCH_ARGS, JOBS and FRESH, as for scripts/build.sh.
 set -euo pipefail
 
-[ $# -ge 1 ] || { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 S="$REPO/scripts" B="$REPO/bridge"
 INPUTS="$B/inputs.json"
@@ -74,7 +76,7 @@ fi
 echo "::group::the tree"
 SRC="$BW/wine-src" BUILD="$BW/wine-build" DEST="$BW/install"
 rm -rf "$SRC" "$BUILD" "$DEST"
-cp -c -R "$WORK/wine-src" "$SRC" 2>/dev/null || cp -R "$WORK/wine-src" "$SRC"
+cp -c -R "$WORK/wine-src" "$SRC" 2>/dev/null || { rm -rf "$SRC"; cp -R "$WORK/wine-src" "$SRC"; }
 cp -R "$BW/proton/lsteamclient" "$SRC/dlls/lsteamclient"
 mkdir "$SRC/programs/steam"
 cp "$BW/proton/steam_helper/steam.c" "$BW/proton/steam_helper/Makefile.in" "$SRC/programs/steam/"
@@ -116,7 +118,15 @@ if ! cmp -s include/config.h "$WORK/wine-install/.build/config.h"; then
     diff "$WORK/wine-install/.build/config.h" include/config.h | sed -n '1,40p'
     echo "::error::configure gave the bridge another config.h than the engine's"; exit 1
 fi
-echo "config.h is the engine's"
+# config.h does not show every setting (CFLAGS, LDFLAGS, CC), so the command line must match too.
+cmdline() { sed -n 's|^  \$ .*/configure |configure |p' "$1" | sed -n 1p; }
+engine_cmd="$(cmdline "$WORK/wine-install/.build/config.log")"
+[ -n "$engine_cmd" ] || { echo "::error::no configure command line in the engine's config.log"; exit 1; }
+if [ "$(cmdline config.log)" != "$engine_cmd" ]; then
+    diff <(echo "$engine_cmd" | tr ' ' '\n') <(cmdline config.log | tr ' ' '\n') | sed -n '1,40p'
+    echo "::error::configure ran with other settings than the engine's"; exit 1
+fi
+echo "config.h and the configure command line are the engine's"
 echo "::endgroup::"
 
 echo "::group::make (lsteamclient and steam.exe only)"
