@@ -1,12 +1,13 @@
 mavrik's macOS changes to Proton's lsteamclient (ValveSoftware/Proton proton_11.0 at 5b89db9).
-Same needs NotProton found (NotProtonNot/NotProton lsteamclient/), written here:
+Same needs NotProton found (NotProtonNot/NotProton lsteamclient/), written here independently:
 - unixlib.cpp: NOMINMAX; Steam_IsKnownInterface and Steam_NotifyMissingInterface are optional,
   because the Mac client's steamclient.dylib exports neither (missing: every interface is known).
 - unix_steam_input_manual.cpp: a macOS branch for the keysym lookup (no X11 table; returns 0).
 - unix_private.h: the SDK's wchar.h first, before winbase.h's wcsncpy error macro (libc++ reads it later).
 - Makefile.in: UNIX_LIBS = -lc++, since this tree's makedep links Unix libraries with clang, not clang++.
-Proven in the S188 lab (Spacewar through the Mac Steam app). This patch changes Valve's lsteamclient, so it is
-under lsteamclient's own licence (lsteamclient/LICENSE, the Steamworks SDK licence), not this repository's.
+Proven in an earlier test build with Spacewar through the Mac Steam app. This patch changes Valve's
+lsteamclient, so it is under lsteamclient's own licence (lsteamclient/LICENSE, the Steamworks SDK licence),
+not this repository's.
 
 --- a/dlls/lsteamclient/Makefile.in
 +++ b/dlls/lsteamclient/Makefile.in
@@ -69,20 +70,25 @@ under lsteamclient's own licence (lsteamclient/LICENSE, the Steamworks SDK licen
  
      TRACE( "Loaded host steamclient from %s\n", debugstr_a(path) );
      return 0;
-@@ -851,14 +856,14 @@
+@@ -851,6 +856,12 @@
  template< typename Params >
  static NTSTATUS steamclient_Steam_IsKnownInterface( Params *params, bool wow64 )
  {
--    params->_ret = p_Steam_IsKnownInterface( params->version );
-+    params->_ret = p_Steam_IsKnownInterface ? p_Steam_IsKnownInterface( params->version ) : true;
++    if (!p_Steam_IsKnownInterface)
++    {
++        /* mavrik (macOS): not exported by the Mac client; every interface counts as known. */
++        params->_ret = true;
++        return 0;
++    }
+     params->_ret = p_Steam_IsKnownInterface( params->version );
      return 0;
  }
- 
+@@ -858,6 +869,8 @@
  template< typename Params >
  static NTSTATUS steamclient_Steam_NotifyMissingInterface( Params *params, bool wow64 )
  {
--    p_Steam_NotifyMissingInterface( params->pipe, params->version );
-+    if (p_Steam_NotifyMissingInterface) p_Steam_NotifyMissingInterface( params->pipe, params->version );
++    /* mavrik (macOS): not exported by the Mac client; there is no one to tell. */
++    if (!p_Steam_NotifyMissingInterface) return 0;
+     p_Steam_NotifyMissingInterface( params->pipe, params->version );
      return 0;
  }
- 
