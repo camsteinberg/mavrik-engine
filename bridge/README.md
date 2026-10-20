@@ -89,6 +89,8 @@ publishes nothing, and the workflow neither builds nor uploads the bridge.
 - `steam.exe` and its change (`patches/0003-steam-helper-macos.patch`) are BSD-3-Clause, Valve's
   (`LICENSE.proton`).
 - Both carry Wine's start-up code, LGPL-2.1-or-later. Its source is the engine's.
+- lsteamclient also compiles in Proton's `lsteamclient/cxx.h` (Copyright 2012 Piotr Caban for
+  CodeWeavers), LGPL-2.1-or-later. Its source is in Proton's tarball.
 - The scripts here, `inputs.json`, `tools/` and `patches/0001-register-components.patch` are
   LGPL-2.1-or-later, like the rest of this repository.
 

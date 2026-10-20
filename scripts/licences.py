@@ -268,7 +268,8 @@ def write(work, engine, repo):
 
 def write_bridge(work, bridge, repo):
     """The Steam bridge's licence folder. Its files are Valve's code (lsteamclient under the Steamworks
-    SDK licence, steam.exe under BSD-3-Clause), each with Wine's start-up code (winecrt0, LGPL) linked in."""
+    SDK licence, steam.exe under BSD-3-Clause), each with Wine's start-up code (winecrt0, LGPL) linked in;
+    lsteamclient also compiles in Proton's cxx.h (CodeWeavers, LGPL)."""
     pin = json.load(open(os.path.join(repo, "bridge", "inputs.json")))["inputs"]["proton-source"]
     proton = os.path.join(work, "bridge", "proton")
     lic = os.path.join(bridge, "licences")
@@ -288,7 +289,9 @@ def write_bridge(work, bridge, repo):
     put("wine", "COPYING.LIB", open(os.path.join(work, "wine-src", "COPYING.LIB"), "rb").read())
     put("wine", "README.txt", "Every Windows file in this archive (lsteamclient.dll and steam.exe, both halves) carries Wine's\n"
         "start-up code (dlls/winecrt0), which is under the LGPL-2.1-or-later (COPYING.LIB). Its source is the\n"
-        "engine's: CodeWeavers' CrossOver sources and the patches in https://github.com/camsteinberg/mavrik-engine.\n")
+        "engine's: CodeWeavers' CrossOver sources and the patches in https://github.com/camsteinberg/mavrik-engine.\n"
+        "lsteamclient.dll also carries Proton's lsteamclient/cxx.h (Copyright 2012 Piotr Caban for CodeWeavers),\n"
+        "under the same LGPL-2.1-or-later. Its source is in Proton's tarball at the commit COMPONENTS.tsv names.\n")
     put("mavrik-steam-bridge", "LICENSE", open(os.path.join(repo, "LICENSE"), "rb").read())
     lines = ["mavrik's changes to Valve's sources, applied in order. Each is in bridge/patches/ in the repository",
              "(https://github.com/camsteinberg/mavrik-engine), with its reason and its licence in its header.", ""]
