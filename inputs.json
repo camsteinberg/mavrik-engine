@@ -144,7 +144,7 @@
       "component": "media",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.8/gstreamer-1.0-1.28.8-universal.pkg",
-      "size": null,
+      "size": 156581817,
       "sha256": "d371ab04a7632713626836c2fc234e863cc98484c74c473eba99b0fbd9b3a3fe",
       "licence": "LGPL parts only are taken"
     },
@@ -153,7 +153,7 @@
       "component": "media",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.8/gstreamer-1.0-devel-1.28.8-universal.pkg",
-      "size": null,
+      "size": 808552628,
       "sha256": "e6d380bc17be7eccf13e0154567d4718fc9321da822408c7ca0cd808b3d4a3f7",
       "licence": "headers for the build only"
     },
@@ -503,7 +503,7 @@
       "component": "media:gstreamer",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.28.8.tar.xz",
-      "size": null,
+      "size": 1965000,
       "sha256": "baa8e86985ad6417cc0ad6e7b79ff2884c6779c8b1c7a6240e7121822c86e524",
       "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
@@ -511,7 +511,7 @@
       "component": "media:gstreamer",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.28.8.tar.xz",
-      "size": null,
+      "size": 2566564,
       "sha256": "ade70e3381fcbb024f1f20aa9ede9b5654aeed39d5bd70b1a98f53015e501117",
       "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
@@ -519,7 +519,7 @@
       "component": "media:gstreamer",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.28.8.tar.xz",
-      "size": null,
+      "size": 6014472,
       "sha256": "a7670ed900d3d03be744d25c1873b239896e9a82ce6d17f8febc6fffbaee9521",
       "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
@@ -527,7 +527,7 @@
       "component": "media:gstreamer",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.8.tar.xz",
-      "size": null,
+      "size": 8355328,
       "sha256": "670d888bde8242579b0d8e91f60cf337aa7be20ca7c315ebfbdd6e5a9218d104",
       "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
@@ -535,7 +535,7 @@
       "component": "media:gstreamer",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/src/gst-plugins-ugly/gst-plugins-ugly-1.28.8.tar.xz",
-      "size": null,
+      "size": 247988,
       "sha256": "51ae53002e3bbe9ed0f2215020c5a248bf0ed41b9d9a2a4e102b8583fedab61c",
       "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
@@ -543,7 +543,7 @@
       "component": "media:gstreamer",
       "version": "1.28.8",
       "url": "https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.28.8.tar.xz",
-      "size": null,
+      "size": 224460,
       "sha256": "98ad3d7f8932c495e268708903f1c3388d5f26a0db34727a9f861ee23b724177",
       "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
