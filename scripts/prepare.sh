@@ -2,9 +2,10 @@
 # prepare.sh PATHS_JSON INPUTS_JSON WORK
 #
 # 1. Unpacks sources/wine from the pinned CrossOver sources as WORK/wine-src.
-# 2. Stops if dlls/appwiz.cpl/addons.c names a Wine Mono or Gecko version that inputs.json
-#    has not pinned (the engine must carry exactly what the tree asks for).
-# 3. Applies patches/*.patch in order; any reject or fuzz stops the build.
+# 2. Applies patches/*.patch in order; any reject or fuzz stops the build.
+# 3. Stops if the patched dlls/appwiz.cpl/addons.c names a Wine Mono or Gecko version that
+#    inputs.json has not pinned (the engine must carry exactly what the tree asks for; a patch can
+#    move the version, as 0011 does).
 # 4. Expands GStreamer's runtime and development packages (without installing anything
 #    into /Library, and without their static archives) into WORK/gstreamer/Versions/1.0, and
 #    points its pkg-config files there.
@@ -27,11 +28,6 @@ rm -rf "$WORK/cx"
 cat "$WORK/wine-src/VERSION"
 echo "::endgroup::"
 
-echo "::group::addons.c versions"
-addons="$WORK/wine-src/dlls/appwiz.cpl/addons.c"
-python3 "$REPO/scripts/gates.py" addons-source "$addons" "$INPUTS"
-echo "::endgroup::"
-
 echo "::group::patches"
 cd "$WORK/wine-src"
 for p in "$REPO"/patches/*.patch; do
@@ -45,6 +41,11 @@ done
 rejects="$(find . -name '*.rej' -o -name '*.orig' | sed -n "1,5p")"
 [ -z "$rejects" ] || { echo "::error::patch leftovers: $rejects"; exit 1; }
 cd - >/dev/null
+echo "::endgroup::"
+
+echo "::group::addons.c versions"
+addons="$WORK/wine-src/dlls/appwiz.cpl/addons.c"
+python3 "$REPO/scripts/gates.py" addons-source "$addons" "$INPUTS"
 echo "::endgroup::"
 
 echo "::group::GStreamer packages"
