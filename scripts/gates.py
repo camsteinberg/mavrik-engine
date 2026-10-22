@@ -1034,10 +1034,17 @@ def proc_names(work, pid):
 
 
 def ls_info(pid, key):
-    """One item of LaunchServices' information on the process pid, or None. Any \\uXXXX escapes in
-    lsappinfo's output are read back as the characters they stand for."""
+    """One item of LaunchServices' information on the process pid ("name" or "ApplicationType"), or None.
+    lsappinfo prints it in one of two forms: "KEY"="VALUE" (macOS 26 and before), or, since macOS 27, the
+    whole record, with the name as its first quoted string ("NAME" ASN:...) and the type as type="VALUE".
+    Any \\uXXXX escapes in lsappinfo's output are read back as the characters they stand for."""
     r = out(["lsappinfo", "info", "-only", key, str(pid)], timeout=30, encoding="utf-8", errors="replace")
-    m = re.search(r'^"[^"]+"="(.*)"\s*$', r.stdout.strip())
+    text = r.stdout.strip()
+    m = re.search(r'^"[^"]+"="(.*)"\s*$', text)
+    if not m and key == "name":
+        m = re.match(r'"(.*)" ASN:', text)
+    elif not m and key == "ApplicationType":
+        m = re.search(r'(?<![!\w])type="([^"]*)"', text)
     if not m:
         return None
     value = re.sub(r"\\[uU]([0-9a-fA-F]{4})", lambda u: chr(int(u.group(1), 16)), m.group(1))
