@@ -106,7 +106,8 @@ COMPONENT_INFO = {
     "wine-mono": ("MIT AND LGPL-2.1-or-later AND others, see COPYING", "Wine Mono, the .NET runtime Wine uses"),
     "wine-gecko": ("MPL-2.0", "Wine Gecko, the HTML engine Wine uses"),
     "moltenvk": ("Apache-2.0 (with cereal: BSD-3-Clause)", "MoltenVK, Vulkan on Metal"),
-    "dxmt": ("MIT (with LLVM: Apache-2.0 WITH LLVM-exception, and others listed)", "DXMT, Direct3D 10 and 11 on Metal (64-bit files)"),
+    "dxmt": ("LGPL-2.1-or-later (releases up to v0.80 were MIT, see LICENSE.OLD; with LLVM: Apache-2.0 WITH "
+             "LLVM-exception, and others listed)", "DXMT, Direct3D 10 and 11 on Metal (64-bit files)"),
     "gmp": ("LGPL-3.0-or-later OR GPL-2.0-or-later", "GNU MP, used by GnuTLS"),
     "nettle": ("LGPL-3.0-or-later OR GPL-2.0-or-later", "Nettle, used by GnuTLS"),
     "gnutls": ("LGPL-2.1-or-later (includes libtasn1: LGPL-2.1-or-later, libunistring: LGPL-3.0-or-later OR GPL-2.0-or-later, "
@@ -183,7 +184,7 @@ def write(work, engine, repo):
         put("wine-mono", name, data)
     put("wine-mono", "README.txt", "Wine Mono's notices: COPYING says how its parts are licensed, and the other files are "
         "the licence and notice files of each project it is built from (Mono and the projects in mono/external, FNA, "
-        "FAudio, FNA3D, MojoShader, SDL3, SDL2-CS and SDL3-CS, winforms, WPF, monoDX), as they are in Wine Mono's "
+        "FAudio, FNA3D, MojoShader, dav1dfile, SDL3, SDL2-CS and SDL3-CS, winforms, WPF, monoDX), as they are in Wine Mono's "
         f"source ({mono['url']}).\n")
     put("wine-gecko", "MPL-2.0.txt", text_of(paths, "spdx-mpl-2.0"))
     put("wine-gecko", "license.html", gecko_notices(inputs, engine))
@@ -192,6 +193,8 @@ def write(work, engine, repo):
     put("moltenvk", "SPIRV-Cross-LICENSE", text_of(paths, "spirv-cross-license"))
     put("moltenvk", "SPIRV-Tools-LICENSE", text_of(paths, "spirv-tools-license"))
     put("dxmt", "LICENSE", text_of(paths, "dxmt-license"))
+    put("dxmt", "COPYING.LIB", text_of(paths, "dxmt-copying-lib"))
+    put("dxmt", "LICENSE.OLD", text_of(paths, "dxmt-license-old"))
     put("dxmt", "dxvk.LICENSE", text_of(paths, "dxmt-dxvk-license"))
     put("dxmt", "LLVM-LICENSE.TXT", text_of(paths, "llvm-license"))
     put("dxmt", "LLVM-COPYRIGHT.regex", text_of(paths, "llvm-regex-copyright"))
@@ -199,8 +202,11 @@ def write(work, engine, repo):
     put("dxmt", "LLVM-ConvertUTF-notice.txt", convert[:convert.index("*/", convert.index("Unicode, Inc.")) + 2] + "\n")
     put("dxmt", "DXBCParser-LICENSE-Microsoft", text_of(paths, "dxbcparser-license"))
     put("dxmt", "nvapi-License-NVIDIA.txt", text_of(paths, "nvapi-license"))
-    put("dxmt", "README.txt", "DXMT v0.80's files carry code from LLVM 15.0.7 (with its regex and ConvertUTF parts), "
-        "Microsoft's DXBCParser, NVIDIA's nvapi headers and DXVK; their notices are in this folder. "
+    put("dxmt", "dxbc-spirv-LICENSE", text_of(paths, "dxbc-spirv-license"))
+    put("dxmt", "README.txt", f"DXMT ({inputs['inputs']['dxmt']['version']}) is under the LGPL-2.1-or-later (LICENSE, "
+        "COPYING.LIB) since ec357fd582; LICENSE.OLD is the MIT licence of its releases up to v0.80, which DXMT "
+        "keeps. Its files carry code from LLVM 15.0.7 (with its regex and ConvertUTF parts), Microsoft's "
+        "DXBCParser, NVIDIA's nvapi headers, DXVK and dxbc-spirv (its MD5 code); their notices are in this folder. "
         "winemetal.dll also carries Wine's start-up code (LGPL-2.1-or-later, see ../wine).\n")
     for key in ("gmp", "nettle", "gnutls", "freetype", "sdl2"):
         d = os.path.join(work, "deps", "share", "licences", key)

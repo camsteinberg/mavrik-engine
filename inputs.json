@@ -2,7 +2,7 @@
   "comment": "Every input the build downloads, pinned by size and SHA-256. A release build refuses any entry whose size or sha256 is null. A test build downloads it, prints the values to pin and goes on.",
   "engine": {
     "name": "mavrik-engine",
-    "revision": 5,
+    "revision": 6,
     "macos_deployment_target": "14.0"
   },
   "toolchain": {
@@ -26,21 +26,21 @@
     "wine-mono": {
       "role": "addon",
       "component": "wine-mono",
-      "version": "10.4.1",
-      "url": "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-10.4.1/wine-mono-10.4.1-x86.tar.xz",
-      "size": 39590692,
-      "sha256": "a16606ef0724202e6a6848ece6e0cbba64d11e2f11aefe744af1d93c6d9f99bb",
+      "version": "11.3.0",
+      "url": "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-11.3.0/wine-mono-11.3.0-x86.tar.xz",
+      "size": 39412620,
+      "sha256": "54a1b0111c3fe4b785eae688af94d27e64995707ad648b6fee8000381b80d298",
       "licence": "MIT AND LGPL-2.1-or-later AND others (see its COPYING)"
     },
     "wine-mono-source": {
       "role": "source",
       "component": "wine-mono",
-      "version": "10.4.1",
-      "url": "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-10.4.1/wine-mono-10.4.1-src.tar.xz",
-      "size": 373786652,
-      "sha256": "128e335396689e466dff5e1aa0770a714dbe3d16397fc4ddbb8a80999c67323b",
+      "version": "11.3.0",
+      "url": "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-11.3.0/wine-mono-11.3.0-src.tar.xz",
+      "size": 306872028,
+      "sha256": "9f4f03285fbeed484980efbb1eba1c19069244aea401d2ff1585e3990782edf7",
       "licence": "MIT AND LGPL-2.1-or-later AND others (see its COPYING)",
-      "notices_root": "wine-mono-10.4.1",
+      "notices_root": "wine-mono-11.3.0",
       "notices": [
         "COPYING",
         "mono/LICENSE",
@@ -66,6 +66,7 @@
         "FNA/lib/FAudio/LICENSE",
         "FNA/lib/FNA3D/LICENSE",
         "FNA/lib/FNA3D/MojoShader/LICENSE.txt",
+        "FNA/lib/dav1dfile/LICENSE",
         "FNA/lib/SDL2-CS/LICENSE",
         "FNA/lib/SDL3-CS/LICENSE",
         "FNA.NetStub/LICENSE",
@@ -120,37 +121,40 @@
     "dxmt": {
       "role": "runtime",
       "component": "dxmt",
-      "version": "0.80",
-      "url": "https://github.com/3Shain/dxmt/releases/download/v0.80/dxmt-v0.80-builtin.tar.gz",
-      "size": 18681669,
-      "sha256": "8f260e36b5739e68f3bad613381441385c4dc7b85b78ba8de653d5a6a264529d",
-      "licence": "MIT",
+      "version": "main-50102f994b",
+      "commit": "50102f994b406f58f56d5d09f2ad20f9b90390a2",
+      "root": "50102f994b406f58f56d5d09f2ad20f9b90390a2",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-50102f994b/dxmt-50102f994b406f58f56d5d09f2ad20f9b90390a2.tar.gz",
+      "size": 34913352,
+      "sha256": "7685d25c1a17bf982a16d37ab21756afa296037e5d9ddf3dff13334cdd2a5710",
+      "licence": "LGPL-2.1-or-later",
+      "note": "DXMT's own CI package for main at 50102f994b (2026-10-16): GitHub Actions run 38870321233 of 3Shain/dxmt, artifact 12033521978 (its zip's sha256 e536ba2a6c70d90eb20a206bc6053e95e25c0027ed87a9db883c67ed3ef676a7, as GitHub records it), the .tar.gz inside unchanged. DXMT has no release after v0.80, and CI artifacts need a sign-in and expire (this one on 2027-01-14), so the package is mirrored on this repository's releases. Its folder is named after the commit (root).",
       "files": {
-        "x86_64-windows/d3d11.dll": 5350886,
-        "x86_64-windows/dxgi.dll": 1890058,
-        "x86_64-windows/d3d10core.dll": 1531476,
-        "x86_64-windows/winemetal.dll": 73478,
-        "x86_64-windows/nvapi64.dll": 1905830,
-        "x86_64-windows/nvngx.dll": 1579890,
-        "x86_64-unix/winemetal.so": 31805040
+        "x86_64-windows/d3d11.dll": 5518931,
+        "x86_64-windows/dxgi.dll": 1912783,
+        "x86_64-windows/d3d10core.dll": 1542829,
+        "x86_64-windows/winemetal.dll": 74373,
+        "x86_64-windows/nvapi64.dll": 1945258,
+        "x86_64-windows/nvngx.dll": 1587111,
+        "x86_64-unix/winemetal.so": 31877808
       }
     },
     "gstreamer-runtime": {
       "role": "runtime",
       "component": "media",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-1.28.6-universal.pkg",
-      "size": 153477832,
-      "sha256": "a8eb366c59b7e9e5dc049848fed6bcd203a8878aa7517c051639fda78797c6ad",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.8/gstreamer-1.0-1.28.8-universal.pkg",
+      "size": null,
+      "sha256": "d371ab04a7632713626836c2fc234e863cc98484c74c473eba99b0fbd9b3a3fe",
       "licence": "LGPL parts only are taken"
     },
     "gstreamer-devel": {
       "role": "build",
       "component": "media",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.6/gstreamer-1.0-devel-1.28.6-universal.pkg",
-      "size": 751614321,
-      "sha256": "177b1428d0f47b844e7bff2aeeb22047686d802eba21580dab52f4a6fe1dcf02",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/data/pkg/osx/1.28.8/gstreamer-1.0-devel-1.28.8-universal.pkg",
+      "size": null,
+      "sha256": "e6d380bc17be7eccf13e0154567d4718fc9321da822408c7ca0cd808b3d4a3f7",
       "licence": "headers for the build only"
     },
     "gmp": {
@@ -206,7 +210,7 @@
       "size": 1117057,
       "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21",
       "licence": "LGPL-2.1-only",
-      "note": "the source of the libmpg123 GStreamer 1.28.6 builds (cerbero's mpg123.recipe pins this sha256); its COPYING and AUTHORS are the media notices"
+      "note": "the source of the libmpg123 GStreamer 1.28.8 builds (cerbero's mpg123.recipe pins this sha256); its COPYING and AUTHORS are the media notices"
     },
     "ccache": {
       "role": "tool",
@@ -220,26 +224,44 @@
     "dxmt-winemetal-source": {
       "role": "check",
       "component": "dxmt",
-      "version": "0.80",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/v0.80/src/winemetal/unix/winemetal_unix.c",
-      "size": 120555,
-      "sha256": "f8f4b952ebd4b862afd86b3a228d8a44708e7d87638a9c6798d7afd917fe6b35",
-      "licence": "MIT",
-      "note": "read by the winemac gate: the macdrv_functions layout DXMT v0.80 expects, and its fallback symbol names"
+      "version": "main-50102f994b",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/src/winemetal/unix/winemetal_unix.c",
+      "size": 135617,
+      "sha256": "784a4ae87ecd2f164bc893cec43452f91de830ec7b5c02bb9c8d568be0dfb769",
+      "licence": "LGPL-2.1-or-later",
+      "note": "read by the winemac gate: the macdrv_functions layout DXMT at 50102f994b expects, and its fallback symbol names"
     }
   },
   "licence_texts": {
     "dxmt-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/v0.80/LICENSE",
-      "size": 1065,
-      "sha256": "6b928413c6308c106f3e0080bd94b6427b56d587d400fd40e6cbfbab7d9c4ae1"
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/LICENSE",
+      "size": 782,
+      "sha256": "b87c35aef7b2cf14de854118ca55ce5c4b284c85b5f002421fb8d46d868c2d17"
+    },
+    "dxmt-copying-lib": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/COPYING.LIB",
+      "size": 26434,
+      "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
+    },
+    "dxmt-license-old": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/LICENSE.OLD",
+      "size": 1272,
+      "sha256": "3422f02eb18f1e598731b586832afab8b322badd61d45a4b95674ceec4b6108d"
     },
     "dxmt-dxvk-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/v0.80/src/util/dxvk.LICENSE",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/src/util/dxvk.LICENSE",
       "size": 970,
       "sha256": "03ca4af84f5cd28cef3ed3f1ef4d17996992d35ccdbe82b29cc020ca02c16f3d"
+    },
+    "dxbc-spirv-license": {
+      "for": "dxmt",
+      "url": "https://raw.githubusercontent.com/doitsujin/dxbc-spirv/687a30131e50533fedd9e785a1bf3aea463504f2/LICENSE",
+      "size": 1071,
+      "sha256": "0f8a5e687bea942a30a8e39b9915294fbe44eca866e71307a9b7083ee0e69ad8"
     },
     "llvm-license": {
       "for": "dxmt",
@@ -291,37 +313,37 @@
     },
     "gstreamer-copying": {
       "for": "media",
-      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gstreamer/COPYING",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.8/subprojects/gstreamer/COPYING",
       "size": 26431,
       "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
     },
     "gst-plugins-base-copying": {
       "for": "media",
-      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-base/COPYING",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.8/subprojects/gst-plugins-base/COPYING",
       "size": 26431,
       "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
     },
     "gst-plugins-good-copying": {
       "for": "media",
-      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-good/COPYING",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.8/subprojects/gst-plugins-good/COPYING",
       "size": 26432,
       "sha256": "6095e9ffa777dd22839f7801aa845b31c9ed07f3d6bf8a26dc5d2dec8ccc0ef3"
     },
     "gst-plugins-bad-copying": {
       "for": "media",
-      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-bad/COPYING",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.8/subprojects/gst-plugins-bad/COPYING",
       "size": 26530,
       "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
     },
     "gst-plugins-ugly-copying": {
       "for": "media",
-      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-plugins-ugly/COPYING",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.8/subprojects/gst-plugins-ugly/COPYING",
       "size": 26432,
       "sha256": "6095e9ffa777dd22839f7801aa845b31c9ed07f3d6bf8a26dc5d2dec8ccc0ef3"
     },
     "gst-libav-copying": {
       "for": "media",
-      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.6/subprojects/gst-libav/COPYING",
+      "url": "https://raw.githubusercontent.com/GStreamer/gstreamer/1.28.8/subprojects/gst-libav/COPYING",
       "size": 26431,
       "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
     },
@@ -470,60 +492,60 @@
     },
     "dxmt-source": {
       "component": "dxmt",
-      "version": "0.80",
-      "url": "https://github.com/3Shain/dxmt/archive/refs/tags/v0.80.tar.gz",
-      "file": "dxmt-0.80.tar.gz",
-      "size": 655666,
-      "sha256": "79cd3a2b32749fc3890b6c2a9337f45de26fdb750014f3457bb7ebafa679492d",
-      "note": "DXMT is MIT, but winemetal.dll carries Wine's start-up code (LGPL)"
+      "version": "main-50102f994b",
+      "url": "https://api.github.com/repos/3Shain/dxmt/tarball/50102f994b406f58f56d5d09f2ad20f9b90390a2",
+      "file": "dxmt-50102f994b.tar.gz",
+      "size": 765027,
+      "sha256": "405e97ef59d82ff210c419465e8afb1cee04c0cc08e966233603ab5d17a7ccea",
+      "note": "DXMT's source at the commit its package was built from (GitHub's tarball of the commit; the mirror release carries the same file)"
     },
     "gstreamer-source": {
       "component": "media:gstreamer",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.28.6.tar.xz",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.28.8.tar.xz",
       "size": null,
-      "sha256": "62b6b9f0ad3147a6dd6420ac64a91180b14e990695bddd353b96041611d052ca",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "sha256": "baa8e86985ad6417cc0ad6e7b79ff2884c6779c8b1c7a6240e7121822c86e524",
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "gst-plugins-base-source": {
       "component": "media:gstreamer",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.28.6.tar.xz",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.28.8.tar.xz",
       "size": null,
-      "sha256": "0ba699c7c6c66f4ba640be78cb38a24715add9683f3e3a199f5369dc5a4f04ac",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "sha256": "ade70e3381fcbb024f1f20aa9ede9b5654aeed39d5bd70b1a98f53015e501117",
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "gst-plugins-good-source": {
       "component": "media:gstreamer",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.28.6.tar.xz",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.28.8.tar.xz",
       "size": null,
-      "sha256": "b0c620a4b18b6ee931b4c43bbf1760d308666dc37f730a7e7f1ad327e59ce2df",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "sha256": "a7670ed900d3d03be744d25c1873b239896e9a82ce6d17f8febc6fffbaee9521",
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "gst-plugins-bad-source": {
       "component": "media:gstreamer",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.6.tar.xz",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.8.tar.xz",
       "size": null,
-      "sha256": "6636f2c2289ceda52c4aba971338c81e2b5780d3381bd3673c1c116ec87587c3",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "sha256": "670d888bde8242579b0d8e91f60cf337aa7be20ca7c315ebfbdd6e5a9218d104",
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "gst-plugins-ugly-source": {
       "component": "media:gstreamer",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-ugly/gst-plugins-ugly-1.28.6.tar.xz",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/src/gst-plugins-ugly/gst-plugins-ugly-1.28.8.tar.xz",
       "size": null,
-      "sha256": "ee279da13a740fd7f060d631a673223fa3bcc8c33d350c8d0264bd332a24ecd8",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "sha256": "51ae53002e3bbe9ed0f2215020c5a248bf0ed41b9d9a2a4e102b8583fedab61c",
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "gst-libav-source": {
       "component": "media:gstreamer",
-      "version": "1.28.6",
-      "url": "https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.28.6.tar.xz",
+      "version": "1.28.8",
+      "url": "https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.28.8.tar.xz",
       "size": null,
-      "sha256": "71e6eafb4fff2a66d1bb0ba8d078224dfe7e3397307d8c0bba3dc23606e08f51",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "sha256": "98ad3d7f8932c495e268708903f1c3388d5f26a0db34727a9f861ee23b724177",
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "glib-source": {
       "component": "media:glib",
@@ -531,7 +553,7 @@
       "url": "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz",
       "size": null,
       "sha256": "37dd0877fe964cd15e9a2710b044a1830fb1bd93652a6d0cb6b8b2dff187c709",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "ffmpeg-source": {
       "component": "media:ffmpeg",
@@ -539,7 +561,7 @@
       "url": "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz",
       "size": null,
       "sha256": "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "proxy-libintl-source": {
       "component": "media:proxy-libintl",
@@ -548,21 +570,21 @@
       "file": "proxy-libintl-0.5.tar.gz",
       "size": 13056,
       "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303",
-      "note": "the tarball cerbero 1.28.6 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
+      "note": "the tarball cerbero 1.28.8 (GStreamer's build recipes) builds from; the sha256 is the one its recipe pins"
     },
     "cerbero-source": {
       "component": "media:cerbero",
-      "version": "1.28.6",
-      "url": "https://api.github.com/repos/GStreamer/cerbero/tarball/refs/tags/1.28.6",
-      "file": "cerbero-1.28.6.tar.gz",
-      "size": 2975934,
-      "sha256": "f7cb0d44202dc7402b4d611369d6dfbb94586286ada8f1649da9c3d6cd724913",
+      "version": "1.28.8",
+      "url": "https://api.github.com/repos/GStreamer/cerbero/tarball/refs/tags/1.28.8",
+      "file": "cerbero-1.28.8.tar.gz",
+      "size": 2975792,
+      "sha256": "e7b41cd8ec01edc0df9ffef71f7a5c43ff2dffbcd61c0097f16cba1cee85373d",
       "note": "GStreamer's build recipes and the patches they apply to GStreamer, GLib, FFmpeg, proxy-libintl and mpg123 (GitHub's mirror of gitlab.freedesktop.org/gstreamer/cerbero)"
     }
   },
   "media_projects": {
     "gstreamer": {
-      "version": "1.28.6",
+      "version": "1.28.8",
       "licence": "LGPL-2.1-or-later",
       "texts": [
         "gstreamer-copying",
@@ -690,5 +712,5 @@
       "source": "https://github.com/xiph/opus/releases/tag/v1.5.2"
     }
   },
-  "media_projects_comment": "The projects inside GStreamer 1.28.6's official macOS build that the media component takes files from, with the versions GStreamer's build recipes (cerbero 1.28.6) name."
+  "media_projects_comment": "The projects inside GStreamer 1.28.8's official macOS build that the media component takes files from, with the versions GStreamer's build recipes (cerbero 1.28.8) name."
 }
