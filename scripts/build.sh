@@ -8,7 +8,7 @@
 #                    WORK/bin; bison 3, flex, pkg-config, cmake, and mingw-w64 gcc must be installed
 #                    already (the workflow installs bison and mingw-w64 with Homebrew). The versions
 #                    are part of the cache keys and of the engine's build-info.json
-#   3. prepare.sh    the Wine sources, the addons.c check, the patches, the GStreamer packages
+#   3. prepare.sh    the Wine sources, the patches, the addons.c check, the GStreamer packages
 #   4. build-deps.sh our Unix libraries, into WORK/deps
 #   5. build-wine.sh Wine, into WORK/wine-install
 # Then assemble.sh, gates.sh and pack.sh make, check and pack the engine.
