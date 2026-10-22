@@ -84,8 +84,9 @@ bad input, and the gate must fail for that gate's reason:
 
 A bridge release is a prerelease on this repository's releases page, tagged
 `steam-bridge-r<revision>-engine-r<engine revision>`. It pairs with exactly one engine release, the
-revision in its name: `steam-bridge-r1-engine-r5` goes with `11.0-cx26.3.0-r5` and no other engine.
-A new engine revision gets its own bridge build and prerelease.
+revision in its name: `steam-bridge-r1-engine-r5` goes with `11.0-cx26.3.0-r5` and no other engine, and
+`steam-bridge-r1-engine-r6` with `11.0-cx26.3.0-r6`. A new engine revision gets its own bridge build and
+prerelease.
 
 A bridge prerelease carries:
 
@@ -93,8 +94,9 @@ A bridge prerelease carries:
 - the gate and self-test results (`.gates.json`, `.gates-selftest.json`) and `.build-info.json`;
 - the corresponding source: Proton's tarball at the pinned commit, and the bridge's patches
   (`0001` to `0003`). Wine's start-up code, the LGPL part both halves carry, is built from the
-  engine's sources: the CrossOver source archive attached to the paired engine release (for r5,
-  [`crossover-sources-26.3.0.tar.gz`](https://github.com/camsteinberg/mavrik-engine/releases/download/11.0-cx26.3.0-r5/crossover-sources-26.3.0.tar.gz)).
+  engine's sources: the CrossOver source archive attached to the paired engine release (for r6,
+  [`crossover-sources-26.3.0.tar.gz`](https://github.com/camsteinberg/mavrik-engine/releases/download/11.0-cx26.3.0-r6/crossover-sources-26.3.0.tar.gz)),
+  with the engine's patches in that release's recipe archive.
   The recipe and scripts are this repository at the release's tag.
 
 The GitHub workflow does not build the bridge yet. Until it does, a bridge prerelease is built on a
