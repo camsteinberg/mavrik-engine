@@ -1,0 +1,108 @@
+Wine asks for Wine Mono 11.3.0, the version Wine's master branch asks for.
+
+From upstream Wine (wine-mirror/wine, LGPL-2.1-or-later): Wine's own version-bump commits from Wine Mono
+10.4.1 (the version CrossOver 26.3.0 asks for) to 11.3.0, carried unchanged in this order. They came after
+CrossOver 26.3.0 and apply to it with no fuzz; this file is their combined diff:
+
+- 76743968cc8aadc54c8b4e34c9b465e40f10f0fb, Esme Povirk: "mscoree: Update Wine Mono to 11.0.0."
+- 9f4295cec027d260c39fcf167b063acd939e5fc6, Esme Povirk: "mscoree: Update Wine Mono to 11.1.0."
+- 2927904de2dc9c69bc1bd60a45c0839dad60eed9, Esme Povirk: "mscoree: Update Wine Mono to 11.2.0."
+- 2142f7724d7ea9b34fe71711fb83952e887d431f, Esme Povirk: "appwiz.cpl: Move architecture to
+  addon_info_t." Wine Mono 11.3.0 has its own architecture names (x86, arm64), so 29a87db needs it.
+- 29a87db3c71d9cc7e4c20fa44eb813172c0e11a9, Esme Povirk: "mscoree: Update Wine Mono to 11.3.0."
+
+Each commit changes the version and its SHA-256 in dlls/appwiz.cpl/addons.c, the version mscoree expects
+in dlls/mscoree/mscoree_private.h, and the version Wine's own CI uses in tools/gitlab/test.yml.
+
+Why mavrik needs it: the engine carries the Wine Mono its tree asks for (the addons gate checks they are
+the same), and Wine Mono 11 brings FNA 26.08 and SDL 3.4.14 for XNA and FNA games, and WPF, System.Drawing
+and Visual Basic 6 fixes. Remove when the pinned CrossOver sources ask for this version or a newer one.
+
+--- a/dlls/appwiz.cpl/addons.c
++++ b/dlls/appwiz.cpl/addons.c
+@@ -56,10 +56,13 @@
+ #define GECKO_SHA "???"
+ #endif
+ 
+-#define MONO_VERSION "10.4.1"
++#define MONO_VERSION "11.3.0"
+ #if defined(__i386__) || defined(__x86_64__)
+ #define MONO_ARCH "x86"
+-#define MONO_SHA "071f4b2887e1c97a11d791ff3d65be9429eed6dec4c2708888bfd546ba358e23"
++#define MONO_SHA "df2dfc1665c2511882e7cabd56eafd0c0a3d94e5a7e86f969277f6c189d418d3"
++#elif defined(__aarch64__)
++#define MONO_ARCH "arm64"
++#define MONO_SHA "b0c47d374efaf22cbff76cb10488ac2d1627b067e085aef7acec573884120e0f"
+ #else
+ #define MONO_ARCH ""
+ #define MONO_SHA "???"
+@@ -71,6 +74,7 @@
+     const WCHAR *subdir_name;
+     const char *sha;
+     const char *url_default;
++    const char *arch;
+     const WCHAR *config_key;
+     const WCHAR *url_config_key;
+     const WCHAR *dir_config_key;
+@@ -87,6 +91,7 @@
+         L"gecko",
+         GECKO_SHA,
+         "http://source.winehq.org/winegecko.php",
++        GECKO_ARCH,
+         L"MSHTML", L"GeckoUrl", L"GeckoCabDir",
+         MAKEINTRESOURCEW(ID_DWL_GECKO_DIALOG)
+     },
+@@ -96,6 +101,7 @@
+         L"mono",
+         MONO_SHA,
+         "http://source.winehq.org/winemono.php",
++        MONO_ARCH,
+         L"Dotnet", L"MonoUrl", L"MonoCabDir",
+         MAKEINTRESOURCEW(ID_DWL_MONO_DIALOG)
+     }
+@@ -612,7 +618,7 @@
+ 
+     lstrcpyW(url+len, L"?arch=");
+     len += lstrlenW(L"?arch=");
+-    len += MultiByteToWideChar(CP_ACP, 0, GECKO_ARCH, sizeof(GECKO_ARCH),
++    len += MultiByteToWideChar(CP_ACP, 0, addon->arch, strlen(addon->arch) + 1,
+                                url+len, size/sizeof(WCHAR)-len)-1;
+     lstrcpyW(url+len, L"&v=");
+     len += lstrlenW(L"&v=");
+@@ -752,11 +758,11 @@
+ 
+ BOOL install_addon(addon_t addon_type)
+ {
+-    if(!*GECKO_ARCH)
+-        return FALSE;
+-
+     addon = addons_info+addon_type;
+ 
++    if(!*addon->arch)
++        return FALSE;
++
+     p_wine_get_version = (void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version");
+ 
+     /*
+--- a/dlls/mscoree/mscoree_private.h
++++ b/dlls/mscoree/mscoree_private.h
+@@ -45,7 +45,7 @@
+ extern HRESULT assembly_get_vtable_fixups(ASSEMBLY *assembly, VTableFixup **fixups, DWORD *count);
+ extern HRESULT assembly_get_native_entrypoint(ASSEMBLY *assembly, NativeEntryPointFunc *func);
+ 
+-#define WINE_MONO_VERSION "10.4.1"
++#define WINE_MONO_VERSION "11.3.0"
+ 
+ /* Mono embedding */
+ typedef struct _MonoDomain MonoDomain;
+--- a/tools/gitlab/test.yml
++++ b/tools/gitlab/test.yml
+@@ -7,7 +7,7 @@
+   variables:
+     GIT_STRATEGY: none
+     GECKO_VER: 2.47.4
+-    MONO_VER: 10.4.1
++    MONO_VER: 11.3.0
+   cache:
+     - key: wine-gecko-$GECKO_VER
+       paths:
