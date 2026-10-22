@@ -11,7 +11,8 @@ What it does, in order:
   1. copies Wine's install into ENGINE (an APFS clone, so it costs no space and the install stays
      as the build left it, ready for the next assembly) and makes sure bin/wine and bin/wineserver exist;
   2. strips the PE half (mingw strip --strip-debug) and the Unix side (strip -x -S);
-  3. unpacks Wine Mono and Wine Gecko into share/wine/mono and share/wine/gecko;
+  3. unpacks Wine Mono and Wine Gecko into share/wine/mono and share/wine/gecko, each link in them
+     replaced by a copy of the file it points to;
   4. copies the Unix libraries Wine opens by name (config.h's SONAME_* values) and everything they
      link into lib/, flat, stripped (strip -x -S) like Wine's own Unix side, plus MoltenVK (thinned
      to x86_64);
@@ -168,9 +169,27 @@ class Assembler:
             top = os.path.join(dest, want)
             if not os.path.isdir(top):
                 sys.exit(f"{key}: expected {want} in {dest}, found {os.listdir(dest)}")
+            self.resolve_links(key, top)
             for p in walk_files(top):
                 self.mark(p, key.replace("-x86_64", "").replace("-x86", ""))
             print(f"{key}: {want}")
+
+    @staticmethod
+    def resolve_links(key, top):
+        """Replaces each symbolic link in an addon's tree with a copy of the file it points to: the engine
+        archive holds plain files and folders only (tarcheck.py). Wine Mono 11 links assemblies from its GAC
+        into lib/mono/4.5 and other folders. A link that leaves the tree or names no file stops the build."""
+        root = os.path.realpath(top)
+        links = [p for p in walk_files(top) if os.path.islink(p)]
+        for p in links:
+            target = os.path.realpath(p)
+            if not target.startswith(root + os.sep) or not os.path.isfile(target):
+                sys.exit(f"{key}: {os.path.relpath(p, top)} links to {os.readlink(p)}, which is no file inside {os.path.basename(top)}")
+            os.remove(p)
+            shutil.copyfile(target, p)
+            shutil.copymode(target, p)
+        if links:
+            print(f"{key}: {len(links)} links replaced by copies of their files")
 
     # 4
     def unix_libraries(self):
