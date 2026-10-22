@@ -34,8 +34,9 @@ build refuses any input without a pinned hash.
   unpacked into `share/wine`, so a new Windows folder never asks to download them. Wine Mono's
   source archive is an input too: the notices of every project inside Wine Mono come from it.
 - **MoltenVK**: Vulkan on Metal, from Khronos' own release.
-- **DXMT v0.80**: Direct3D 10 and 11 on Metal. Its 64-bit files go into Wine's own folders, the
-  way mavrik has tested them.
+- **DXMT** (main at 50102f994b, 2026-10-16; no release has followed v0.80): Direct3D 10 and 11 on
+  Metal, from DXMT's own CI package for that commit, mirrored on this repository's releases because
+  CI packages expire. Its 64-bit files go into Wine's own folders, the way mavrik has tested them.
 - **Media**: GStreamer and FFmpeg from GStreamer's official macOS packages, LGPL parts only, with no
   GPL file. They sit inside the engine, so the engine never uses a GStreamer.framework installed on
   the Mac.
@@ -206,7 +207,7 @@ property the case breaks):
   The workflow's `fresh` option (or `FRESH=1` on a Mac) ignores them for a clean build. A step's
   scratch folders (the library sources, the Wine build tree and its objects) are removed when the
   step succeeds; ccache keeps the next build fast.
-- `MACOSX_DEPLOYMENT_TARGET` is 14.0 for everything built here. DXMT v0.80's own files need
+- `MACOSX_DEPLOYMENT_TARGET` is 14.0 for everything built here. DXMT's own files need
   macOS 15.
 
 ## Building
@@ -231,7 +232,7 @@ bash scripts/pack.sh WORK       # the .tar.xz and its .sha256
 
 Releases are meant to come from the GitHub workflow, which has not built one yet. Until it does,
 prereleases are built on a Mac by these same scripts and checked by the same gates and self-test:
-revisions 3 to 5 were, and their release notes say so. Any other engine built on a Mac is for testing
+revisions 3 to 6 were, and their release notes say so. Any other engine built on a Mac is for testing
 only.
 
 ## Releases
@@ -246,7 +247,7 @@ results and the source of every LGPL and MPL part:
 - Wine (the CrossOver source archive, with this repository's patches in the recipe), GnuTLS,
   Nettle and GMP, Wine Mono and Wine Gecko;
 - DXMT, whose `winemetal.dll` carries Wine's start-up code;
-- for the media component, the exact tarballs GStreamer's build recipes (cerbero 1.28.6) built it
+- for the media component, the exact tarballs GStreamer's build recipes (cerbero 1.28.8) built it
   from (GStreamer and its plugin sets, GLib, FFmpeg, proxy-libintl and mpg123), with the sha256
   values cerbero pins, and cerbero itself, which holds the patches it applied.
 
@@ -260,7 +261,7 @@ checks them against their pins and prints the values still to pin.
 
 - CodeWeavers, for CrossOver and for publishing its Wine sources, and the Wine project.
 - [highball-engine](https://github.com/gauthierpiarrette/highball-engine) (LGPL-2.1-or-later): the
-  closest recipe to this one. Patches 0001 and 0002 come from it unchanged, and the build follows
+  closest recipe to this one. Patches 0001, 0002 and 0010 (its MSync fix) come from it unchanged, and the build follows
   its shape (pinned CrossOver sources, an Intel runner, mingw-w64 gcc, Mono and Gecko unpacked).
 - [winecx-gptk](https://github.com/frankea/winecx-gptk), whose list of build gates showed which
   checks a shipped engine needs. Nothing is copied from it.
@@ -270,8 +271,9 @@ checks them against their pins and prints the values still to pin.
 - [NotProton](https://github.com/NotProtonNot/NotProton), which showed Valve's bridge working on a Mac
   with the Mac Steam app. Nothing is copied from it.
 - Chromium, Firefox and WebKit, whose way of naming a process in the Dock patch 0006 follows.
-- Wine's developers, whose commits patch 0009 carries unchanged (Zhiyi Zhang's Core Audio period fix and
-  Giovanni Mascellani's guard).
+- Wine's developers, whose commits patches 0009, 0011 and 0012 carry unchanged (Zhiyi Zhang's Core Audio
+  period fix and Giovanni Mascellani's guard; Esme Povirk's Wine Mono updates; Alexandre Julliard's FAudio
+  imports and Alex Henrie's FAudio fix).
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
   through a link named after it.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors.
