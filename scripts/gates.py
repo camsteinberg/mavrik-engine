@@ -322,7 +322,8 @@ def gate_winemac(engine, ctx):
     so = os.path.join(engine, "lib", "wine", "x86_64-unix", "winemac.so")
     cx = os.path.join(ctx["work"], "wine-src", "dlls", "winemac.drv", "d3dmetal.c")
     problems, notes = winemac_check(so, cx, ctx["paths"]["dxmt-winemetal-source"])
-    return not problems, "; ".join(["_macdrv_functions exported, layout matches DXMT v0.80"] + notes) if not problems else "; ".join(notes), problems
+    dxmt = ctx["inputs"]["inputs"]["dxmt-winemetal-source"]["version"]
+    return not problems, "; ".join([f"_macdrv_functions exported, layout matches DXMT {dxmt}"] + notes) if not problems else "; ".join(notes), problems
 
 
 def addons_versions(addons_c):

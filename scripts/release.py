@@ -8,7 +8,7 @@
 A release carries the engine, its checksum, and the source of every part whose licence asks for
 it: Wine (the CrossOver source archive and this repository's patches), GnuTLS, Nettle, GMP, Wine
 Mono, Wine Gecko, DXMT (its winemetal.dll carries Wine's start-up code), and the LGPL parts of the
-media component: the exact tarballs GStreamer's build recipes (cerbero 1.28.6) built them from, and
+media component: the exact tarballs GStreamer's build recipes (cerbero 1.28.8) built them from, and
 cerbero itself, which holds the patches it applied. A part whose source is not pinned (an input with
 role "source", or an entry in "release_sources") stops the release.
 """

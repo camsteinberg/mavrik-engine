@@ -4,7 +4,7 @@
 # Downloads the release sources that are not on GitHub (so the GitHub CLI cannot fetch them) into
 # DEST, for a Mac build that uses FETCH_ARGS="--via gh --from DEST". These are the entries of
 # inputs.json's release_sources whose address is not on github.com: today Wine Gecko's source, the
-# six GStreamer 1.28.6 tarballs, GLib 2.82.4 and FFmpeg 7.1.
+# six GStreamer 1.28.8 tarballs, GLib 2.82.4 and FFmpeg 7.1.
 #
 # Each file is saved under the last part of its address (the name fetch.py looks for in --from),
 # and checked against every value inputs.json pins for it. A file already in DEST that matches is

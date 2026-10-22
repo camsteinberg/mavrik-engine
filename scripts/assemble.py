@@ -16,9 +16,11 @@ What it does, in order:
      link into lib/, flat, stripped (strip -x -S) like Wine's own Unix side, plus MoltenVK (thinned
      to x86_64);
   5. adds the media component (scripts/make-media-component.sh) to lib/ and lib/gstreamer-1.0/;
-  6. puts DXMT v0.80's 64-bit files in place, exactly as mavrik's s182-fullscreen branch does
+  6. puts DXMT's 64-bit files in place, exactly as mavrik's s182-fullscreen branch does
      (lib/wine/x86_64-windows/{d3d11,dxgi,d3d10core,winemetal,nvapi64,nvngx}.dll and
-     lib/wine/x86_64-unix/winemetal.so, over Wine's own where they exist);
+     lib/wine/x86_64-unix/winemetal.so, over Wine's own where they exist), from the package's one
+     folder: "root" in inputs.json when set (DXMT's CI names it after the commit), else "v<version>"
+     (a DXMT release);
   7. rewrites every load path that points outside the engine to @loader_path or @rpath, removes
      absolute run paths, gives Wine's Unix modules the run path @loader_path/../../ (lib/), and
      signs each changed file ad hoc;
@@ -254,7 +256,7 @@ class Assembler:
         with tempfile.TemporaryDirectory(prefix="dxmt-") as tmp:
             with tarfile.open(self.paths["dxmt"]) as t:
                 t.extractall(tmp, filter="tar")
-            self.dxmt_files(pin, os.path.join(tmp, "v" + pin["version"]))
+            self.dxmt_files(pin, os.path.join(tmp, pin.get("root") or "v" + pin["version"]))
 
     def dxmt_files(self, pin, root):
         for entry, size in pin["files"].items():
