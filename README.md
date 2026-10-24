@@ -34,14 +34,20 @@ build refuses any input without a pinned hash.
   unpacked into `share/wine`, so a new Windows folder never asks to download them. Wine Mono's
   source archive is an input too: the notices of every project inside Wine Mono come from it.
 - **MoltenVK**: Vulkan on Metal, from Khronos' own release.
-- **DXMT** (main at 50102f994b, 2026-10-16; no release has followed v0.80): Direct3D 10 and 11 on
+- **DXMT** (main at a148782d43, 2026-10-23; no release has followed v0.80): Direct3D 10 and 11 on
   Metal, from DXMT's own CI package for that commit, mirrored on this repository's releases because
   CI packages expire. Its 64-bit files go into Wine's own folders, the way mavrik has tested them.
 - **Media**: GStreamer and FFmpeg from GStreamer's official macOS packages, LGPL parts only, with no
   GPL file. They sit inside the engine, so the engine never uses a GStreamer.framework installed on
   the Mac.
-- **Unix libraries**: GnuTLS (with Nettle and GMP), FreeType and SDL2, built here from their source
-  releases.
+- **Unix libraries**: GnuTLS (with Nettle and GMP), FreeType, SDL3 and sdl2-compat, built here from
+  their source releases. Wine's game controller support (winebus) calls SDL2's interface; sdl2-compat
+  gives it on SDL3, SDL's live line (SDL2 stopped at 2.32.10). sdl2-compat opens SDL3 at run time, so
+  the engine carries SDL3 as `lib/libSDL3.dylib`, the first name sdl2-compat tries.
+- **Fonts**: the Liberation fonts 2.1.5 (Sans, Serif and Mono, metric-compatible with Arial, Times New
+  Roman and Courier New), unchanged in `share/wine/fonts`, from their TTF archive mirrored on this
+  repository's releases. wine.inf copies them into each Windows folder's `C:\windows\Fonts` under the
+  file names Proton uses, never over a file already there (patches 0016 and 0017).
 
 D3DMetal (Apple's Game Porting Toolkit) is never part of this build or downloaded by it. The
 CrossOver tree can host it; a player's copy is installed separately under Apple's licence.
@@ -93,7 +99,19 @@ folder and macOS is used, and no file names the machine or the folders it was bu
 - **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
-  (patches 0013, Wine merge request 11880, and 0014, this repository's follow-up to it).
+  (patches 0013, Wine merge request 11880, and 0014, this repository's follow-up to it). In Mission
+  Control and App Exposé, which leave the game the active app, a cursor clip lets the pointer go,
+  as Wine's older event-tap clipping already did, and the clip and the hidden cursor come back at the
+  next mouse move over the game (patch 0015).
+- **A per-launch DLL folder**: `WINEDLLPATH_PREPEND` names folders searched before the engine's own
+  builtins (patch 0018, MacPorts' and Highball's), so a launcher can put another graphics layer, such
+  as Apple's D3DMetal, in front of DXMT for one game.
+- **Fixes from Highball's engine** (patches 0019 to 0032, each with its own header): the fiber and
+  error-code slots macOS shares with Windows code (fiber games, Unity's error codes), Unity and
+  Unreal videos under DXMT, old modules no longer turning data execution prevention off for a whole
+  process under Rosetta, missing GetIntegratedDisplaySize, a process's memory figures, Keychain
+  credentials, Retina screen sizes, OpenGL ES 2 calls, spatial audio channel order, app packages, and
+  UTC+3 time zone names.
 - **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
   then runs a 32-bit program in the process it starts, like a 64-bit one, in new WoW64 mode; the
   engine has no 32-bit Unix side. With `WINEARCH` unset or `win64`, Wine relaunches each 32-bit
@@ -183,8 +201,8 @@ property the case breaks):
 - Releases are built on GitHub's `macos-15-intel` runner. The Unix side is x86_64 only: the tree's
   Metal layer is built only for x86_64, as in CrossOver's own builds. It runs under Rosetta on
   Apple silicon. On an Apple silicon Mac, every `configure` and `make` runs as x86_64 through
-  Rosetta, and the compilers are told `-arch x86_64`, so the build matches an Intel Mac's. SDL2's
-  CMake build is the exception: CMake runs natively and compiles for x86_64.
+  Rosetta, and the compilers are told `-arch x86_64`, so the build matches an Intel Mac's. The SDL3
+  and sdl2-compat CMake builds are the exception: CMake runs natively and compiles for x86_64.
 - The toolchain is part of the recipe. Every step uses the Xcode `inputs.json` pins (26.2, build
   17C52; `scripts/toolchain.sh` selects it, and GitHub's runner has it at `/Applications/Xcode_26.2.app`),
   because the loader's SDK decides which AppKit behaviours a game's windows get. mingw-w64 gcc,
@@ -194,15 +212,15 @@ property the case breaks):
   GnuTLS's system-wide priority file is turned off, so no file names the build machine's folders
   and GnuTLS reads no configuration from outside the engine.
 - Each library built here keeps the notices of the third-party code inside it (for example
-  CRYPTOGAMS and inih in GnuTLS, the BDF and PCF drivers in FreeType, HIDAPI in SDL2). The build
+  CRYPTOGAMS and inih in GnuTLS, the BDF and PCF drivers in FreeType, HIDAPI in SDL3). The build
   stops on any licence file in a source tree it has not been told about.
 - The Windows side is built for i386 and x86_64 with mingw-w64 gcc. llvm-mingw is known to break
   Steam's sign-in.
 - `--with-opengl` is not passed: configure would then fail on the missing EGL headers. Left alone,
   the Mac driver uses OpenGL.framework.
-- Wine opens MoltenVK, FreeType, GnuTLS and SDL2 by file name. Each Unix module gets the run path
-  `@loader_path/../../`, which is the engine's `lib/`, so those names are found there. The `wine`
-  gate checks that they are.
+- Wine opens MoltenVK, FreeType, GnuTLS and SDL2 (sdl2-compat) by file name. Each Unix module gets
+  the run path `@loader_path/../../`, which is the engine's `lib/`, so those names are found there.
+  The `wine` gate checks that they are, and that sdl2-compat's SDL3 loads from the engine too.
 - The Windows side is stripped of debug data; gcc leaves it in, and it makes the files five times
   larger.
 - Caches (downloads, the Unix libraries, the Wine build and ccache) make repeat builds fast. Each
@@ -265,7 +283,9 @@ checks them against their pins and prints the values still to pin.
 
 - CodeWeavers, for CrossOver and for publishing its Wine sources, and the Wine project.
 - [highball-engine](https://github.com/gauthierpiarrette/highball-engine) (LGPL-2.1-or-later): the
-  closest recipe to this one. Patches 0001, 0002 and 0010 (its MSync fix) come from it unchanged, and the build follows
+  closest recipe to this one. Patches 0001, 0002, 0010 (its MSync fix) and 0018 to 0032 come from it unchanged, with
+  the authors each one's header names (Gauthier Piarrette, athei, Tx, Paul Gofman and Proton's developers, and
+  MacPorts' game-porting-toolkit port for 0018), and the build follows
   its shape (pinned CrossOver sources, an Intel runner, mingw-w64 gcc, Mono and Gecko unpacked).
 - [winecx-gptk](https://github.com/frankea/winecx-gptk), whose list of build gates showed which
   checks a shipped engine needs. Nothing is copied from it.
@@ -281,7 +301,8 @@ checks them against their pins and prints the values still to pin.
 - Elvin Hayatov, whose Wine merge request 11880 patch 0013 carries (the transparent hidden cursor).
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
   through a link named after it.
-- The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors.
+- The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors, and the Liberation fonts'
+  designers (Ascender, Steve Matteson, Red Hat). Proton, whose Windows font names 0017 follows.
 - The media component's script started as mavrik's own `make-media-component.sh`.
 
 ## Licence
