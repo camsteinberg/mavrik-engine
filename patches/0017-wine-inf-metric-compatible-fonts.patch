@@ -1,0 +1,66 @@
+wine.inf: metric-compatible fonts under the Windows file names, in every prefix's Fonts folder.
+
+This repository's packaging change, not for WineHQ (Wine carries no third-party fonts). It follows
+Proton, which links the same six names into drive_c/windows/Fonts (proton, create_fonts_symlinks;
+Makefile.in's arial, arialbd, georgia, times, cour and courbd targets, proton-11.0-2e).
+
+Some programs open a font by its file in C:\windows\Fonts (Proton's notes name FIFA 21 and 22's
+arial.ttf) and fail when it is missing. The engine carries the Liberation fonts 2.1.5 (SIL Open Font
+License 1.1) unchanged in share/wine/fonts, and wine.inf's BaseInstall copies them, through Wine's
+own WineSourceDirs, to arial.ttf, arialbd.ttf, cour.ttf, courbd.ttf, georgia.ttf and times.ttf at
+every prefix setup and update. Each line is COPYFLG_NO_OVERWRITE (patch 0016), so a font a game or
+the player installed there is never replaced.
+
+Unlike Proton, the fonts keep their own family names (Liberation Sans, Serif, Mono). Proton renames
+them to Arial, Times New Roman, Georgia and Courier New because Linux has none of those. macOS ships
+all four, and Wine loads them by name from the Mac (freetype.c load_mac_fonts); a renamed copy would
+be a second "Arial" family competing with Apple's real one by version (font.c
+insert_face_in_family_list). So names keep reaching Apple's fonts, and a program that opens the file
+gets a metric-compatible one.
+
+diff --git a/loader/wine.inf.in b/loader/wine.inf.in
+index 942a2cf..f35b5e4 100644
+--- a/loader/wine.inf.in
++++ b/loader/wine.inf.in
+@@ -54,7 +54,7 @@ AddService=MountMgr,0x800,MountMgrService
+ RegisterDlls=RegisterDllsSection
+ WineFakeDlls=FakeDlls
+ UpdateInis=SystemIni
+-CopyFiles=ColorFiles,EtcFiles,InfFiles,NlsFiles,SortFiles,WinmdFiles
++CopyFiles=ColorFiles,EtcFiles,FontFiles,InfFiles,NlsFiles,SortFiles,WinmdFiles
+ AddReg=\
+     Classes,\
+     ContentIndex,\
+@@ -1220,6 +1220,16 @@ networks,"@%11%\ws2_32.dll,-2"
+ protocol,"@%11%\ws2_32.dll,-3"
+ services,"@%11%\ws2_32.dll,-4"
+ 
++[FontFiles]
++; Metric-compatible fonts under the file names some programs open in the
++; Fonts folder (the set Proton links); an existing file is never replaced.
++arial.ttf,LiberationSans-Regular.ttf,,0x10
++arialbd.ttf,LiberationSans-Bold.ttf,,0x10
++cour.ttf,LiberationMono-Regular.ttf,,0x10
++courbd.ttf,LiberationMono-Bold.ttf,,0x10
++georgia.ttf,LiberationSerif-Regular.ttf,,0x10
++times.ttf,LiberationSerif-Regular.ttf,,0x10
++
+ [InfFiles]
+ input.inf,"@%12%\hidclass.sys,-1"
+ mouhid.inf,"@%12%\mouhid.sys,-1"
+@@ -1322,6 +1332,7 @@ windows.ui.winmd
+ windows.ui.xaml.winmd
+ 
+ [WineSourceDirs]
++FontFiles = fonts
+ NlsFiles  = nls
+ SortFiles = nls
+ WinmdFiles = winmd,include
+@@ -1329,6 +1340,7 @@ WinmdFiles = winmd,include
+ [DestinationDirs]
+ ColorFiles = 23
+ EtcFiles  = 12,etc
++FontFiles = 20
+ InfFiles  = 17
+ NlsFiles  = 11
+ SortFiles = 10,globalization\sorting

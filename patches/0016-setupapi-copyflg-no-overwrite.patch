@@ -1,0 +1,27 @@
+setupapi: honour COPYFLG_NO_OVERWRITE in an INF's CopyFiles section.
+
+This repository's fix, to be offered to WineHQ (Wine master still has the FIXME, 2026-10-24).
+
+SetupQueueCopySectionW reads each line's flags field and ignores it, so a line marked
+COPYFLG_NO_OVERWRITE (0x10, "do not replace an existing file in the destination") replaced the file
+anyway: Wine's own wine.inf is installed with SP_COPY_NEWER, and a file with no version resource is
+always copied. Each line's copy style is now the section's style, plus SP_COPY_NOOVERWRITE when the line
+asks for it; do_file_copyW already skips an existing target then. Other flags are still ignored, as
+before. mavrik-engine's patch 0017 relies on it to place fonts without replacing a font a game or
+the player put in the Fonts folder.
+
+diff --git a/dlls/setupapi/queue.c b/dlls/setupapi/queue.c
+index bea6817..6b813cc 100644
+--- a/dlls/setupapi/queue.c
++++ b/dlls/setupapi/queue.c
+@@ -815,7 +815,9 @@ BOOL WINAPI SetupQueueCopySectionW( HSPFILEQ queue, PCWSTR src_root, HINF hinf,
+         if (!SetupGetStringFieldW( &context, 2, src_file, ARRAY_SIZE( src_file ), &len ) || len <= sizeof(WCHAR))
+             lstrcpyW( src_file, dst_file );
+ 
+-        if (!SetupGetIntField( &context, 4, &flags )) flags = 0;  /* FIXME */
++        if (!SetupGetIntField( &context, 4, &flags )) flags = 0;  /* FIXME: other flags */
++        params.CopyStyle = style;
++        if (flags & COPYFLG_NO_OVERWRITE) params.CopyStyle |= SP_COPY_NOOVERWRITE;
+ 
+         get_source_info( hinf, src_file, &params, src_root_buffer, src_path );
+ 
