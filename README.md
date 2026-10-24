@@ -90,6 +90,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
 - **Full screen**: a game's always-on-top full-screen window drops to the normal window level while
   the engine is not the active app (patch 0008), so Cmd-Tab can leave a full-screen game. Other
   always-on-top windows stay above the Dock, as in Wine.
+- **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
+  another app was in front and whenever the pointer comes back from another app's window, so the Mac
+  arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
+  (patches 0013, Wine merge request 11880, and 0014, this repository's follow-up to it).
 - **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
   then runs a 32-bit program in the process it starts, like a 64-bit one, in new WoW64 mode; the
   engine has no 32-bit Unix side. With `WINEARCH` unset or `win64`, Wine relaunches each 32-bit
