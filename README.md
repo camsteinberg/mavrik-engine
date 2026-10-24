@@ -274,6 +274,7 @@ checks them against their pins and prints the values still to pin.
 - Wine's developers, whose commits patches 0009, 0011 and 0012 carry unchanged (Zhiyi Zhang's Core Audio
   period fix and Giovanni Mascellani's guard; Esme Povirk's Wine Mono updates; Alexandre Julliard's FAudio
   imports and Alex Henrie's FAudio fix).
+- Elvin Hayatov, whose Wine merge request 11880 patch 0013 carries (the transparent hidden cursor).
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
   through a link named after it.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors.
