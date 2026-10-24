@@ -1,0 +1,150 @@
+The hidden cursor stays hidden after another app was in front, and the transparent cursor is set without being undone.
+
+This repository's follow-up to patch 0013 (Wine merge request 11880 v2, Elvin Hayatov), to be offered on that merge
+request. Two changes to -[WineApplicationController updateCursor:] and -applicationDidBecomeActive: in the Mac
+driver:
+
+- The presentation options (Cursor Location Assistance off while a hidden or custom cursor is active) are assigned
+  only when they change, and before the cursor is set, not after.
+- The hidden cursor is set again after anything that may have replaced it: on activation, again 250 ms later, and
+  at the first mouse move over a Wine window after activation or after the pointer was over another app's window.
+  The driver keeps two transparent cursors and alternates between them, because AppKit keeps reporting the one it
+  last set as current while macOS shows its own arrow, so setting that one again may change nothing.
+
+Why: with 0013 alone, a game that keeps its cursor hidden across a Cmd-Tab (its show count stays below zero, so Wine
+sends the driver no new SetCursor; Skyrim SE does this) showed the Mac arrow over the game after the switch back,
+with and without mouse movement. 0013's only re-apply, at activation, did not hold, and later mouse moves never
+re-set the cursor, because +[NSCursor currentCursor] still named the transparent one.
+
+Lab evidence (mavrik S211, M1 Pro, macOS 27.0.1; a Windows probe hiding the cursor two ways: ShowCursor(FALSE)
+with a full-screen ClipCursor, and an exclusive foreground DirectInput8 mouse; the steps posted as mouse and key
+events; the cursor read from 64x64 screen captures with and without -C; only readings where the game and the driver
+both asked for a hidden cursor count; .factory/design-passes/2026-10-23-s211/cursor.md in mavrik):
+- Block 1 (2 runs per cell): r6 showed the cursor after Cmd-Tab, the Dock edge and a shake in both modes; 0013
+  failed Cmd-Tab in both modes and the Dock edge, the shake and the baseline once each in DirectInput mode; with
+  this patch's first change only, everything passed except Cmd-Tab (2/2 failed in both modes).
+- Block 3 (Cmd-Tab only, 3 runs, DirectInput): r6 3/3 and the first change alone 3/3 showed the cursor; with both
+  changes 0/3, both 1.5 s after the return with no movement and after movement.
+- Block 4 (3 runs per cell, all steps, both modes): r6 showed it 3/3 after every trigger; with 0013 and this patch,
+  0/3 everywhere.
+Open: before the first mouse movement after a game hides its cursor, the arrow can still show (DirectInput mode, 2 of
+3 runs in blocks 3 and 4; never with r6, whose [NSCursor hide] needs no movement). Not explained yet.
+
+diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
+index 46fb9cf5..49d36db1 100644
+--- a/dlls/winemac.drv/cocoa_app.h
++++ b/dlls/winemac.drv/cocoa_app.h
+@@ -82,6 +82,8 @@ enum {
+     NSCursor*   cursor;
+     BOOL        cursorIsCurrent;
+     BOOL        clientWantsCursorHidden;
++    BOOL        cursorNeedsReapply;
++    int         transparentCursorIndex;
+ 
+     NSTimeInterval lastSetCursorPositionTime;
+ 
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index ee079d3f..25b47d28 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -131,18 +131,25 @@ static void set_display_name(NSString* name)
+ }
+ 
+ 
+-static NSCursor* WineTransparentCursor(void)
++/* Two distinct transparent cursors.  AppKit can keep reporting one of them as
++   current after macOS has put its own cursor back, and setting the cursor it
++   believes is current again may change nothing; setting the other one does. */
++static NSCursor* WineTransparentCursor(int index)
+ {
+-    static NSCursor* transparentCursor;
++    static NSCursor* transparentCursors[2];
+     static dispatch_once_t once;
+ 
+     dispatch_once(&once, ^{
+-        NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+-        transparentCursor = [[NSCursor alloc] initWithImage:image hotSpot:NSZeroPoint];
+-        [image release];
++        int i;
++        for (i = 0; i < 2; i++)
++        {
++            NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
++            transparentCursors[i] = [[NSCursor alloc] initWithImage:image hotSpot:NSZeroPoint];
++            [image release];
++        }
+     });
+ 
+-    return transparentCursor;
++    return transparentCursors[index & 1];
+ }
+ 
+ 
+@@ -1110,22 +1117,43 @@ - (void) updateCursor:(BOOL)force
+     {
+         if (force || lastTargetWindow)
+         {
+-            NSCursor* desiredCursor = clientWantsCursorHidden ? WineTransparentCursor() : cursor;
++            NSCursor* desiredCursor = clientWantsCursorHidden ? WineTransparentCursor(transparentCursorIndex) : cursor;
+             BOOL cursorWasReset = desiredCursor && [NSCursor currentCursor] != desiredCursor;
+ 
+-            if (force || !cursorIsCurrent || cursorWasReset)
++            if (force || !cursorIsCurrent || cursorWasReset || cursorNeedsReapply)
+             {
+-                [desiredCursor set];
+-                cursorIsCurrent = TRUE;
++                NSApplicationPresentationOptions options = NSApp.presentationOptions;
+ 
+                 if (clientWantsCursorHidden || [cursorFrames count])
+-                    NSApp.presentationOptions |= NSApplicationPresentationDisableCursorLocationAssistance;
++                    options |= NSApplicationPresentationDisableCursorLocationAssistance;
+                 else
+-                    NSApp.presentationOptions &= ~NSApplicationPresentationDisableCursorLocationAssistance;
++                    options &= ~NSApplicationPresentationDisableCursorLocationAssistance;
++
++                // Changing the presentation options can make macOS reset the cursor,
++                // so change them only when needed, and before setting the cursor.
++                if (options != NSApp.presentationOptions)
++                    NSApp.presentationOptions = options;
++
++                if (clientWantsCursorHidden && cursorNeedsReapply)
++                {
++                    transparentCursorIndex ^= 1;
++                    desiredCursor = WineTransparentCursor(transparentCursorIndex);
++                }
++
++                [desiredCursor set];
++                cursorIsCurrent = TRUE;
++
++                // The first mouse move over one of our windows after the cursor
++                // may have been replaced ends the re-applying.
++                if (!force && lastTargetWindow)
++                    cursorNeedsReapply = FALSE;
+             }
+         }
+         else
+         {
++            // The cursor is over another app's window or none: macOS shows other
++            // cursors there, so set ours again when it comes back.
++            cursorNeedsReapply = TRUE;
+             if (cursorIsCurrent)
+             {
+                 [[NSCursor arrowCursor] set];
+@@ -2526,8 +2554,17 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
+         forceNextMouseMoveAbsolute = TRUE;
+ 
+         // macOS may restore its cursor while another application is active.
+-        // Reapply the cursor requested by the Windows application on activation.
++        // Reapply the cursor requested by the Windows application on activation,
++        // again once the switch has settled, and at the next mouse move.
++        cursorNeedsReapply = TRUE;
+         [self updateCursor:TRUE];
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
++            if ([NSApp isActive])
++            {
++                cursorNeedsReapply = TRUE;
++                [self updateCursor:TRUE];
++            }
++        });
+     }
+ 
+     - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
