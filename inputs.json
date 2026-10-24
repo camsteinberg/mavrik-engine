@@ -2,7 +2,7 @@
   "comment": "Every input the build downloads, pinned by size and SHA-256. A release build refuses any entry whose size or sha256 is null. A test build downloads it, prints the values to pin and goes on.",
   "engine": {
     "name": "mavrik-engine",
-    "revision": 6,
+    "revision": 7,
     "macos_deployment_target": "14.0"
   },
   "toolchain": {
@@ -121,23 +121,45 @@
     "dxmt": {
       "role": "runtime",
       "component": "dxmt",
-      "version": "main-50102f994b",
-      "commit": "50102f994b406f58f56d5d09f2ad20f9b90390a2",
-      "root": "50102f994b406f58f56d5d09f2ad20f9b90390a2",
-      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-50102f994b/dxmt-50102f994b406f58f56d5d09f2ad20f9b90390a2.tar.gz",
-      "size": 34913352,
-      "sha256": "7685d25c1a17bf982a16d37ab21756afa296037e5d9ddf3dff13334cdd2a5710",
+      "version": "main-a148782d43",
+      "commit": "a148782d431249405acdb1531dbb0c7e737bbece",
+      "root": "a148782d431249405acdb1531dbb0c7e737bbece",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-a148782d43/dxmt-a148782d431249405acdb1531dbb0c7e737bbece.tar.gz",
+      "size": 35037374,
+      "sha256": "37c33b07a3dc6dc1703736ffe462ca2673612985e3da5fc3bcffd918de1de120",
       "licence": "LGPL-2.1-or-later",
-      "note": "DXMT's own CI package for main at 50102f994b (2026-10-16): GitHub Actions run 38870321233 of 3Shain/dxmt, artifact 12033521978 (its zip's sha256 e536ba2a6c70d90eb20a206bc6053e95e25c0027ed87a9db883c67ed3ef676a7, as GitHub records it), the .tar.gz inside unchanged. DXMT has no release after v0.80, and CI artifacts need a sign-in and expire (this one on 2027-01-14), so the package is mirrored on this repository's releases. Its folder is named after the commit (root).",
+      "note": "DXMT's own CI package for main at a148782d43 (2026-10-23): GitHub Actions run 39904585849 of 3Shain/dxmt, artifact 12481130812 (its zip's sha256 7dbf1e1e5aec3f01af85d7d2c3e4634b4f6e68dc432333292eaba829e2629d94, as GitHub records it), the .tar.gz inside unchanged. DXMT has no release after v0.80, and CI artifacts need a sign-in and expire (this one on 2027-01-21), so the package is mirrored on this repository's releases. Its folder is named after the commit (root).",
       "files": {
-        "x86_64-windows/d3d11.dll": 5518931,
+        "x86_64-windows/d3d11.dll": 5530513,
         "x86_64-windows/dxgi.dll": 1912783,
         "x86_64-windows/d3d10core.dll": 1542829,
         "x86_64-windows/winemetal.dll": 74373,
         "x86_64-windows/nvapi64.dll": 1945258,
         "x86_64-windows/nvngx.dll": 1587111,
-        "x86_64-unix/winemetal.so": 31877808
+        "x86_64-unix/winemetal.so": 32017288
       }
+    },
+    "liberation-fonts": {
+      "role": "runtime",
+      "component": "liberation-fonts",
+      "version": "2.1.5",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-liberation-fonts-2.1.5/liberation-fonts-ttf-2.1.5.tar.gz",
+      "size": 2385008,
+      "sha256": "7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0",
+      "licence": "OFL-1.1",
+      "root": "liberation-fonts-ttf-2.1.5",
+      "note": "The Liberation fonts project's TTF archive for 2.1.5 (2021-09-30), from https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz, a release attachment rather than a release asset, so it is mirrored on this repository's releases. Its size and sha256 are the ones FreeBSD's ports (x11-fonts/liberation-fonts-ttf distinfo) and Yocto (liberation-fonts_2.1.5.bb) record. Patch 0017's wine.inf copies these files into each prefix's Fonts folder under the Windows names Proton uses.",
+      "files": {
+        "LiberationSans-Regular.ttf": 410712,
+        "LiberationSans-Bold.ttf": 414456,
+        "LiberationSerif-Regular.ttf": 393576,
+        "LiberationMono-Regular.ttf": 319508,
+        "LiberationMono-Bold.ttf": 307996
+      },
+      "notices": [
+        "LICENSE",
+        "AUTHORS"
+      ]
     },
     "gstreamer-runtime": {
       "role": "runtime",
@@ -193,14 +215,24 @@
       "sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
       "licence": "FTL"
     },
-    "sdl2": {
+    "sdl3": {
       "role": "source",
-      "component": "sdl2",
-      "version": "2.32.10",
-      "url": "https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz",
-      "size": 7630262,
-      "sha256": "5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165",
+      "component": "sdl3",
+      "version": "3.4.18",
+      "url": "https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz",
+      "size": 15651004,
+      "sha256": "9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3",
       "licence": "Zlib"
+    },
+    "sdl2-compat": {
+      "role": "source",
+      "component": "sdl2-compat",
+      "version": "2.32.74",
+      "url": "https://github.com/libsdl-org/sdl2-compat/releases/download/release-2.32.74/sdl2-compat-2.32.74.tar.gz",
+      "size": 2826006,
+      "sha256": "ec68abde77e2e459c8abc4f9587b8976b5d2a657b2bfda2fb3a079b0f8924588",
+      "licence": "Zlib",
+      "note": "the SDL2 interface Wine's winebus calls, on SDL3; it opens SDL3 at run time as @loader_path/libSDL3.dylib (src/sdl2_compat.c, LoadSDL3Library), so the engine carries SDL3 under that name beside it"
     },
     "mpg123-source": {
       "role": "source",
@@ -224,36 +256,36 @@
     "dxmt-winemetal-source": {
       "role": "check",
       "component": "dxmt",
-      "version": "main-50102f994b",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/src/winemetal/unix/winemetal_unix.c",
+      "version": "main-a148782d43",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/src/winemetal/unix/winemetal_unix.c",
       "size": 135617,
       "sha256": "784a4ae87ecd2f164bc893cec43452f91de830ec7b5c02bb9c8d568be0dfb769",
       "licence": "LGPL-2.1-or-later",
-      "note": "read by the winemac gate: the macdrv_functions layout DXMT at 50102f994b expects, and its fallback symbol names"
+      "note": "read by the winemac gate: the macdrv_functions layout DXMT at a148782d43 expects, and its fallback symbol names"
     }
   },
   "licence_texts": {
     "dxmt-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/LICENSE",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/LICENSE",
       "size": 782,
       "sha256": "b87c35aef7b2cf14de854118ca55ce5c4b284c85b5f002421fb8d46d868c2d17"
     },
     "dxmt-copying-lib": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/COPYING.LIB",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/COPYING.LIB",
       "size": 26434,
       "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
     },
     "dxmt-license-old": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/LICENSE.OLD",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/LICENSE.OLD",
       "size": 1272,
       "sha256": "3422f02eb18f1e598731b586832afab8b322badd61d45a4b95674ceec4b6108d"
     },
     "dxmt-dxvk-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/50102f994b406f58f56d5d09f2ad20f9b90390a2/src/util/dxvk.LICENSE",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/src/util/dxvk.LICENSE",
       "size": 970,
       "sha256": "03ca4af84f5cd28cef3ed3f1ef4d17996992d35ccdbe82b29cc020ca02c16f3d"
     },
@@ -492,11 +524,11 @@
     },
     "dxmt-source": {
       "component": "dxmt",
-      "version": "main-50102f994b",
-      "url": "https://api.github.com/repos/3Shain/dxmt/tarball/50102f994b406f58f56d5d09f2ad20f9b90390a2",
-      "file": "dxmt-50102f994b.tar.gz",
-      "size": 765027,
-      "sha256": "405e97ef59d82ff210c419465e8afb1cee04c0cc08e966233603ab5d17a7ccea",
+      "version": "main-a148782d43",
+      "url": "https://api.github.com/repos/3Shain/dxmt/tarball/a148782d431249405acdb1531dbb0c7e737bbece",
+      "file": "dxmt-a148782d43.tar.gz",
+      "size": 795624,
+      "sha256": "ed650f5058c44ba1abb30ad7fb8bdc3f6cb9e44170d45136c6909569ddc3265d",
       "note": "DXMT's source at the commit its package was built from (GitHub's tarball of the commit; the mirror release carries the same file)"
     },
     "gstreamer-source": {

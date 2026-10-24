@@ -96,7 +96,7 @@ def keys(inputs_path):
     unix_tools = {k: tc[k] for k in ("xcode", "macos_sdk", "clang", "cmake")}
     pe_tools = {k: tc[k] for k in ("x86_64-w64-mingw32-gcc", "i686-w64-mingw32-gcc", "mingw-w64", "bison", "flex")}
     downloads = digest(doc["inputs"], doc["licence_texts"])
-    deps = digest([pins[k] for k in ("gmp", "nettle", "gnutls", "freetype", "sdl2")], target, unix_tools,
+    deps = digest([pins[k] for k in ("gmp", "nettle", "gnutls", "freetype", "sdl3", "sdl2-compat")], target, unix_tools,
                   os.path.join(s, "build-deps.sh"))
     wine = digest(pins["crossover-sources"], pins["gstreamer-runtime"], pins["gstreamer-devel"], deps, target,
                   unix_tools, pe_tools, os.path.join(s, "build-wine.sh"), os.path.join(s, "prepare.sh"), *patches())

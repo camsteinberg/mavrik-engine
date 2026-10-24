@@ -87,7 +87,7 @@ bash "$S/prepare.sh" "$WORK/downloads/paths.json" "$INPUTS" "$WORK"
 
 deps_key="$(key deps)"
 if fresh "$WORK/deps" "$deps_key"; then
-    echo "::group::our Unix libraries (gmp, nettle, gnutls, freetype, SDL2)"
+    echo "::group::our Unix libraries (gmp, nettle, gnutls, freetype, SDL3, sdl2-compat)"
     bash "$S/build-deps.sh" "$WORK/downloads/paths.json" "$WORK/deps-src" "$WORK/deps"
     echo "$deps_key" > "$WORK/deps/.stamp"
     echo "::endgroup::"

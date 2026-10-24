@@ -15,13 +15,16 @@ What it does, in order:
      replaced by a copy of the file it points to;
   4. copies the Unix libraries Wine opens by name (config.h's SONAME_* values) and everything they
      link into lib/, flat, stripped (strip -x -S) like Wine's own Unix side, plus MoltenVK (thinned
-     to x86_64);
+     to x86_64) and what a carried library opens at run time (OPENED_BY: sdl2-compat's SDL3, under
+     the name sdl2-compat looks for first);
   5. adds the media component (scripts/make-media-component.sh) to lib/ and lib/gstreamer-1.0/;
   6. puts DXMT's 64-bit files in place, exactly as mavrik's s182-fullscreen branch does
      (lib/wine/x86_64-windows/{d3d11,dxgi,d3d10core,winemetal,nvapi64,nvngx}.dll and
      lib/wine/x86_64-unix/winemetal.so, over Wine's own where they exist), from the package's one
      folder: "root" in inputs.json when set (DXMT's CI names it after the commit), else "v<version>"
      (a DXMT release);
+  6b. puts the Liberation fonts patch 0017's wine.inf copies into each prefix in share/wine/fonts,
+     unchanged from their pinned archive (inputs.json's liberation-fonts "files", checked by size);
   7. rewrites every load path that points outside the engine to @loader_path or @rpath, removes
      absolute run paths, gives Wine's Unix modules the run path @loader_path/../../ (lib/), and
      signs each changed file ad hoc;
@@ -39,6 +42,10 @@ SYSTEM_PREFIXES = ("/usr/lib/", "/System/")
 # Names configure defines whether or not it found the library, for libraries the engine does not
 # carry. Wine's odbc32 opens unixODBC only when the Mac has it, and works without it.
 NOT_CARRIED = {"SONAME_LIBODBC"}
+# Libraries a carried library opens at run time rather than links: name in deps/lib -> (the name the
+# engine carries it under, beside the opener). sdl2-compat opens SDL3 as @loader_path/libSDL3.dylib first
+# (src/sdl2_compat.c, LoadSDL3Library), so SDL3's own libSDL3.0.dylib is carried under that name.
+OPENED_BY = {"libSDL2-2.0.0.dylib": [("libSDL3.0.dylib", "libSDL3.dylib")]}
 MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
                 b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce"}
 
@@ -223,10 +230,12 @@ class Assembler:
             if not os.path.exists(os.path.join(self.deps, "lib", name)):
                 sys.exit(f"{define} names {name}, which none of our own builds provides")
             self.bundle(name)
+            for opened, carried_as in OPENED_BY.get(name, []):
+                self.bundle(opened, carried_as)
 
-    def bundle(self, name):
+    def bundle(self, name, carried_as=None):
         libdir = os.path.join(self.engine, "lib")
-        dest = os.path.join(libdir, name)
+        dest = os.path.join(libdir, carried_as or name)
         if os.path.exists(dest):
             return
         src = os.path.realpath(os.path.join(self.deps, "lib", name))
@@ -234,6 +243,8 @@ class Assembler:
         os.chmod(dest, 0o644)
         # Our own builds keep a debug map naming every object file's build path; it goes.
         run(["strip", "-x", "-S", dest], capture_output=True)
+        if carried_as:
+            run(["install_name_tool", "-id", "@rpath/" + carried_as, dest], capture_output=True)
         run(["codesign", "-f", "-s", "-", dest], capture_output=True)
         self.mark(dest, self.component_of(name))
         _, loads, _ = load_commands(dest)
@@ -252,7 +263,8 @@ class Assembler:
     @staticmethod
     def component_of(name):
         for prefix, comp in (("libgmp", "gmp"), ("libnettle", "nettle"), ("libhogweed", "nettle"),
-                             ("libgnutls", "gnutls"), ("libfreetype", "freetype"), ("libSDL2", "sdl2")):
+                             ("libgnutls", "gnutls"), ("libfreetype", "freetype"), ("libSDL2", "sdl2-compat"),
+                             ("libSDL3", "sdl3")):
             if name.startswith(prefix):
                 return comp
         sys.exit(f"no component is known for {name}; add it to assemble.py and NOTICE.md")
@@ -291,6 +303,26 @@ class Assembler:
             self.mark(dest, "dxmt")
             self.untouched.add(self.rel(dest))
             print(f"DXMT {entry}: {size} bytes")
+
+    # 6b
+    def fonts(self):
+        pin = self.inputs["inputs"]["liberation-fonts"]
+        dest = os.path.join(self.engine, "share", "wine", "fonts")
+        with tempfile.TemporaryDirectory(prefix="fonts-") as tmp:
+            with tarfile.open(self.paths["liberation-fonts"]) as t:
+                t.extractall(tmp, filter="tar")
+            for name, size in pin["files"].items():
+                src = os.path.join(tmp, pin["root"], name)
+                if os.path.getsize(src) != size:
+                    sys.exit(f"Liberation {name}: {os.path.getsize(src)} bytes, pinned {size}")
+                target = os.path.join(dest, name)
+                if os.path.lexists(target):
+                    sys.exit(f"share/wine/fonts/{name} is already there; Wine's own fonts must not be replaced")
+                shutil.copyfile(src, target)
+                os.chmod(target, 0o644)
+                self.mark(target, "liberation-fonts")
+                self.untouched.add(self.rel(target))
+                print(f"Liberation {name}: {size} bytes")
 
     # 7
     def fix_load_paths(self):
@@ -343,6 +375,7 @@ def main(argv):
     a.unix_libraries()
     a.media()
     a.dxmt()
+    a.fonts()
     a.fix_load_paths()
     a.write()
 

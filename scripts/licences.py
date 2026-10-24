@@ -113,7 +113,10 @@ COMPONENT_INFO = {
     "gnutls": ("LGPL-2.1-or-later (includes libtasn1: LGPL-2.1-or-later, libunistring: LGPL-3.0-or-later OR GPL-2.0-or-later, "
                "CRYPTOGAMS: BSD-style, inih: BSD-3-Clause, crypto-auditing: MIT)", "GnuTLS, Wine's TLS"),
     "freetype": ("FTL (its BDF and PCF drivers: X11-style notices)", "FreeType, Wine's font rendering"),
-    "sdl2": ("Zlib (includes HIDAPI under its BSD terms, and yuv2rgb: BSD-3-Clause)", "SDL2, Wine's game controller support"),
+    "sdl3": ("Zlib (includes HIDAPI under its BSD terms, and yuv2rgb: BSD-3-Clause)",
+             "SDL3, Wine's game controller support, through sdl2-compat"),
+    "sdl2-compat": ("Zlib", "sdl2-compat, the SDL2 interface Wine's game controller support calls, on SDL3"),
+    "liberation-fonts": ("OFL-1.1", "the Liberation fonts, metric-compatible fonts wine.inf copies into each prefix's Fonts folder"),
     "mavrik-engine": ("LGPL-2.1-or-later", "this repository's build files and build record"),
     "licences": ("(the licence texts themselves)", "this folder"),
     # The Steam bridge's own archive (licences.py bridge), never the engine.
@@ -127,7 +130,8 @@ BRIDGE_FILES = {"lsteamclient.dll": "lsteamclient", "lsteamclient.so": "lsteamcl
 # Where each component's source is (an input, or a release source).
 SOURCE_KEY = {"wine": "crossover-sources", "wine-mono": "wine-mono-source", "wine-gecko": "wine-gecko-source",
               "moltenvk": "moltenvk", "dxmt": "dxmt-source", "gmp": "gmp", "nettle": "nettle", "gnutls": "gnutls",
-              "freetype": "freetype", "sdl2": "sdl2"}
+              "freetype": "freetype", "sdl3": "sdl3", "sdl2-compat": "sdl2-compat",
+              "liberation-fonts": "liberation-fonts"}
 
 
 def write(work, engine, repo):
@@ -208,7 +212,10 @@ def write(work, engine, repo):
         "keeps. Its files carry code from LLVM 15.0.7 (with its regex and ConvertUTF parts), Microsoft's "
         "DXBCParser, NVIDIA's nvapi headers, DXVK and dxbc-spirv (its MD5 code); their notices are in this folder. "
         "winemetal.dll also carries Wine's start-up code (LGPL-2.1-or-later, see ../wine).\n")
-    for key in ("gmp", "nettle", "gnutls", "freetype", "sdl2"):
+    fonts = inputs["inputs"]["liberation-fonts"]
+    for name, data in sorted(archive_members(paths, "liberation-fonts", fonts["root"], fonts["notices"]).items()):
+        put("liberation-fonts", name, data)
+    for key in ("gmp", "nettle", "gnutls", "freetype", "sdl3", "sdl2-compat"):
         d = os.path.join(work, "deps", "share", "licences", key)
         for dirpath, _, files in sorted(os.walk(d)):
             for name in sorted(files):
