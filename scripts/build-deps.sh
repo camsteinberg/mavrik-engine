@@ -2,7 +2,7 @@
 # build-deps.sh PATHS_JSON WORK PREFIX [LIBRARY...]
 #
 # Builds the Unix libraries Wine loads at run time from their pinned source tarballs
-# (inputs.json): gmp, nettle, gnutls, freetype and SDL2, for x86_64, into PREFIX. WORK is scratch
+# (inputs.json): gmp, nettle, gnutls, freetype, SDL3 and sdl2-compat, for x86_64, into PREFIX. WORK is scratch
 # space for the sources and build trees, removed when the build succeeds.
 # Each is built with the fewest options that still give Wine what it uses, so the
 # engine carries as few extra libraries as it can:
@@ -13,8 +13,11 @@
 #   freetype - no harfbuzz, png or brotli; zlib and bzip2 come from macOS.
 #   gmp and nettle - "fat" builds that pick their CPU code at run time, so one build is
 #             safe on every Intel Mac and under Rosetta.
+#   sdl3 and sdl2-compat - Wine's winebus calls the SDL2 interface; sdl2-compat provides it on SDL3
+#             (SDL2 itself is frozen at 2.32.10). sdl2-compat is built against SDL3's headers and opens
+#             SDL3 at run time; it gets an sdl2.pc, which Wine's configure asks for.
 # Each configure and make runs as x86_64 (through Rosetta on Apple silicon), so the libraries are
-# built exactly as on an Intel Mac; SDL2's CMake build runs natively and compiles for x86_64. Every
+# built exactly as on an Intel Mac; the SDL CMake builds run natively and compile for x86_64. Every
 # compiler gets -ffile-prefix-map, so the build folders' paths stay out of the libraries.
 # Each library's licence and notice files are kept for the engine's licences/ folder: the top-level
 # ones, and the notices of third-party code built into it (NOTICES below). Every licence-named file
@@ -92,19 +95,33 @@ d="$(unpack freetype)"
 echo "::endgroup::"
 fi
 
-if want sdl2; then
-echo "::group::SDL2"
-d="$(unpack sdl2)"
-rm -rf "$WORK/sdl2-build"
-cmake -S "$d" -B "$WORK/sdl2-build" \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_OBJC_COMPILER=clang \
-    -DCMAKE_C_FLAGS="$MAP" -DCMAKE_OBJC_FLAGS="$MAP" \
-    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache -DCMAKE_INSTALL_RPATH="" \
-    -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL_TESTS=OFF
-cmake --build "$WORK/sdl2-build" -j"$JOBS"
-cmake --install "$WORK/sdl2-build"
+sdl_cmake() {  # sdl_cmake KEY SOURCE [OPTIONS...]: SDL's CMake build for x86_64 into PREFIX
+    local key="$1" d="$2"
+    shift 2
+    rm -rf "$WORK/$key-build"
+    cmake -S "$d" -B "$WORK/$key-build" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_PREFIX_PATH="$PREFIX" \
+        -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+        -DCMAKE_C_COMPILER="$(xcrun -f clang)" -DCMAKE_CXX_COMPILER="$(xcrun -f clang++)" \
+        -DCMAKE_OBJC_COMPILER="$(xcrun -f clang)" -DCMAKE_C_FLAGS="$MAP" -DCMAKE_OBJC_FLAGS="$MAP" \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache -DCMAKE_INSTALL_RPATH="" "$@"
+    cmake --build "$WORK/$key-build" -j"$JOBS"
+    cmake --install "$WORK/$key-build"
+}
+
+if want sdl3; then
+echo "::group::SDL3"
+d="$(unpack sdl3)"
+sdl_cmake sdl3 "$d" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+echo "::endgroup::"
+fi
+
+if want sdl2-compat; then
+echo "::group::sdl2-compat"
+d="$(unpack sdl2-compat)"
+sdl_cmake sdl2-compat "$d" -DSDL2COMPAT_TESTS=OFF -DSDL2COMPAT_STATIC=OFF -DSDL2COMPAT_X11=OFF \
+    -DSDL2COMPAT_INSTALL_CPACK=OFF
+cp "$PREFIX/lib/pkgconfig/sdl2-compat.pc" "$PREFIX/lib/pkgconfig/sdl2.pc"
 echo "::endgroup::"
 fi
 
@@ -114,25 +131,27 @@ NOTICES_gmp=""
 NOTICES_nettle="descore.README"
 NOTICES_gnutls="lib/accelerated/x86/license.txt lib/inih/LICENSE.txt lib/crau/LICENSE"
 NOTICES_freetype="docs/FTL.TXT docs/GPLv2.TXT src/bdf/README src/pcf/README"
-NOTICES_sdl2="src/hidapi/LICENSE.txt src/hidapi/LICENSE-bsd.txt src/video/yuv2rgb/LICENSE"
+NOTICES_sdl3="src/hidapi/LICENSE.txt src/hidapi/LICENSE-bsd.txt src/video/yuv2rgb/LICENSE"
+NOTICES_sdl2_compat=""
 not_shipped() {  # not_shipped KEY PATH: the reason a licence file is not shipped, or nothing
     case "$1:$2" in
         gnutls:lib/crau/UNLICENSE) echo "crypto-auditing is MIT or Unlicense; the MIT terms are taken" ;;
         gnutls:doc/*) echo "documentation and example programs, not built" ;;
-        sdl2:src/hidapi/LICENSE-gpl3.txt|sdl2:src/hidapi/LICENSE-orig.txt)
+        sdl3:src/hidapi/LICENSE-gpl3.txt|sdl3:src/hidapi/LICENSE-orig.txt)
             echo "HIDAPI is offered under GPL-3.0, BSD or its original licence; the BSD terms are taken" ;;
-        sdl2:Xcode-iOS/*|sdl2:Xcode/*) echo "Xcode project files and iOS demos, not built" ;;
-        sdl2:test/*|sdl2:visualtest/*) echo "tests, not built" ;;
+        sdl3:Xcode/*|sdl3:android-project/*) echo "Xcode and Android project files, not built" ;;
+        sdl3:test/*|sdl3:examples/*) echo "tests and examples, not built" ;;
+        sdl2-compat:test/*) echo "tests, not built" ;;
     esac
 }
-for key in gmp nettle gnutls freetype sdl2; do
+for key in gmp nettle gnutls freetype sdl3 sdl2-compat; do
     want "$key" || continue
     d="$(find "$WORK/$key" -mindepth 1 -maxdepth 1 -type d | sed -n "1,1p")"
     out="$PREFIX/share/licences/$key"
     mkdir -p "$out"
     find "$d" -maxdepth 1 -type f \( -iname 'COPYING*' -o -iname 'LICENSE*' -o -iname 'LICENCE*' \
         -o -iname 'AUTHORS*' -o -iname 'README' -o -iname 'NOTICE*' \) -exec cp {} "$out/" \;
-    notices="$(eval echo "\$NOTICES_$key")"
+    notices="$(eval echo "\$NOTICES_${key//-/_}")"
     for n in $notices; do
         [ -f "$d/$n" ] || { echo "::error::$key: notice $n is not in the source"; exit 1; }
         mkdir -p "$out/$(dirname "$n")"
