@@ -1,0 +1,226 @@
+The pointer is no longer held inside a game's window in Mission Control, and the hidden cursor is set again after it.
+
+This repository's patch to the Mac driver, to be offered to WineHQ (it needs nothing from patches 0013 and 0014,
+but its last line uses 0014's cursorNeedsReapply; without 0014 that line is left out).
+
+The fault: with a game in front that clips the cursor (ClipCursor; DirectInput's exclusive mouse clips to the
+window), opening Mission Control kept the pointer inside the game's window area, so no other window could be
+clicked; and back in the game, the Mac arrow showed over it until a Cmd-Tab out and back (mavrik S212, Skyrim SE
+on macOS 27.0.1).
+
+Why: the Mac driver's default clipping (WineConfinementClipCursorHandler, the undocumented
+-[NSWindow setMouseConfinementRect:]) is kept by the window server while the app is frontmost and the window is
+key. Mission Control and App Exposé belong to the Dock, and the app stays active through them, so the confinement
+stays. The older event tap handler already lets events destined for another process through unclipped ("This may
+happen if the user activates Exposé or Mission Control"), but the confinement handler has no such case. The app
+gets no event while the Dock has the mouse, so nothing told the driver to set its hidden cursor again either.
+
+The fix:
+- While the app is active, a global NSEvent monitor watches mouse moves, drags and presses. A global monitor sees
+  only events that go to other processes, so it does nothing in normal play; it is removed when the app resigns
+  active. Mouse events need no permission for it (unlike key events).
+- Such an event lifts the confinement rect (the clip rect and the Windows side's clipping state are kept), makes
+  the next mouse move absolute, and marks the cursor for setting again.
+- The next mouse move over a Wine window puts the confinement back for the same clip rect, moves the pointer into
+  it as starting a clip does, and the cursor is set again (0014's re-apply).
+- The event tap handler is unchanged; it already handles this case in its tap.
+
+Checked (mavrik S213): applies to the CrossOver 26.3.0 tree after patches 0001 to 0014 with no fuzz; cocoa_app.m and
+cocoa_cursorclipping.m compile with the tree's warning flags with no new warning; on macOS 27.0.1
+setMouseConfinementRect: is present (so it is the route games take) and a global mouse monitor is made with no
+prompt. Not yet checked live: Mission Control itself, which needs the screen (mavrik's r7 cursor check).
+
+diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
+index 49d36db..4f9027e 100644
+--- a/dlls/winemac.drv/cocoa_app.h
++++ b/dlls/winemac.drv/cocoa_app.h
+@@ -88,6 +88,7 @@ @interface WineApplicationController : NSObject <NSApplicationDelegate>
+     NSTimeInterval lastSetCursorPositionTime;
+ 
+     id<WineClipCursorHandler> clipCursorHandler;
++    id otherProcessMouseMonitor;
+ 
+     NSImage* applicationIcon;
+ 
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index 25b47d2..e9ae8f9 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -286,6 +286,7 @@ - (void) dealloc
+         [screenFrameCGRects release];
+         [applicationIcon release];
+         [clipCursorHandler release];
++        [self stopWatchingOtherProcessMouseEvents];
+         [cursorTimer release];
+         [cursorFrames release];
+         [latentDisplayModes release];
+@@ -1455,6 +1456,58 @@ - (BOOL) clippingCursor
+         return clipCursorHandler.clippingCursor;
+     }
+ 
++    /* While we are the active app, mouse events can still go to another
++     * process: Mission Control, App Exposé and the like belong to the Dock, and
++     * we don't resign active for them.  The window server keeps a confinement
++     * rect then, and macOS shows its own cursor.  A global monitor sees only
++     * those events, so it is cheap while it is installed (only while active). */
++    - (void) startWatchingOtherProcessMouseEvents
++    {
++        NSEventMask mask = NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
++                           NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDragged |
++                           NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown |
++                           NSEventMaskOtherMouseDown;
++
++        if (otherProcessMouseMonitor)
++            return;
++
++        otherProcessMouseMonitor = [[NSEvent addGlobalMonitorForEventsMatchingMask:mask
++                                                                          handler:^(NSEvent* event){
++            [self handleMouseEventForOtherProcess];
++        }] retain];
++    }
++
++    - (void) stopWatchingOtherProcessMouseEvents
++    {
++        if (!otherProcessMouseMonitor)
++            return;
++
++        [NSEvent removeMonitor:otherProcessMouseMonitor];
++        [otherProcessMouseMonitor release];
++        otherProcessMouseMonitor = nil;
++    }
++
++    - (void) handleMouseEventForOtherProcess
++    {
++        // As in the event tap clipping handler: don't clip events destined for
++        // another process, and treat our next mouse move as absolute.
++        if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(suspendClippingCursor)])
++            [clipCursorHandler suspendClippingCursor];
++        forceNextMouseMoveAbsolute = TRUE;
++
++        // macOS shows its own cursor there; set ours again when the mouse is back.
++        cursorNeedsReapply = TRUE;
++    }
++
++    - (void) resumeCursorClippingIfSuspended
++    {
++        if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(resumeClippingCursor)] &&
++            [clipCursorHandler resumeClippingCursor])
++        {
++            [self setCursorPosition:NSPointToCGPoint([self flippedMouseLocation:[NSEvent mouseLocation]])];
++        }
++    }
++
+     - (BOOL) isKeyPressed:(uint16_t)keyCode
+     {
+         int bits = sizeof(pressedKeyCodes[0]) * 8;
+@@ -1558,10 +1611,13 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+ 
+         if ([targetWindow isKindOfClass:[WineWindow class]])
+         {
+-            CGPoint point = CGEventGetLocation([anEvent CGEvent]);
++            CGPoint point;
+             macdrv_event* event;
+             BOOL absolute;
+ 
++            [self resumeCursorClippingIfSuspended];
++            point = CGEventGetLocation([anEvent CGEvent]);
++
+             // If we recently warped the cursor (other than in our cursor-clipping
+             // event tap), discard mouse move events until we see an event which is
+             // later than that time.
+@@ -2558,6 +2614,7 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
+         // again once the switch has settled, and at the next mouse move.
+         cursorNeedsReapply = TRUE;
+         [self updateCursor:TRUE];
++        [self startWatchingOtherProcessMouseEvents];
+         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+             if ([NSApp isActive])
+             {
+@@ -2585,6 +2642,7 @@ - (void)applicationDidResignActive:(NSNotification *)notification
+         WineEventQueue* queue;
+ 
+         [self invalidateGotFocusEvents];
++        [self stopWatchingOtherProcessMouseEvents];
+ 
+         if (!temporarilyIgnoreResignEventsForDialog)
+         {
+diff --git a/dlls/winemac.drv/cocoa_cursorclipping.h b/dlls/winemac.drv/cocoa_cursorclipping.h
+index 8912714..bced2d0 100644
+--- a/dlls/winemac.drv/cocoa_cursorclipping.h
++++ b/dlls/winemac.drv/cocoa_cursorclipping.h
+@@ -41,6 +41,14 @@ - (void) setRetinaMode:(BOOL)mode;
+      */
+     - (BOOL) setCursorPosition:(CGPoint)pos;
+ 
++    /* If provided, lift the clipping while mouse events go to another process
++     * although this app is still active (Mission Control, App Exposé), and put
++     * it back.  The clipping rect and clippingCursor are kept meanwhile.
++     * -resumeClippingCursor returns TRUE if it put the clipping back.
++     */
++    - (void) suspendClippingCursor;
++    - (BOOL) resumeClippingCursor;
++
+ @end
+ 
+ 
+@@ -65,6 +73,7 @@ @interface WineConfinementClipCursorHandler : NSObject <WineClipCursorHandler>
+      * mouseConfinementRect set). Using this rather than a WineWindow* to avoid
+      * tricky retain situations. */
+     NSInteger clippingWindowNumber;
++    BOOL clippingSuspended;
+ }
+ 
+     /* Returns true if the API in use by this handler is available. */
+diff --git a/dlls/winemac.drv/cocoa_cursorclipping.m b/dlls/winemac.drv/cocoa_cursorclipping.m
+index b6151a2..328d13c 100644
+--- a/dlls/winemac.drv/cocoa_cursorclipping.m
++++ b/dlls/winemac.drv/cocoa_cursorclipping.m
+@@ -480,6 +480,7 @@ - (BOOL) startClippingCursor:(CGRect)rect
+         clippingWindowNumber = ownerWindow.windowNumber;
+         cursorClipRect = rect;
+         clippingCursor = TRUE;
++        clippingSuspended = FALSE;
+ 
+         return TRUE;
+     }
+@@ -490,10 +491,40 @@ - (BOOL) stopClippingCursor
+         [ownerWindow setMouseConfinementRect:NSZeroRect];
+ 
+         clippingCursor = FALSE;
++        clippingSuspended = FALSE;
+ 
+         return TRUE;
+     }
+ 
++    /* The window server keeps a confinement rect while the app is frontmost
++     * and the window is key, which stays true in Mission Control and App
++     * Exposé, so the pointer could not leave the window's area there.  The
++     * event tap handler lets such events through unclipped; do the same by
++     * removing the rect until the mouse is back over one of our windows. */
++    - (void) suspendClippingCursor
++    {
++        if (!clippingCursor || clippingSuspended)
++            return;
++
++        NSWindow *ownerWindow = [NSApp windowWithWindowNumber:clippingWindowNumber];
++        [ownerWindow setMouseConfinementRect:NSZeroRect];
++        clippingSuspended = TRUE;
++    }
++
++    - (BOOL) resumeClippingCursor
++    {
++        if (!clippingCursor || !clippingSuspended)
++            return FALSE;
++
++        if ([self startClippingCursor:cursorClipRect])
++            return TRUE;
++
++        /* No window to confine to yet; stay suspended and try again later. */
++        clippingCursor = TRUE;
++        clippingSuspended = TRUE;
++        return FALSE;
++    }
++
+     - (void) clipCursorLocation:(CGPoint*)location
+     {
+         clip_cursor_location(cursorClipRect, location);
