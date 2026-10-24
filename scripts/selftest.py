@@ -141,6 +141,17 @@ def run(engine, work):
     clone(os.path.join(engine, "share", "wine", "mono"), os.path.join(no_gecko, "share", "wine", "mono"))
     case(results, "addons", "an engine with Mono but no Gecko", G.gate_addons(no_gecko, ctx)[2], r"wine-gecko-[\d.]+-x86(_64)?: 0 files")
 
+    # fonts: an engine clone whose share/wine/fonts lacks the Liberation fonts wine.inf copies.
+    bad = os.path.join(tmp, "no-fonts-engine")
+    clone(engine, bad)
+    for name in set(G.wine_inf_fonts(engine).values()):
+        p = os.path.join(bad, "share", "wine", "fonts", name)
+        if os.path.exists(p):
+            os.remove(p)
+    case(results, "fonts", "an engine clone without the fonts wine.inf copies", G.fonts_check(bad, timeout=600)[0],
+         r"its source share/wine/fonts/\S+ is not in the engine|is not in C:\\windows\\Fonts|wineboot --init: exit")
+    shutil.rmtree(bad, ignore_errors=True)
+
     # wine: a wrong expected version; an engine clone without Mono and Gecko, which must prompt at
     # wineboot; one with Mono but no Gecko, which must prompt when mshtml loads Gecko; and one
     # without its GnuTLS, which Wine's own code must then fail to load from the engine.

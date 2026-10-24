@@ -24,6 +24,9 @@ The gates:
                 Wine's own code uses GnuTLS, MoltenVK and FreeType and loads its GStreamer and
                 FFmpeg modules (tools/winelibs.c), every library Wine opens by name is loaded from
                 the engine, and no Wine process loads anything from outside the engine and macOS
+  fonts         wineboot --init in a fresh prefix puts wine.inf's FontFiles (patch 0017) into
+                C:\\windows\\Fonts, each the same bytes as its source in share/wine/fonts; a file
+                already there is kept through wineboot --update (COPYFLG_NO_OVERWRITE, patch 0016)
   media         GStreamer and FFmpeg load from inside the engine, never from
                 /Library/Frameworks/GStreamer.framework, and build the elements Wine uses. A Mac
                 that has the framework is not changed: every library dyld loads and every plugin
@@ -77,7 +80,7 @@ import tempfile
 import time
 import unicodedata
 
-from assemble import NOT_CARRIED
+from assemble import NOT_CARRIED, OPENED_BY
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -399,7 +402,10 @@ def winelibs_inputs(ctx):
               for bits in ("64", "32")]
     config = open(os.path.join(ctx["work"], "wine-install", ".build", "config.h")).read()
     names = sorted({v for k, v in re.findall(r'^#define (SONAME_\w+) "([^"]+)"$', config, re.M) if k not in NOT_CARRIED})
-    return probes, ["lib/" + n for n in names] + [f"lib/wine/x86_64-unix/{m}.so" for m in ("winegstreamer", "winedmo")]
+    # What a carried library opens at run time must load from the engine too (sdl2-compat's SDL3).
+    opened = [carried for n in names for _, carried in OPENED_BY.get(n, [])]
+    return probes, (["lib/" + n for n in names + opened]
+                    + [f"lib/wine/x86_64-unix/{m}.so" for m in ("winegstreamer", "winedmo")])
 
 
 def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
@@ -535,6 +541,72 @@ def probe_check(engine, probes, required=(), timeout=900, extra_env=None):
     root = os.path.realpath(engine) + "/"
     loaded = sorted({os.path.relpath(os.path.realpath(i), root) for i in images if os.path.realpath(i).startswith(root)})
     return problems, probed, loaded
+
+
+def wine_inf_fonts(engine):
+    """{Windows name: source file name} from the engine's wine.inf FontFiles section."""
+    inf = open(os.path.join(engine, "share", "wine", "wine.inf"), encoding="utf-8", errors="replace").read()
+    m = re.search(r"^\[FontFiles\]\r?\n(.*?)(?=^\[)", inf, re.M | re.S)
+    if not m:
+        return {}
+    fonts = {}
+    for line in m.group(1).splitlines():
+        line = line.split(";", 1)[0].strip()
+        if line:
+            fields = [f.strip() for f in line.split(",")]
+            fonts[fields[0]] = fields[1] if len(fields) > 1 and fields[1] else fields[0]
+    return fonts
+
+
+def fonts_check(engine, timeout=900):
+    """wineboot --init in a fresh prefix must copy every FontFiles entry of wine.inf into
+    drive_c/windows/Fonts with its source's exact bytes (share/wine/fonts); then a file put in place
+    of one of them must stay as it is through wineboot --update. Returns (problems, detail)."""
+    fonts = wine_inf_fonts(engine)
+    if not fonts:
+        return ["wine.inf has no FontFiles section"], ""
+    home = tempfile.mkdtemp(prefix="fonts-")
+    env = wine_env(engine, home)
+    wine = os.path.join(engine, "bin", "wine")
+    log = os.path.join(home, "fonts.log")
+    folder = os.path.join(env["WINEPREFIX"], "drive_c", "windows", "Fonts")
+    problems, detail = [], ""
+    try:
+        prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, timeout)
+        out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
+        if prompt or code != 0:
+            return [f"wineboot --init: {prompt or 'exit %s' % code}"], ""
+        for name, source in sorted(fonts.items()):
+            src = os.path.join(engine, "share", "wine", "fonts", source)
+            dst = os.path.join(folder, name)
+            if not os.path.isfile(src):
+                problems.append(f"{name}: its source share/wine/fonts/{source} is not in the engine")
+            elif not os.path.isfile(dst):
+                problems.append(f"{name} is not in C:\\windows\\Fonts after wineboot --init")
+            elif open(src, "rb").read() != open(dst, "rb").read():
+                problems.append(f"{name} in C:\\windows\\Fonts differs from share/wine/fonts/{source}")
+        if problems:
+            return problems, ""
+        kept = sorted(fonts)[0]
+        marker = b"mavrik gate: a font a game or the player put here\n"
+        open(os.path.join(folder, kept), "wb").write(marker)
+        prompt, code, _ = run_watched([wine, "wineboot", "--update"], env, log, timeout)
+        out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
+        if prompt or code != 0:
+            return [f"wineboot --update: {prompt or 'exit %s' % code}"], ""
+        if open(os.path.join(folder, kept), "rb").read() != marker:
+            problems.append(f"wineboot --update replaced the {kept} that was already in C:\\windows\\Fonts")
+        detail = (f"{len(fonts)} fonts copied into C:\\windows\\Fonts byte for byte ({', '.join(sorted(fonts))}); "
+                  f"a file put in place of {kept} kept through wineboot --update")
+    finally:
+        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        shutil.rmtree(home, ignore_errors=True)
+    return problems, detail
+
+
+def gate_fonts(engine, ctx):
+    problems, detail = fonts_check(engine)
+    return not problems, detail, problems
 
 
 def version_check(engine, expected):
@@ -1176,7 +1248,7 @@ def gate_dockname(engine, ctx):
 
 
 GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", gate_pe32),
-         ("winemac", gate_winemac), ("addons", gate_addons), ("wine", gate_wine),
+         ("winemac", gate_winemac), ("addons", gate_addons), ("wine", gate_wine), ("fonts", gate_fonts),
          ("media", gate_media), ("licences", gate_licences), ("nogpl", gate_nogpl),
          ("identity", gate_identity), ("buildpaths", gate_buildpaths), ("d3d11", gate_d3d11),
          ("playback", gate_playback), ("steamredirect", gate_steamredirect), ("dockname", gate_dockname)]
