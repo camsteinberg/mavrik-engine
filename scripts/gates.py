@@ -1127,9 +1127,11 @@ def pids_named(name):
     """The processes whose name is name, in any case (as Windows compares names). Wine names each process
     after its Windows program, by its Unix path or, for a program another one started, its Windows
     path."""
-    r = out(["/bin/ps", "-axo", "pid=,comm="])
+    # ps cuts a process name at a fixed number of bytes, which can split a character (the dockname gate's own
+    # titles are not all ASCII), so undecodable bytes are replaced; the names looked for are program file names.
+    r = subprocess.run(["/bin/ps", "-axo", "pid=,comm="], capture_output=True)
     found = []
-    for line in r.stdout.splitlines():
+    for line in r.stdout.decode("utf-8", "replace").splitlines():
         parts = line.split(None, 1)
         if len(parts) == 2 and re.split(r"[/\\]", parts[1].strip())[-1].lower() == name.lower():
             found.append(int(parts[0]))
