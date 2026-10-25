@@ -40,10 +40,12 @@ CX_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 CX_CRASH_LINK = 'then <a href="https://www.codeweavers.com/support/tickets/enter/">file a bug report</a>'
 USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { return mavrik_selftest_value(); }\n"
 # An ntdll with CrossOver's CW HACK 22144 as CodeWeavers ship it (the link only with WINEDLLPATH set, and
-# a hard link first): revision 4's lib/wine/x86_64-unix/ntdll.so, from the same tree and patches 0001 to
-# 0006, so without patch 0007. Take it from the 11.0-cx26.3.0-r4 release archive and name it in
-# SELFTEST_OLD_NTDLL; without it the dockname rows that need it are not run.
-OLD_NTDLL_SHA256 = "00a4da2f0e1c22ee146e3172b35b305908857ea4ff865b5ee0ba2fbd52d9d658"
+# a hard link first): this revision's lib/wine/x86_64-unix/ntdll.so built from the same patched tree with
+# patch 0007 reversed, the same configure line, stripped (strip -x -S). Name it in SELFTEST_OLD_NTDLL;
+# without it the dockname rows that need it are not run. Up to revision 6 this was revision 4's ntdll.so
+# (00a4da2f...), but patches 0018 to 0032 change ntdll's Unix side, and a revision 7 prefix boot with
+# revision 4's hangs (S213).
+OLD_NTDLL_SHA256 = "56e09af95401b4a979c9cb6aac685fc09552a76f16812b0e41361612c9cd15f6"
 
 
 def cc(src_text, out_path, *args):
@@ -321,7 +323,7 @@ def run(engine, work):
                  [p for p in problems if p.startswith(f"'{title}': ") or not p.startswith("'")],
                  r"dockprobe(32|64)\.exe: the (Dock|window server) shows " + re.escape(f"'{shown}', not '{title}'"))
 
-        # dockname, the window server and the executable: an engine clone with revision 4's ntdll.so
+        # dockname, the window server and the executable: an engine clone with the ntdll.so without patch 0007
         # (CW HACK 22144 as shipped, see OLD_NTDLL_SHA256). Without WINEDLLPATH no link is made, so the
         # window server must show "wine" while LaunchServices (patch 0006) still shows the title. With
         # WINEDLLPATH set, the hack starts each program through a hard link in the user's temp folder,
@@ -330,7 +332,7 @@ def run(engine, work):
         old = os.environ.get("SELFTEST_OLD_NTDLL")
         if old:
             if G.out(["shasum", "-a", "256", old]).stdout.split()[:1] != [OLD_NTDLL_SHA256]:
-                raise SystemExit(f"selftest setup: SELFTEST_OLD_NTDLL {old} is not revision 4's ntdll.so")
+                raise SystemExit(f"selftest setup: SELFTEST_OLD_NTDLL {old} is not this revision's ntdll.so without patch 0007")
             bad = os.path.join(tmp, "old-ntdll-engine")
             clone(engine, bad)
             ntdll = os.path.join(bad, "lib", "wine", "x86_64-unix", "ntdll.so")
