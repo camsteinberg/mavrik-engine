@@ -571,11 +571,19 @@ def fonts_check(engine, timeout=900):
     log = os.path.join(home, "fonts.log")
     folder = os.path.join(env["WINEPREFIX"], "drive_c", "windows", "Fonts")
     problems, detail = [], ""
+
+    def settle(step):  # Wine's processes must all end; a setup step left waiting (for a window's answer) fails
+        try:
+            out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
+            return []
+        except subprocess.TimeoutExpired:
+            return [f"{step}: Wine's processes were still running after 300 s (ended)"]
+
     try:
         prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, timeout)
-        out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
-        if prompt or code != 0:
-            return [f"wineboot --init: {prompt or 'exit %s' % code}"], ""
+        problems += settle("wineboot --init")
+        if prompt or code != 0 or problems:
+            return problems + ([f"wineboot --init: {prompt or 'exit %s' % code}"] if prompt or code != 0 else []), ""
         for name, source in sorted(fonts.items()):
             src = os.path.join(engine, "share", "wine", "fonts", source)
             dst = os.path.join(folder, name)
@@ -591,9 +599,9 @@ def fonts_check(engine, timeout=900):
         marker = b"mavrik gate: a font a game or the player put here\n"
         open(os.path.join(folder, kept), "wb").write(marker)
         prompt, code, _ = run_watched([wine, "wineboot", "--update"], env, log, timeout)
-        out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
-        if prompt or code != 0:
-            return [f"wineboot --update: {prompt or 'exit %s' % code}"], ""
+        problems += settle("wineboot --update")
+        if prompt or code != 0 or problems:
+            return problems + ([f"wineboot --update: {prompt or 'exit %s' % code}"] if prompt or code != 0 else []), ""
         if open(os.path.join(folder, kept), "rb").read() != marker:
             problems.append(f"wineboot --update replaced the {kept} that was already in C:\\windows\\Fonts")
         detail = (f"{len(fonts)} fonts copied into C:\\windows\\Fonts byte for byte ({', '.join(sorted(fonts))}); "
