@@ -11,8 +11,13 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 
 import gates as G
+
+# When the self-test started: it stops at the first syspolicyd crash report written since (gates.py,
+# syspolicyd_stop), so it starts no more programs that would wait on syspolicyd.
+START = None
 
 LIB_C = "int mavrik_selftest_value(void) { return 1; }\n"
 # CrossOver's loader Info.plist (CrossOver Hack 10913), as the CrossOver tree has it.
@@ -56,6 +61,9 @@ def clone(src, dest):
 def case(results, gate, bad_input, problems, expect):
     """The gate must fail on the bad input, and only for the reason the case names (expect, a regex
     every problem must match)."""
+    stop, why = G.syspolicyd_stop(START) if START else (False, "")
+    if stop:
+        raise SystemExit(f"selftest stopped at {gate} ({bad_input}): {why}")
     problems = [str(p) for p in problems]
     other = [p for p in problems if not re.search(expect, p)]
     if not problems:
@@ -78,6 +86,8 @@ def skipped(results, gate, bad_input, reason):
 
 
 def run(engine, work):
+    global START
+    START = time.time()
     engine = os.path.abspath(engine)
     ctx = G.context(work)
     tmp = tempfile.mkdtemp(prefix="gate-selftest-")
@@ -152,7 +162,6 @@ def run(engine, work):
     open(inf, "w", encoding="utf-8").write(text.replace("[FontFiles]", "[NoFontFiles]"))
     case(results, "fonts", "an engine clone whose wine.inf has no FontFiles section", G.fonts_check(bad)[0],
          r"wine\.inf has no FontFiles section")
-    shutil.rmtree(bad, ignore_errors=True)
     bad = os.path.join(tmp, "overwriting-fonts-engine")
     clone(engine, bad)
     inf = os.path.join(bad, "share", "wine", "wine.inf")
@@ -161,7 +170,6 @@ def run(engine, work):
     open(inf, "w", encoding="utf-8").write(re.sub(r"(?m)^(\w+\.ttf,[\w-]+\.ttf),,0x10$", r"\1,,0", text))
     case(results, "fonts", "an engine clone whose FontFiles lines lost COPYFLG_NO_OVERWRITE", G.fonts_check(bad, timeout=600)[0],
          r"wineboot --update replaced the \S+ that was already in C:\\windows\\Fonts")
-    shutil.rmtree(bad, ignore_errors=True)
 
     # wine: a wrong expected version; an engine clone without Mono and Gecko, which must prompt at
     # wineboot; one with Mono but no Gecko, which must prompt when mshtml loads Gecko; and one
@@ -174,13 +182,11 @@ def run(engine, work):
     shutil.rmtree(os.path.join(bad, "share", "wine", "gecko"))
     case(results, "wine", "wineboot on an engine clone without Mono and Gecko", G.wineboot_check(bad, gecko, timeout=600)[0],
          r"Mono or Gecko install prompt")
-    shutil.rmtree(bad, ignore_errors=True)
     bad = os.path.join(tmp, "no-gecko-engine")
     clone(engine, bad)
     shutil.rmtree(os.path.join(bad, "share", "wine", "gecko"))
     case(results, "wine", "an engine clone with Mono but no Gecko", G.wineboot_check(bad, gecko, timeout=600)[0],
          r"Wine Gecko \(x86_64\) started a download prompt")
-    shutil.rmtree(bad, ignore_errors=True)
     # Without its GnuTLS, Wine finds none on a Mac that has none, or, on a Mac with one in dyld's
     # fallback folders (Homebrew in /usr/local, as on GitHub's Intel runner), loads that one.
     # Either way the gate must fail.
@@ -192,7 +198,6 @@ def run(engine, work):
     case(results, "wine", f"an engine clone without {gnutls}",
          G.wineboot_check(bad, gecko, timeout=600, probes=probes, required=required)[0],
          r"bcrypt-aes|schannel|gnutls|loaded /(usr/local|opt/homebrew)/")
-    shutil.rmtree(bad, ignore_errors=True)
 
     # media: a plugin with a run path into the Mac's own GStreamer.framework, in a clone of the engine's
     # lib folder, where every library it links is found.
@@ -271,7 +276,6 @@ def run(engine, work):
         os.remove(os.path.join(bad, "lib", "wine", "x86_64-unix", "winemetal.so"))
         case(results, "d3d11", "an engine clone without lib/wine/x86_64-unix/winemetal.so", G.d3d11_check(bad, ctx)[0],
              r"d3d11probe64\.exe: (device|present|readback) failed|d3d11probe64\.exe did not run to the end|winemetal\.so")
-        shutil.rmtree(bad, ignore_errors=True)
     else:
         skipped(results, "d3d11", "an engine clone without winemetal.so", "this machine has no Metal device")
 
@@ -281,7 +285,6 @@ def run(engine, work):
     os.remove(os.path.join(bad, "lib", "gstreamer-1.0", "libgstlibav.dylib"))
     case(results, "playback", "an engine clone without lib/gstreamer-1.0/libgstlibav.dylib", G.playback_check(bad, ctx)[0],
          r"mediaprobe(32|64)\.exe: (mf|wm)-(video|audio) failed|libgstlibav\.dylib")
-    shutil.rmtree(bad, ignore_errors=True)
 
     # steamredirect: the bridge turned off with Valve's own switch, so the steamclient DLL's export stays its own.
     case(results, "steamredirect", "the bridge turned off with PROTON_DISABLE_LSTEAMCLIENT=1",
@@ -305,7 +308,6 @@ def run(engine, work):
         case(results, "dockname", "an engine clone whose winemac.so cannot find _LSSetApplicationInformationItem",
              G.dockname_check(bad, ctx, cases=[G.DOCK_FALLBACK])[0],
              r"dockprobe(32|64)\.exe: the Dock shows 'wine', not '\.\.'")
-        shutil.rmtree(bad, ignore_errors=True)
 
         # dockname: titles past the loader's 32-byte name slot once escaped, one of '&' (5 bytes each
         # escaped) and one of CJK characters (3 bytes each). The Dock must show each cut between whole
@@ -342,7 +344,6 @@ def run(engine, work):
             case(results, "dockname", "the same clone with WINEDLLPATH set, so each program starts through a hard link",
                  [p for p in problems if p.endswith(", outside the engine")],
                  r"dockprobe(32|64)\.exe: started from \S*/winetemp-[^/]+/[^/]+, outside the engine")
-            shutil.rmtree(bad, ignore_errors=True)
         else:
             skipped(results, "dockname", "an ntdll with CrossOver's link condition, and one with its hard link",
                     "SELFTEST_OLD_NTDLL is not set")
@@ -350,6 +351,9 @@ def run(engine, work):
         skipped(results, "dockname", "an engine clone without the naming call, titles past the name slot, an ntdll "
                 "with CrossOver's link condition, and one with its hard link", "not in a login (Aqua) session")
 
+    # The engine clones Wine ran from go only now: macOS's syspolicyd checks each new program while it
+    # runs, and crashes when the file is gone before it gets to it (S213; it crashed on such files from
+    # mavrik's own tests 17 times in a row, and the Mac hung while launchd held it back).
     shutil.rmtree(tmp, ignore_errors=True)
     covered = {r["gate"] for r in results}
     missing = [name for name, _ in G.GATES if name not in covered]
