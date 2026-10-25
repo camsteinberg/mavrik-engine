@@ -66,8 +66,23 @@ The gates:
                 session report SKIP
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
+
+Every Wine run has the Mac display driver off (Wine's null driver, as mavrik makes and updates a prefix),
+so no window or prompt can reach the screen, except the d3d11 and dockname probes, which must draw;
+their prefixes are still made with it off. Every Wine step has a bound, and whatever a prefix started
+ends with its gate: wineserver -k with a bound, then SIGKILL to each of the prefix's processes still
+running, checked; a process left over fails the gate.
+
+macOS's syspolicyd checks each new program before it runs, and the program waits while syspolicyd is
+down. When it crashes over and over, launchd restarts it later each time (up to 20 minutes), so the gates
+stop at the first syspolicyd crash report written while they run, instead of starting more programs that
+would wait on it (S213: run 3's wine gate, and the Mac at its lock screen after).
 """
+import ctypes
+import fcntl
 import fnmatch
+import glob
+import signal
 import json
 import os
 import plistlib
@@ -229,7 +244,7 @@ def gate_dlopen(engine, ctx):
         with tempfile.TemporaryDirectory(prefix="dlopen-") as home:
             env = {"PATH": "/usr/bin:/bin", "HOME": home, "DYLD_PRINT_LIBRARIES": "1",
                    "DYLD_FALLBACK_LIBRARY_PATH": "/usr/lib"}
-            r = out([exe] + libs, env=env)
+            r = out([exe] + libs, env=env, timeout=600)
     finally:
         for d in masked:
             os.rename(d + ".masked", d)
@@ -360,11 +375,180 @@ def gate_addons(engine, ctx):
     return not problems, f"Wine Mono {mono} and Gecko {gecko} (x86, x86_64), as addons.c names", problems
 
 
-def wine_env(engine, home):
+# Wine's Mac display driver off: Wine falls back to its null driver, where no window reaches the screen
+# (mavrik's PREFIX_BUILD_DLL_OVERRIDES, wine_session.rs).
+DISPLAY_OFF = {"WINEDLLOVERRIDES": "winemac.drv=d"}
+
+
+def wine_env(engine, home, display=False):
+    """Wine's environment for a gate's prefix in home; the Mac display driver only when display is True."""
     # GStreamer's plugin list goes in this home, as the README asks of any program that starts the engine.
-    return {"PATH": f"{engine}/bin:/usr/bin:/bin", "HOME": home, "WINEPREFIX": os.path.join(home, "prefix"),
-            "WINEDEBUG": "fixme-all,+mscoree,+appwizcpl", "LANG": "en_US.UTF-8", "TMPDIR": home,
-            "GST_REGISTRY_1_0": os.path.join(home, "gst-registry.bin"), "WINEARCH": "wow64"}
+    env = {"PATH": f"{engine}/bin:/usr/bin:/bin", "HOME": home, "WINEPREFIX": os.path.join(home, "prefix"),
+           "WINEDEBUG": "fixme-all,+mscoree,+appwizcpl", "LANG": "en_US.UTF-8", "TMPDIR": home,
+           "GST_REGISTRY_1_0": os.path.join(home, "gst-registry.bin"), "WINEARCH": "wow64"}
+    return env if display else dict(env, **DISPLAY_OFF)
+
+
+def with_display(env):
+    """env with the Mac display driver back on, for a probe that must draw."""
+    return {k: v for k, v in env.items() if k not in DISPLAY_OFF}
+
+
+# ---------------------------------------------------------------- ending a prefix's processes
+
+_libproc = None
+
+
+def _proc():
+    global _libproc
+    if _libproc is None:
+        _libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    return _libproc
+
+
+def all_pids():
+    lib = _proc()
+    n = lib.proc_listallpids(None, 0)
+    buf = (ctypes.c_int * (n + 256))()
+    n = lib.proc_listallpids(buf, ctypes.sizeof(buf))
+    return [p for p in buf[:max(n, 0)] if p > 0]
+
+
+def pid_path(pid):
+    buf = ctypes.create_string_buffer(4096)
+    n = _proc().proc_pidpath(pid, buf, ctypes.sizeof(buf))
+    return buf.value.decode("utf-8", "replace") if n > 0 else None
+
+
+def pid_env_value(pid, name):
+    """name's value in pid's environment (sysctl KERN_PROCARGS2), or None where macOS doesn't show it."""
+    libc = ctypes.CDLL(None)
+    mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2
+    size = ctypes.c_size_t(0)
+    if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or not size.value:
+        return None
+    buf = ctypes.create_string_buffer(size.value)
+    if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+        return None
+    # argc, the executable path, then argv and the environment. Wine rewrites argv in place to the
+    # Windows command line, so argc can't be trusted to find where the environment starts: the
+    # strings after the executable path are searched for NAME= instead.
+    key = name.encode() + b"="
+    for item in buf.raw[4:size.value].split(b"\0")[1:]:
+        if item.startswith(key):
+            return item[len(key):].decode("utf-8", "replace")
+    return None
+
+
+def server_lock_owner(prefix):
+    """The pid of the server running for prefix (the owner of the lock in Wine's server folder,
+    /tmp/.wine-<uid>/server-<dev>-<inode>), as wineserver -k finds it, or None."""
+    try:
+        st = os.stat(prefix)
+        fd = os.open(f"/tmp/.wine-{os.getuid()}/server-{st.st_dev:x}-{st.st_ino:x}/lock", os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        got = fcntl.fcntl(fd, fcntl.F_GETLK, struct.pack("qqihh", 0, 0, 0, fcntl.F_WRLCK, 0))
+        _, _, pid, kind, _ = struct.unpack("qqihh", got)
+        return pid if kind != fcntl.F_UNLCK and pid > 0 else None
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def prefix_processes(engine, prefix):
+    """The processes running a program from engine that belong to prefix: its server, and every
+    process whose WINEPREFIX names it (Wine's programs keep it in their environment)."""
+    root = os.path.realpath(engine).rstrip("/") + "/"
+    want = os.path.realpath(prefix)
+    try:
+        st = os.stat(prefix)
+        same = lambda p: os.path.realpath(p) == want or (lambda s: (s.st_dev, s.st_ino) == (st.st_dev, st.st_ino))(os.stat(p))
+    except OSError:
+        same = lambda p: os.path.realpath(p) == want
+    server = server_lock_owner(prefix)
+    found = []
+    for pid in all_pids():
+        if pid <= 1 or pid == os.getpid():
+            continue
+        path = pid_path(pid)
+        if not path or not os.path.realpath(path).startswith(root):
+            continue
+        value = pid_env_value(pid, "WINEPREFIX")
+        try:
+            mine = pid == server or (value is not None and same(value))
+        except OSError:
+            mine = False
+        if mine:
+            found.append(pid)
+    return found
+
+
+def end_prefix(engine, env, bound=30):
+    """Ends everything the prefix in env started: wineserver -k within bound seconds, then SIGKILL to
+    each of the prefix's processes still running (up to five passes), then a check that none is left.
+    Never raises. Returns the problems: wineserver -k not returning, any process it left, any process
+    still there after SIGKILL."""
+    prefix = env["WINEPREFIX"]
+    problems = []
+    try:
+        subprocess.run([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, capture_output=True, timeout=bound)
+    except subprocess.TimeoutExpired:
+        problems.append(f"wineserver -k did not return in {bound} s")
+    except OSError as e:
+        problems.append(f"wineserver -k could not start: {e}")
+    left, killed = [], set()
+    try:
+        for _ in range(5):
+            left = prefix_processes(engine, prefix)
+            if not left:
+                break
+            for pid in left:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    killed.add(pid)
+                except ProcessLookupError:
+                    pass
+            time.sleep(0.2)
+        deadline = time.time() + 10
+        while left and time.time() < deadline:
+            time.sleep(0.25)
+            left = prefix_processes(engine, prefix)
+    except Exception as e:  # the listing must never hide the gate's own result
+        problems.append(f"the prefix's processes could not be listed: {e!r}")
+    if killed:
+        problems.append(f"{len(killed)} of the prefix's Wine processes were still running after wineserver -k "
+                        f"(ended with SIGKILL: {sorted(killed)})")
+    if left:
+        problems.append(f"the prefix's Wine processes {left} were still running after SIGKILL")
+    return problems
+
+
+def settle(engine, env, step, bound=300):
+    """Waits for the prefix's server to exit (wineserver -w) within bound seconds. Returns the problems:
+    a step left waiting (for a window's answer, or on a program that never started)."""
+    try:
+        subprocess.run([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, capture_output=True, timeout=bound)
+        return []
+    except subprocess.TimeoutExpired:
+        return [f"{step}: Wine's processes were still running after {bound} s"]
+
+
+# ---------------------------------------------------------------- macOS's syspolicyd
+
+CRASH_REPORTS = "/Library/Logs/DiagnosticReports"
+
+
+def syspolicyd_crashes(since):
+    """The syspolicyd crash reports written since the time since (seconds), oldest first ([] where the
+    folder can't be read)."""
+    try:
+        reports = [p for p in glob.glob(os.path.join(CRASH_REPORTS, "syspolicyd-*.ips")) if os.path.getmtime(p) >= since]
+    except OSError:
+        return []
+    return sorted(reports, key=os.path.getmtime)
 
 
 # appwiz.cpl traces "Got URL" just before it opens a Mono or Gecko download dialog; mscoree says
@@ -390,7 +574,10 @@ def run_watched(cmd, env, log, timeout):
     code = proc.poll()
     if code is None:
         proc.kill()
-        proc.wait()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass  # end_prefix ends it with the rest of the prefix
     return prompt, code, text
 
 
@@ -414,8 +601,9 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
     mshtml load it, as a game's first web view would); then every check of each probe
     (winelibs_inputs) must pass. dyld lists the libraries every Wine process loads: none may come from
     outside the engine and macOS, and once the probes have run, each of `required` (paths in the
-    engine) must be among them. Returns (problems, detail, log tail). Kills everything the prefix
-    started and removes the prefix, whatever happens."""
+    engine) must be among them. Nothing here draws, so the Mac display driver is off throughout.
+    Returns (problems, detail, log tail). Ends everything the prefix started (end_prefix) and removes
+    the prefix, whatever happens."""
     home = tempfile.mkdtemp(prefix="wineboot-")
     env = dict(wine_env(engine, home), DYLD_PRINT_LIBRARIES="1")
     wine = os.path.join(engine, "bin", "wine")
@@ -428,7 +616,7 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
         elif code is None:
             problems.append(f"wineboot --init did not finish in {timeout} s")
         else:
-            out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
+            problems += settle(engine, env, "wineboot --init")
             if code != 0:
                 problems.append(f"wineboot --init exited {code}")
             if "mono runtime is at" not in text:
@@ -455,8 +643,8 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
         if not problems:
             p, probed, ran = run_probes(wine, [(probe, []) for probe in probes], env, log)
             problems += p
-        # Stop every process the prefix started, then read what dyld printed for each of them.
-        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        # End every process the prefix started, then read what dyld printed for each of them.
+        problems += end_prefix(engine, env)
         images = dyld_images(open(log, errors="replace").read())
         if not images:
             problems.append("dyld listed no libraries: the trace this gate reads is missing")
@@ -466,7 +654,7 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
             problems += [f"Wine's own code did not load {r} from the engine" for r in required
                          if os.path.realpath(os.path.join(engine, r)) not in seen]
     finally:
-        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        problems += end_prefix(engine, env)
         lines = open(log, errors="replace").read().splitlines() if os.path.exists(log) else []
         tail = [l for l in lines if not l.startswith("dyld[")][-15:]
         if os.path.exists(log):
@@ -501,13 +689,20 @@ def run_probes(wine, probes, env, log, timeout=300):
     return problems, probed, ran
 
 
-def probe_check(engine, probes, required=(), timeout=900, extra_env=None):
+def no_crash_dialog(wine, env, log):
+    """A probe that crashes must end, not wait behind Wine's crash dialog (Play's ShowCrashDialog=0)."""
+    run_watched([wine, "reg", "add", "HKCU\\Software\\Wine\\WineDbg", "/v", "ShowCrashDialog",
+                 "/t", "REG_DWORD", "/d", "0", "/f"], env, log, 120)
+
+
+def probe_check(engine, probes, required=(), timeout=900, extra_env=None, draws=False):
     """A fresh prefix (wineboot --init), then each (Windows program, arguments) of probes, with
-    extra_env added to Wine's environment. dyld lists
+    extra_env added to Wine's environment. The Mac display driver is off, but for the probes
+    themselves when draws is True. dyld lists
     what every Wine process loads: nothing may come from outside the engine and macOS, and once every
     probe ran to the end, each of `required` (paths in the engine) must be among the loaded images.
-    Returns (problems, the probes' results, the engine's loaded images). Kills everything the prefix
-    started and removes it, whatever happens."""
+    Returns (problems, the probes' results, the engine's loaded images). Ends everything the prefix
+    started (end_prefix) and removes it, whatever happens."""
     home = tempfile.mkdtemp(prefix="probe-")
     env = dict(wine_env(engine, home), DYLD_PRINT_LIBRARIES="1", **(extra_env or {}))
     wine = os.path.join(engine, "bin", "wine")
@@ -518,13 +713,12 @@ def probe_check(engine, probes, required=(), timeout=900, extra_env=None):
         if prompt or code != 0:
             problems.append(f"wineboot --init: {prompt or 'exit %s' % code}")
         else:
-            # A probe that crashes must end, not wait behind Wine's crash dialog.
-            run_watched([wine, "reg", "add", "HKCU\\Software\\Wine\\WineDbg", "/v", "ShowCrashDialog",
-                         "/t", "REG_DWORD", "/d", "0", "/f"], env, log, 120)
-            out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
-            p, probed, ran = run_probes(wine, probes, env, log)
-            problems += p
-        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+            no_crash_dialog(wine, env, log)
+            problems += settle(engine, env, "wineboot --init")
+            if not problems:
+                p, probed, ran = run_probes(wine, probes, with_display(env) if draws else env, log)
+                problems += p
+        problems += end_prefix(engine, env)
         images = dyld_images(open(log, errors="replace").read())
         if not images:
             problems.append("dyld listed no libraries: the trace this gate reads is missing")
@@ -534,7 +728,7 @@ def probe_check(engine, probes, required=(), timeout=900, extra_env=None):
             problems += [f"Wine did not load {r} from the engine" for r in required
                          if os.path.realpath(os.path.join(engine, r)) not in seen]
     finally:
-        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        problems += end_prefix(engine, env)
         if os.path.exists(log):
             shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-probe-last.log"))
         shutil.rmtree(home, ignore_errors=True)
@@ -561,7 +755,10 @@ def wine_inf_fonts(engine):
 def fonts_check(engine, timeout=900):
     """wineboot --init in a fresh prefix must copy every FontFiles entry of wine.inf into
     drive_c/windows/Fonts with its source's exact bytes (share/wine/fonts); then a file put in place
-    of one of them must stay as it is through wineboot --update. Returns (problems, detail)."""
+    of one of them must stay as it is through wineboot --update. The Mac display driver is off, so
+    setupapi's prompt for a missing file can reach no screen (the bounded wait ends it). Returns
+    (problems, detail). Ends everything the prefix started (end_prefix) and removes it, whatever
+    happens."""
     fonts = wine_inf_fonts(engine)
     if not fonts:
         return ["wine.inf has no FontFiles section"], ""
@@ -570,20 +767,16 @@ def fonts_check(engine, timeout=900):
     wine = os.path.join(engine, "bin", "wine")
     log = os.path.join(home, "fonts.log")
     folder = os.path.join(env["WINEPREFIX"], "drive_c", "windows", "Fonts")
-    problems, detail = [], ""
 
-    def settle(step):  # Wine's processes must all end; a setup step left waiting (for a window's answer) fails
-        try:
-            out([os.path.join(engine, "bin", "wineserver"), "-w"], env=env, timeout=300)
-            return []
-        except subprocess.TimeoutExpired:
-            return [f"{step}: Wine's processes were still running after 300 s (ended)"]
+    def boot(step):  # Wine's processes must all end; a setup step left waiting (for a window's answer) fails
+        prompt, code, _ = run_watched([wine, "wineboot", step], env, log, timeout)
+        problems = settle(engine, env, f"wineboot {step}")
+        return problems + ([f"wineboot {step}: {prompt or 'exit %s' % code}"] if prompt or code != 0 else [])
 
-    try:
-        prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, timeout)
-        problems += settle("wineboot --init")
-        if prompt or code != 0 or problems:
-            return problems + ([f"wineboot --init: {prompt or 'exit %s' % code}"] if prompt or code != 0 else []), ""
+    def check():
+        problems = boot("--init")
+        if problems:
+            return problems, ""
         for name, source in sorted(fonts.items()):
             src = os.path.join(engine, "share", "wine", "fonts", source)
             dst = os.path.join(folder, name)
@@ -598,18 +791,21 @@ def fonts_check(engine, timeout=900):
         kept = sorted(fonts)[0]
         marker = b"mavrik gate: a font a game or the player put here\n"
         open(os.path.join(folder, kept), "wb").write(marker)
-        prompt, code, _ = run_watched([wine, "wineboot", "--update"], env, log, timeout)
-        problems += settle("wineboot --update")
-        if prompt or code != 0 or problems:
-            return problems + ([f"wineboot --update: {prompt or 'exit %s' % code}"] if prompt or code != 0 else []), ""
+        problems = boot("--update")
+        if problems:
+            return problems, ""
         if open(os.path.join(folder, kept), "rb").read() != marker:
             problems.append(f"wineboot --update replaced the {kept} that was already in C:\\windows\\Fonts")
-        detail = (f"{len(fonts)} fonts copied into C:\\windows\\Fonts byte for byte ({', '.join(sorted(fonts))}); "
-                  f"a file put in place of {kept} kept through wineboot --update")
+        return problems, (f"{len(fonts)} fonts copied into C:\\windows\\Fonts byte for byte ({', '.join(sorted(fonts))}); "
+                          f"a file put in place of {kept} kept through wineboot --update")
+
+    problems, detail = [], ""
+    try:
+        problems, detail = check()
     finally:
-        out([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, timeout=60)
+        problems = problems + end_prefix(engine, env)
         shutil.rmtree(home, ignore_errors=True)
-    return problems, detail
+    return problems, detail if not problems else ""
 
 
 def gate_fonts(engine, ctx):
@@ -966,7 +1162,7 @@ def metal_device(work):
 def d3d11_check(engine, ctx):
     probe = compile_pe_tool(ctx["work"], "d3d11probe", "64", ["d3d11", "dxgi", "uuid", "gdi32", "user32"])
     required = ["lib/wine/x86_64-unix/winemetal.so", "lib/wine/x86_64-unix/winemac.so"]
-    problems, probed, loaded = probe_check(engine, [(probe, [])], required)
+    problems, probed, loaded = probe_check(engine, [(probe, [])], required, draws=True)
     return problems, probed
 
 
@@ -1214,7 +1410,7 @@ def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
     probes = {bits: compile_pe_tool(ctx["work"], "dockprobe", bits, ["user32"]) for bits in ("64", "32")}
     home = tempfile.mkdtemp(prefix="dock-")
     env = dict(wine_env(engine, home), **(extra_env or {}))
-    wine, server = os.path.join(engine, "bin", "wine"), os.path.join(engine, "bin", "wineserver")
+    wine = os.path.join(engine, "bin", "wine")
     log = os.path.join(home, "dock.log")
     root = os.path.realpath(engine).rstrip("/") + "/"
     problems, seen = [], {}
@@ -1223,15 +1419,16 @@ def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
         if prompt or code != 0:
             problems.append(f"wineboot --init: {prompt or 'exit %s' % code}")
             return problems, seen
-        out([server, "-w"], env=env, timeout=300)
-        for case in cases:
+        no_crash_dialog(wine, env, log)
+        problems += settle(engine, env, "wineboot --init")
+        for case in cases if not problems else []:
             label = case[0] if case[0] is not None else "(no title, argv[0] not UTF-8)"
-            found, seen[label] = dock_names_once(wine, probes, env, log, case, timeout, root, ctx["work"])
+            # The probes' windows are what this gate reads, so they run with the Mac display driver.
+            found, seen[label] = dock_names_once(wine, probes, with_display(env), log, case, timeout, root, ctx["work"])
             problems += [f"'{label}': {p}" for p in found]
-            out([server, "-k"], env=env, timeout=60)
-            out([server, "-w"], env=env, timeout=60)
+            problems += [f"'{label}': {p}" for p in end_prefix(engine, env)]
     finally:
-        out([server, "-k"], env=env, timeout=60)
+        problems += end_prefix(engine, env)
         if os.path.exists(log):
             shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-dock-last.log"))
         shutil.rmtree(home, ignore_errors=True)
@@ -1289,16 +1486,30 @@ def report(results, title):
         open(os.environ["GITHUB_STEP_SUMMARY"], "a").write(text)
 
 
+def syspolicyd_stop(since):
+    """(True, why) once a syspolicyd crash report was written since the time since."""
+    crashes = syspolicyd_crashes(since)
+    if not crashes:
+        return False, ""
+    when = time.strftime("%H:%M:%S", time.localtime(os.path.getmtime(crashes[0])))
+    return True, (f"not run: macOS's syspolicyd crashed at {when} ({len(crashes)} report(s) in {CRASH_REPORTS}) "
+                  "while the gates ran; new programs wait while it is down, so no more were started")
+
+
 def run_gates(engine, work):
     ctx = context(work)
     engine = os.path.abspath(engine)
-    results = []
+    results, start = [], time.time()
     for name, fn in GATES:
         t = time.time()
-        try:
-            ok, detail, problems = fn(engine, ctx)
-        except Exception as e:  # a gate that cannot run is a failed gate
-            ok, detail, problems = False, f"the gate itself failed: {e!r}", [repr(e)]
+        stop, why = syspolicyd_stop(start)
+        if stop:
+            ok, detail, problems = False, why, [why]
+        else:
+            try:
+                ok, detail, problems = fn(engine, ctx)
+            except Exception as e:  # a gate that cannot run is a failed gate
+                ok, detail, problems = False, f"the gate itself failed: {e!r}", [repr(e)]
         result = "SKIP" if ok is None else "PASS" if ok else "FAIL"
         results.append({"gate": name, "result": result, "detail": detail,
                         "problems": problems, "seconds": round(time.time() - t, 1)})

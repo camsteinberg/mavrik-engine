@@ -228,13 +228,17 @@ def context(work):
 def run_gates(bridge, work):
     ctx = context(work)
     bridge = os.path.abspath(bridge)
-    results = []
+    results, start = [], time.time()
     for name, fn in GATES:
         t = time.time()
-        try:
-            ok, detail, problems = fn(bridge, ctx)
-        except Exception as e:  # a gate that cannot run is a failed gate
-            ok, detail, problems = False, f"the gate itself failed: {e!r}", [repr(e)]
+        stop, why = G.syspolicyd_stop(start)
+        if stop:
+            ok, detail, problems = False, why, [why]
+        else:
+            try:
+                ok, detail, problems = fn(bridge, ctx)
+            except Exception as e:  # a gate that cannot run is a failed gate
+                ok, detail, problems = False, f"the gate itself failed: {e!r}", [repr(e)]
         results.append({"gate": name, "result": "PASS" if ok else "FAIL", "detail": detail,
                         "problems": problems, "seconds": round(time.time() - t, 1)})
         print(f"{name}: {'PASS' if ok else 'FAIL'} ({time.time() - t:.0f} s) {detail}", flush=True)
@@ -259,6 +263,8 @@ def selftest(bridge, work):
     bridge = os.path.abspath(bridge)
     ctx = context(work)
     tmp = tempfile.mkdtemp(prefix="bridge-selftest-", dir=os.path.join(ctx["work"], "bridge"))
+    import selftest as T
+    T.START = time.time()  # the self-test stops at a syspolicyd crash report written after this
     try:
         results = selftest_cases(bridge, ctx, tmp)
     finally:
