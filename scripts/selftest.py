@@ -90,6 +90,7 @@ def skipped(results, gate, bad_input, reason):
 def run(engine, work):
     global START
     START = time.time()
+    G.syspolicyd_watch()
     engine = os.path.abspath(engine)
     ctx = G.context(work)
     tmp = tempfile.mkdtemp(prefix="gate-selftest-")
@@ -357,6 +358,7 @@ def run(engine, work):
     # runs, and crashes when the file is gone before it gets to it (S213; it crashed on such files from
     # mavrik's own tests 17 times in a row, and the Mac hung while launchd held it back).
     shutil.rmtree(tmp, ignore_errors=True)
+    G.remove_deferred()
     covered = {r["gate"] for r in results}
     missing = [name for name, _ in G.GATES if name not in covered]
     if missing:
