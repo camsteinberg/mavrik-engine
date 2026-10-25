@@ -167,7 +167,8 @@ def probes(work):
 
 def with_engine(bridge, ctx, files=None):
     """An APFS clone of the engine with the bridge's files (or `files`, a subset) added to its lib/wine,
-    as a launcher adds them. Returns its path; the caller removes it."""
+    as a launcher adds them. Returns its path; the caller removes it (through G.remove_later, since Wine
+    runs programs from it)."""
     root = tempfile.mkdtemp(prefix="bridge-engine-", dir=os.path.join(ctx["work"], "bridge"))
     engine = os.path.join(root, os.path.basename(ctx["engine"]))
     subprocess.run(["cp", "-c", "-R", ctx["engine"], engine], check=True)
@@ -206,7 +207,7 @@ def steamredirect_check(bridge, ctx, files=None, extra_env=None, standin_extra="
         problems, probed, loaded = G.probe_check(engine, [(p, []) for p in probes(ctx["work"])],
                                                  required=[UNIX, STEAM_STANDIN], extra_env=env)
     finally:
-        shutil.rmtree(os.path.dirname(engine), ignore_errors=True)
+        G.remove_later(os.path.dirname(engine))  # Wine just ran programs from it (gates.py, remove_deferred)
     return problems, probed
 
 
@@ -229,6 +230,7 @@ def run_gates(bridge, work):
     ctx = context(work)
     bridge = os.path.abspath(bridge)
     results, start = [], time.time()
+    G.syspolicyd_watch()
     for name, fn in GATES:
         t = time.time()
         stop, why = G.syspolicyd_stop(start)
@@ -244,6 +246,7 @@ def run_gates(bridge, work):
         print(f"{name}: {'PASS' if ok else 'FAIL'} ({time.time() - t:.0f} s) {detail}", flush=True)
         for p in problems[:30]:
             print("   " + p)
+    G.remove_deferred()
     os.makedirs(os.path.join(ctx["work"], "bridge", "gates"), exist_ok=True)
     json.dump(results, open(os.path.join(ctx["work"], "bridge", "gates", "results.json"), "w"), indent=2)
     G.report(results, f"Steam bridge gates (with {os.path.basename(ctx['engine'])})")
@@ -269,6 +272,7 @@ def selftest(bridge, work):
         results = selftest_cases(bridge, ctx, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        G.remove_deferred()
     missing = [name for name, _ in GATES if name not in {r["gate"] for r in results}]
     if missing:
         results.append({"gate": "selftest", "result": "FAIL", "detail": "gates with no bad-input case: " + ", ".join(missing),

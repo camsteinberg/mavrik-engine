@@ -541,9 +541,35 @@ def settle(engine, env, step, bound=300):
 CRASH_REPORTS = "/Library/Logs/DiagnosticReports"
 
 
+def syspolicyd_watch():
+    """Prints, once per run, whether the syspolicyd stop can see crash reports. Where the folder can't be
+    read (a GitHub runner, an account outside its group), the stop is off and the output says so."""
+    if os.access(CRASH_REPORTS, os.R_OK | os.X_OK):
+        print(f"syspolicyd stop: on (reads {CRASH_REPORTS})", flush=True)
+    else:
+        print(f"syspolicyd stop: OFF, {CRASH_REPORTS} can't be read here, so a syspolicyd crash during the run "
+              "would not stop it", flush=True)
+
+
+# Folders Wine ran programs from (engine clones, patch 0007's link folders): removed only when the whole run
+# ends (remove_later, then remove_deferred), because syspolicyd checks each new program while it runs and
+# crashes when the file is gone before it gets to it (S213).
+_DEFERRED = []
+
+
+def remove_later(path):
+    if path not in _DEFERRED:
+        _DEFERRED.append(path)
+
+
+def remove_deferred():
+    while _DEFERRED:
+        shutil.rmtree(_DEFERRED.pop(), ignore_errors=True)
+
+
 def syspolicyd_crashes(since):
     """The syspolicyd crash reports written since the time since (seconds), oldest first ([] where the
-    folder can't be read)."""
+    folder can't be read; syspolicyd_watch says so at the start of the run)."""
     try:
         reports = [p for p in glob.glob(os.path.join(CRASH_REPORTS, "syspolicyd-*.ips")) if os.path.getmtime(p) >= since]
     except OSError:
@@ -1432,7 +1458,7 @@ def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
         if os.path.exists(log):
             shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-dock-last.log"))
         shutil.rmtree(home, ignore_errors=True)
-        shutil.rmtree(link_folder(engine), ignore_errors=True)
+        remove_later(link_folder(engine))  # its links are programs Wine just ran (remove_deferred)
     return problems, seen
 
 
@@ -1500,6 +1526,7 @@ def run_gates(engine, work):
     ctx = context(work)
     engine = os.path.abspath(engine)
     results, start = [], time.time()
+    syspolicyd_watch()
     for name, fn in GATES:
         t = time.time()
         stop, why = syspolicyd_stop(start)
@@ -1517,6 +1544,7 @@ def run_gates(engine, work):
         for p in problems[:30]:
             print("   " + p)
     os.makedirs(os.path.join(ctx["work"], "gates"), exist_ok=True)
+    remove_deferred()
     json.dump(results, open(os.path.join(ctx["work"], "gates", "results.json"), "w"), indent=2)
     report(results, "Gates")
     return all(r["result"] in ("PASS", "SKIP") for r in results)
