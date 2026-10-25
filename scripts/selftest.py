@@ -141,15 +141,26 @@ def run(engine, work):
     clone(os.path.join(engine, "share", "wine", "mono"), os.path.join(no_gecko, "share", "wine", "mono"))
     case(results, "addons", "an engine with Mono but no Gecko", G.gate_addons(no_gecko, ctx)[2], r"wine-gecko-[\d.]+-x86(_64)?: 0 files")
 
-    # fonts: an engine clone whose share/wine/fonts lacks the Liberation fonts wine.inf copies.
-    bad = os.path.join(tmp, "no-fonts-engine")
+    # fonts: an engine clone whose wine.inf has no FontFiles section; and one whose FontFiles lines lost
+    # COPYFLG_NO_OVERWRITE, so wineboot --update must replace the file put in place of a font. (Never an engine without
+    # the font files: setupapi then asks for the missing files in a window and Wine waits for an answer.)
+    bad = os.path.join(tmp, "no-fontfiles-engine")
     clone(engine, bad)
-    for name in set(G.wine_inf_fonts(engine).values()):
-        p = os.path.join(bad, "share", "wine", "fonts", name)
-        if os.path.exists(p):
-            os.remove(p)
-    case(results, "fonts", "an engine clone without the fonts wine.inf copies", G.fonts_check(bad, timeout=600)[0],
-         r"its source share/wine/fonts/\S+ is not in the engine|is not in C:\\windows\\Fonts|wineboot --init: exit")
+    inf = os.path.join(bad, "share", "wine", "wine.inf")
+    text = open(inf, encoding="utf-8").read()
+    os.remove(inf)
+    open(inf, "w", encoding="utf-8").write(text.replace("[FontFiles]", "[NoFontFiles]"))
+    case(results, "fonts", "an engine clone whose wine.inf has no FontFiles section", G.fonts_check(bad)[0],
+         r"wine\.inf has no FontFiles section")
+    shutil.rmtree(bad, ignore_errors=True)
+    bad = os.path.join(tmp, "overwriting-fonts-engine")
+    clone(engine, bad)
+    inf = os.path.join(bad, "share", "wine", "wine.inf")
+    text = open(inf, encoding="utf-8").read()
+    os.remove(inf)
+    open(inf, "w", encoding="utf-8").write(re.sub(r"(?m)^(\w+\.ttf,[\w-]+\.ttf),,0x10$", r"\1,,0", text))
+    case(results, "fonts", "an engine clone whose FontFiles lines lost COPYFLG_NO_OVERWRITE", G.fonts_check(bad, timeout=600)[0],
+         r"wineboot --update replaced the \S+ that was already in C:\\windows\\Fonts")
     shutil.rmtree(bad, ignore_errors=True)
 
     # wine: a wrong expected version; an engine clone without Mono and Gecko, which must prompt at
