@@ -4,6 +4,8 @@ Applied in order to the pinned Wine source (`inputs.json`, `crossover-sources`).
 patch does not apply exactly (no fuzz, no rejects). Each patch keeps its own header. A patch that
 upstream ships is removed here in the change that moves the pinned source.
 
+DXMT's patches are in [`../dxmt/patches/`](../dxmt/patches/), for revision 8, which builds DXMT from source.
+
 | Patch | From | Why mavrik needs it |
 |---|---|---|
 | `0001-use-the-real-user-name.patch` | [highball-engine](https://github.com/gauthierpiarrette/highball-engine) | CrossOver names every Windows user "crossover"; mavrik's existing game folders use the Mac user's name, and saves live under it, so without this a game would lose sight of its saves. |
