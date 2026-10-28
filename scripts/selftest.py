@@ -6,6 +6,7 @@ input breaks only the property its gate checks, and every problem the gate repor
 that property (the case's `expect` pattern): a gate that failed for another reason would prove
 nothing about the check the case names.
 """
+import json
 import os
 import re
 import shutil
@@ -127,7 +128,7 @@ def run(engine, work):
 
     # winemac: a winemac.so without macdrv_functions; and the engine's own with a changed layout.
     cx = os.path.join(ctx["work"], "wine-src", "dlls", "winemac.drv", "d3dmetal.c")
-    dxmt = ctx["paths"]["dxmt-winemetal-source"]
+    dxmt = G.dxmt_winemetal_source(ctx)
     bare = os.path.join(tmp, "winemac", "winemac.so")
     cc(LIB_C, bare)
     case(results, "winemac", "a winemac.so that exports no macdrv_functions", G.winemac_check(bare, cx, dxmt)[0],
@@ -272,13 +273,43 @@ def run(engine, work):
          G.buildpath_problems(os.path.join(tmp, "buildpaths"), needles)[0],
          r"libpath\.dylib contains .*" + re.escape(needles[-1]))
 
+    # dxmt: the engine's DXMT files and build record in a scratch engine, then one thing changed in each copy:
+    # winemetal.dll without patch 0001's export (nvngx.dll in its place), winemetal.so naming the work folder,
+    # and a build record listing another patch.
+    def dxmt_engine(name):
+        root = os.path.join(tmp, name)
+        for f in ctx["inputs"]["inputs"]["dxmt-source"]["files"]:
+            os.makedirs(os.path.dirname(os.path.join(root, "lib", "wine", f)), exist_ok=True)
+            clone(os.path.join(engine, "lib", "wine", f), os.path.join(root, "lib", "wine", f))
+        shutil.copy(os.path.join(engine, "build-info.json"), os.path.join(root, "build-info.json"))
+        return root
+    bad = dxmt_engine("dxmt-no-export")
+    win = os.path.join(bad, "lib", "wine", "x86_64-windows")
+    os.remove(os.path.join(win, "winemetal.dll"))
+    shutil.copy(os.path.join(win, "nvngx.dll"), os.path.join(win, "winemetal.dll"))
+    case(results, "dxmt", "DXMT's files with another DLL as winemetal.dll (no MetalDrawable_signalEventWhenPresented)",
+         G.dxmt_check(bad, ctx)[0], r"winemetal\.dll")
+    bad = dxmt_engine("dxmt-buildpath")
+    so = os.path.join(bad, "lib", "wine", "x86_64-unix", "winemetal.so")
+    data = open(so, "rb").read()
+    os.remove(so)
+    open(so, "wb").write(data + ctx["work"].encode() + b"/dxmt-src/src/winemetal/unix/winemetal_unix.c\0")
+    case(results, "dxmt", "DXMT's files with the work folder's path added to winemetal.so", G.dxmt_check(bad, ctx)[0],
+         r"winemetal\.so")
+    bad = dxmt_engine("dxmt-patches")
+    info = json.load(open(os.path.join(bad, "build-info.json")))
+    info["dxmt"]["patches"].append({"file": "0099-not-in-the-recipe.patch", "sha256": "0" * 64})
+    json.dump(info, open(os.path.join(bad, "build-info.json"), "w"))
+    case(results, "dxmt", "a build record naming a patch the recipe does not have", G.dxmt_check(bad, ctx)[0],
+         r"built with patches")
+
     # d3d11: an engine clone without DXMT's Unix side (winemetal.so), where Direct3D 11 cannot reach Metal.
     if G.metal_device(ctx["work"]):
         bad = os.path.join(tmp, "no-winemetal-engine")
         clone(engine, bad)
         os.remove(os.path.join(bad, "lib", "wine", "x86_64-unix", "winemetal.so"))
         case(results, "d3d11", "an engine clone without lib/wine/x86_64-unix/winemetal.so", G.d3d11_check(bad, ctx)[0],
-             r"d3d11probe64\.exe: (device|present|readback) failed|d3d11probe64\.exe did not run to the end|winemetal\.so")
+             r"d3d11probe64\.exe: (device|present|vsync|readback) failed|d3d11probe64\.exe did not run to the end|winemetal\.so")
     else:
         skipped(results, "d3d11", "an engine clone without winemetal.so", "this machine has no Metal device")
 

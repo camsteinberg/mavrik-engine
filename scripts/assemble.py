@@ -20,9 +20,8 @@ What it does, in order:
   5. adds the media component (scripts/make-media-component.sh) to lib/ and lib/gstreamer-1.0/;
   6. puts DXMT's 64-bit files in place, exactly as mavrik's s182-fullscreen branch does
      (lib/wine/x86_64-windows/{d3d11,dxgi,d3d10core,winemetal,nvapi64,nvngx}.dll and
-     lib/wine/x86_64-unix/winemetal.so, over Wine's own where they exist), from the package's one
-     folder: "root" in inputs.json when set (DXMT's CI names it after the commit), else "v<version>"
-     (a DXMT release);
+     lib/wine/x86_64-unix/winemetal.so, over Wine's own where they exist), from build-dxmt.sh's
+     install (WORK/dxmt-install), each the file whose sha256 its record (.build/dxmt.json) holds;
   6b. puts the Liberation fonts patch 0017's wine.inf copies into each prefix in share/wine/fonts,
      unchanged from their pinned archive (inputs.json's liberation-fonts "files", checked by size);
   7. rewrites every load path that points outside the engine to @loader_path or @rpath, removes
@@ -30,6 +29,7 @@ What it does, in order:
      signs each changed file ad hoc;
   8. records which component every file came from (WORK/contributions.json) for licences.py.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -57,6 +57,14 @@ def run(cmd, **kw):
 
 def out(cmd):
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def is_macho(path):
@@ -283,17 +291,16 @@ class Assembler:
 
     # 6
     def dxmt(self):
-        pin = self.inputs["inputs"]["dxmt"]
-        with tempfile.TemporaryDirectory(prefix="dxmt-") as tmp:
-            with tarfile.open(self.paths["dxmt"]) as t:
-                t.extractall(tmp, filter="tar")
-            self.dxmt_files(pin, os.path.join(tmp, pin.get("root") or "v" + pin["version"]))
-
-    def dxmt_files(self, pin, root):
-        for entry, size in pin["files"].items():
+        pin = self.inputs["inputs"]["dxmt-source"]
+        root = os.path.join(self.work, "dxmt-install")
+        record = json.load(open(os.path.join(root, ".build", "dxmt.json")))
+        if record["commit"] != pin["commit"] or sorted(record["files"]) != sorted(pin["files"]):
+            sys.exit(f"WORK/dxmt-install was built from DXMT {record['commit']}, not the pinned {pin['commit']}")
+        for entry in pin["files"]:
             src = os.path.join(root, entry)
-            if os.path.getsize(src) != size:
-                sys.exit(f"DXMT {entry}: {os.path.getsize(src)} bytes, pinned {size}")
+            size = os.path.getsize(src)
+            if sha256(src) != record["files"][entry]:
+                sys.exit(f"DXMT {entry} is not the file build-dxmt.sh recorded")
             dest = os.path.join(self.engine, "lib", "wine", entry)
             mode = (os.stat(dest).st_mode & 0o777) if os.path.exists(dest) else 0o644
             if os.path.lexists(dest):
@@ -302,7 +309,7 @@ class Assembler:
             os.chmod(dest, mode)
             self.mark(dest, "dxmt")
             self.untouched.add(self.rel(dest))
-            print(f"DXMT {entry}: {size} bytes")
+            print(f"DXMT {entry}: {size} bytes, {record['version_string']}")
 
     # 6b
     def fonts(self):

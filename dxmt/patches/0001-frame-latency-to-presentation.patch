@@ -3,7 +3,8 @@ DXGI's rules for SetMaximumFrameLatency; add dxgi.maxFrameLatency.
 
 This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written
 or co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull
-request; the finding and the numbers go to DXMT as an issue. Against DXMT a148782d43.
+request; the finding and the numbers go to DXMT as an issue. Against DXMT 3b252590cb (first made
+against a148782d43; only the two call-table hunks moved, by 18 lines).
 
 DXMT's frame latency limit (3 frames by default) counts a frame as done when its GPU work finishes.
 Under vsync or a frame cap, finished frames then wait in Core Animation's three drawables for their
@@ -330,7 +331,7 @@ index 8224a0c..05684e9 100644
  
  class MetalLayer : public Object {
 diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
-index 3327b29..907f50b 100644
+index 2776e47..cfdf70e 100644
 --- a/src/winemetal/unix/winemetal_unix.c
 +++ b/src/winemetal/unix/winemetal_unix.c
 @@ -1315,6 +1315,20 @@ _MTLCommandBuffer_presentDrawableAfterMinimumDuration(void *obj) {
@@ -354,7 +355,7 @@ index 3327b29..907f50b 100644
  static NTSTATUS
  _MTLDevice_supportsFamily(void *obj) {
    struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
-@@ -3310,6 +3324,7 @@ const void *__wine_unix_call_funcs[] = {
+@@ -3328,6 +3342,7 @@ const void *__wine_unix_call_funcs[] = {
      &_MTLDevice_newIndirectCommandBuffer,
      &_MTLDevice_newLibraryWithSource,
      &_MTLTexture_getBytes,
@@ -362,7 +363,7 @@ index 3327b29..907f50b 100644
  };
  
  #ifndef DXMT_NATIVE
-@@ -3460,5 +3475,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
+@@ -3478,5 +3493,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
      &_MTLDevice_newIndirectCommandBuffer,
      &_MTLDevice_newLibraryWithSource,
      &_MTLTexture_getBytes,

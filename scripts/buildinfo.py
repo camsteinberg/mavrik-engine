@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Small build helpers.
 
-  buildinfo.py keys INPUTS                  print the cache keys (also build.sh's stamps) and the engine version
+  buildinfo.py keys INPUTS                  print the cache keys (also build.sh's and build-dxmt.sh's stamps) and the engine version
   buildinfo.py toolchain                    print the toolchain this machine builds with, as JSON
   buildinfo.py write INPUTS WORK ENGINE     write ENGINE/build-info.json, the engine's build record
 
@@ -38,8 +38,8 @@ def digest(*parts):
     return h.hexdigest()[:20]
 
 
-def patches():
-    d = os.path.join(REPO, "patches")
+def patches(folder="patches"):
+    d = os.path.join(REPO, folder)
     return sorted(os.path.join(d, p) for p in os.listdir(d) if p.endswith(".patch"))
 
 
@@ -100,11 +100,19 @@ def keys(inputs_path):
                   os.path.join(s, "build-deps.sh"))
     wine = digest(pins["crossover-sources"], pins["gstreamer-runtime"], pins["gstreamer-devel"], deps, target,
                   unix_tools, pe_tools, os.path.join(s, "build-wine.sh"), os.path.join(s, "prepare.sh"), *patches())
+    # DXMT's LLVM is keyed by its pins and options (inputs.json), not by build-dxmt.sh, so an edit to the
+    # script's DXMT part does not rebuild LLVM.
+    llvm = digest(pins["dxmt-llvm-source"], pins["dxmt-llvm-cmake"], pins["dxmt-source"]["deployment_target"],
+                  pins["ninja"], unix_tools)
+    dxmt = digest(pins["dxmt-source"], pins["dxmt-wine"], pins["meson"], pins["ninja"], llvm, unix_tools, pe_tools,
+                  os.path.join(s, "build-dxmt.sh"), *patches(os.path.join("dxmt", "patches")))
     cx = pins["crossover-sources"]["version"]
     version = f"cx{cx}-r{doc['engine']['revision']}"
     print(f"downloads=downloads-{downloads}")
     print(f"deps=deps-{deps}")
     print(f"wine=wine-{wine}")
+    print(f"dxmt-llvm=dxmt-llvm-{llvm}")
+    print(f"dxmt=dxmt-{dxmt}")
     print(f"version={version}")
 
 
@@ -137,6 +145,9 @@ def write(inputs_path, work, engine):
                    for k, v in doc["inputs"].items() if v.get("role") != "tool"},
         "patches": [{"file": os.path.basename(p), "sha256": hashlib.sha256(open(p, "rb").read()).hexdigest()}
                     for p in patches()],
+        # DXMT, built from source with dxmt/patches (build-dxmt.sh's record): its commit, version string,
+        # patches, each file's sha256 and the tools.
+        "dxmt": json.load(open(os.path.join(work, "dxmt-install", ".build", "dxmt.json"))),
         # What Wine was compiled with (recorded by build-wine.sh), and what assembled the engine.
         "toolchain": json.load(open(built_with)) if os.path.exists(built_with) else None,
         "assembled_with": toolchain(),

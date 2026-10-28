@@ -207,11 +207,15 @@ def write(work, engine, repo):
     put("dxmt", "DXBCParser-LICENSE-Microsoft", text_of(paths, "dxbcparser-license"))
     put("dxmt", "nvapi-License-NVIDIA.txt", text_of(paths, "nvapi-license"))
     put("dxmt", "dxbc-spirv-LICENSE", text_of(paths, "dxbc-spirv-license"))
-    put("dxmt", "README.txt", f"DXMT ({inputs['inputs']['dxmt']['version']}) is under the LGPL-2.1-or-later (LICENSE, "
+    dxmt = json.load(open(os.path.join(work, "dxmt-install", ".build", "dxmt.json")))
+    put("dxmt", "README.txt", f"DXMT ({inputs['inputs']['dxmt-source']['version']}) is under the LGPL-2.1-or-later (LICENSE, "
         "COPYING.LIB) since ec357fd582; LICENSE.OLD is the MIT licence of its releases up to v0.80, which DXMT "
-        "keeps. Its files carry code from LLVM 15.0.7 (with its regex and ConvertUTF parts), Microsoft's "
+        "keeps. This engine builds it from that source with mavrik-engine's patches ("
+        + ", ".join(p["file"] for p in dxmt["patches"]) + f"; dxmt/patches in mavrik-engine), so it reports its version "
+        f"as {dxmt['version_string']}. Its files carry code from LLVM 15.0.7 (with its regex and ConvertUTF parts), Microsoft's "
         "DXBCParser, NVIDIA's nvapi headers, DXVK and dxbc-spirv (its MD5 code); their notices are in this folder. "
-        "winemetal.dll also carries Wine's start-up code (LGPL-2.1-or-later, see ../wine).\n")
+        "winemetal.dll also carries Wine's start-up code (LGPL-2.1-or-later, see ../wine), from the Wine 8.16 build "
+        "DXMT links against (3Shain's v8.16-3shain); its source is attached to the release.\n")
     fonts = inputs["inputs"]["liberation-fonts"]
     for name, data in sorted(archive_members(paths, "liberation-fonts", fonts["root"], fonts["notices"]).items()):
         put("liberation-fonts", name, data)

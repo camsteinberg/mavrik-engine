@@ -7,7 +7,8 @@
 
 A release carries the engine, its checksum, and the source of every part whose licence asks for
 it: Wine (the CrossOver source archive and this repository's patches), GnuTLS, Nettle, GMP, Wine
-Mono, Wine Gecko, DXMT (its winemetal.dll carries Wine's start-up code), and the LGPL parts of the
+Mono, Wine Gecko, DXMT (its source with submodules, this repository's dxmt/patches in the recipe archive,
+and the source of the Wine start-up code its winemetal.dll carries), and the LGPL parts of the
 media component: the exact tarballs GStreamer's build recipes (cerbero 1.28.8) built them from, and
 cerbero itself, which holds the patches it applied. A part whose source is not pinned (an input with
 role "source", or an entry in "release_sources") stops the release.
@@ -55,7 +56,7 @@ def collect(inputs_path, work, dest):
             name = entry.get("file") or os.path.basename(entry["url"])
             shutil.copy(paths[key], os.path.join(dest, name))
     with tarfile.open(os.path.join(dest, "mavrik-engine-recipe.tar.gz"), "w:gz") as t:
-        for name in ("README.md", "NOTICE.md", "LICENSE", "inputs.json", "patches", "scripts", "tools", ".github"):
+        for name in ("README.md", "NOTICE.md", "LICENSE", "inputs.json", "patches", "dxmt", "scripts", "tools", ".github"):
             t.add(os.path.join(REPO, name), arcname=name,
                   filter=lambda i: None if "__pycache__" in i.name else i)
     print("\n".join(sorted(os.listdir(dest))))
