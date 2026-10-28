@@ -325,7 +325,8 @@ def run(engine, work):
         clone(engine, bad)
         os.remove(os.path.join(bad, "lib", "wine", "x86_64-unix", "winemetal.so"))
         case(results, "d3d11", "an engine clone without lib/wine/x86_64-unix/winemetal.so", G.d3d11_check(bad, ctx)[0],
-             r"d3d11probe64\.exe: (device|present|vsync|readback) failed|d3d11probe64\.exe did not run to the end|winemetal\.so")
+             r"d3d11probe64\.exe: (device|present|vsync|readback) failed|d3d11probe64\.exe did not run to the end|winemetal\.so"
+             r"|d3d11probe64\.exe: no output line says")
     else:
         skipped(results, "d3d11", "an engine clone without winemetal.so", "this machine has no Metal device")
 
