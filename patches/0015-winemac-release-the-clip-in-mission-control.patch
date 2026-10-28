@@ -27,15 +27,19 @@ The fix detects the Dock's overlay itself:
   the next mouse move is absolute, and the cursor is marked for setting again (0014). While it is shown, a new
   ClipCursor from the game (it is deactivated and activated as Mission Control opens and clips again at once)
   keeps its rect but stays lifted, and SetCursorPos does not pull the pointer back into the game.
-- Overlay gone: if the app is still active and clipping, the rect is put back, the pointer is moved into it as
-  starting a clip does, and the hidden cursor is set again (at once and 250 ms later, as on activation). If the
+- Overlay gone, read twice in a row (inside Mission Control the player can move to App Exposé or another Space,
+  and one read may fall between the Dock's windows); three failed window list reads in a row count as gone, so
+  the pointer is never left free for good: if the app is still active and clipping, the rect is put back, the
+  pointer is moved into it as starting a clip does, and the hidden cursor is set again (at once and 250 ms later,
+  as on activation). If the
   player chose another app, the app resigned and Wine's ordinary path released the pointer; the read at the next
   activation settles the state.
 - The watch stops when clipping stops (unless an overlay is shown, then when it is gone) and when the app resigns.
   The event tap handler is unchanged.
 - Under WINEDEBUG=+cursor (the Cocoa side has no debug channels; macdrv_main.c passes TRACE_ON(cursor) to it):
   "system overlay shown: confinement lifted", "system overlay gone: confinement restored", and once a minute, and
-  when a watch ends, the read's median and worst time in microseconds.
+  when a watch ends, the read's median and worst time in microseconds. These lines lack Wine's pid:tid prefix;
+  the version offered to WineHQ should send them through a real debug channel.
 
 Checked (mavrik S215): applies to the CrossOver 26.3.0 tree after patches 0001 to 0014 with no fuzz, and 0016 to
 0032 still apply after it with no fuzz; the changed files compile with the tree's warning flags with no new
@@ -48,7 +52,7 @@ diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
 index 49d36db1..850c58e3 100644
 --- a/dlls/winemac.drv/cocoa_app.h
 +++ b/dlls/winemac.drv/cocoa_app.h
-@@ -89,6 +89,15 @@ enum {
+@@ -89,6 +89,15 @@ @interface WineApplicationController : NSObject <NSApplicationDelegate>
  
      id<WineClipCursorHandler> clipCursorHandler;
  
@@ -65,10 +69,10 @@ index 49d36db1..850c58e3 100644
  
      /* CW Hack 22310, 24199 */
 diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
-index 25b47d28..150ecd99 100644
+index 25b47d28..bc56fd3d 100644
 --- a/dlls/winemac.drv/cocoa_app.m
 +++ b/dlls/winemac.drv/cocoa_app.m
-@@ -56,6 +56,132 @@
+@@ -56,6 +56,142 @@
  static NSString* const WineExternalQuitNotificationWinePrefixKey = @"WinePrefix";
  
  bool macdrv_err_on;
@@ -101,6 +105,8 @@ index 25b47d28..150ecd99 100644
 +    pid_t dock_pid;
 +    CGRect clip_rect;
 +    int last_shown;             /* -1 until the first read */
++    int gone_reads;             /* "gone" reads in a row while "shown" was last reported */
++    int failed_reads;           /* window list reads in a row that failed */
 +    unsigned int reads;
 +    unsigned int read_us[SYSTEM_OVERLAY_MAX_READ_TIMES];
 +    uint64_t period_start;      /* CLOCK_UPTIME_RAW, in nanoseconds */
@@ -177,6 +183,14 @@ index 25b47d28..150ecd99 100644
 +    watch->reads = 0;
 +}
 +
++/* Two "gone" reads in a row end an overlay: inside Mission Control the
++ * player can move to App Exposé or another Space, and one read may fall in
++ * the gap between the Dock's windows.  Three failed reads in a row count as
++ * "gone", so a window list that stops answering never leaves the pointer
++ * free (and the game's warps skipped) for good. */
++#define SYSTEM_OVERLAY_GONE_READS 2
++#define SYSTEM_OVERLAY_FAILED_READS 3
++
 +/* One read of the watch, on its queue.  Under +cursor, the read's time is
 + * kept and reported once a minute. */
 +static int system_overlay_check(struct system_overlay_watch* watch)
@@ -201,7 +215,7 @@ index 25b47d28..150ecd99 100644
  
  
  #if !defined(MAC_OS_VERSION_14_0) || MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_VERSION_14_0
-@@ -285,6 +411,9 @@ - (void) dealloc
+@@ -285,6 +421,9 @@ - (void) dealloc
          [cursor release];
          [screenFrameCGRects release];
          [applicationIcon release];
@@ -211,7 +225,7 @@ index 25b47d28..150ecd99 100644
          [clipCursorHandler release];
          [cursorTimer release];
          [cursorFrames release];
-@@ -921,6 +1050,7 @@ - (void) activeSpaceDidChange
+@@ -921,6 +1060,7 @@ - (void) activeSpaceDidChange
      {
          [self updateFullscreenWindows];
          [self adjustWindowLevels];
@@ -219,7 +233,7 @@ index 25b47d28..150ecd99 100644
      }
  
      - (void) sendDisplaysChanged:(BOOL)activating
-@@ -1350,6 +1480,12 @@ - (BOOL) setCursorPosition:(CGPoint)pos
+@@ -1350,6 +1490,12 @@ - (BOOL) setCursorPosition:(CGPoint)pos
      {
          BOOL ret;
  
@@ -232,7 +246,7 @@ index 25b47d28..150ecd99 100644
          if ([windowsBeingDragged count])
              ret = FALSE;
          else if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(setCursorPosition:)])
-@@ -1422,7 +1558,19 @@ - (BOOL) startClippingCursor:(CGRect)rect
+@@ -1422,7 +1568,19 @@ - (BOOL) startClippingCursor:(CGRect)rect
                  clipCursorHandler = [[WineEventTapClipCursorHandler alloc] init];
          }
  
@@ -253,7 +267,7 @@ index 25b47d28..150ecd99 100644
              return TRUE;
  
          if (![clipCursorHandler startClippingCursor:rect])
-@@ -1431,6 +1579,7 @@ - (BOOL) startClippingCursor:(CGRect)rect
+@@ -1431,6 +1589,7 @@ - (BOOL) startClippingCursor:(CGRect)rect
          [self setCursorPosition:NSPointToCGPoint([self flippedMouseLocation:[NSEvent mouseLocation]])];
  
          [self updateWindowsForCursorClipping];
@@ -261,7 +275,7 @@ index 25b47d28..150ecd99 100644
  
          return TRUE;
      }
-@@ -1446,6 +1595,7 @@ - (BOOL) stopClippingCursor
+@@ -1446,6 +1605,7 @@ - (BOOL) stopClippingCursor
          lastSetCursorPositionTime = [[NSProcessInfo processInfo] systemUptime];
  
          [self updateWindowsForCursorClipping];
@@ -269,7 +283,7 @@ index 25b47d28..150ecd99 100644
  
          return TRUE;
      }
-@@ -1455,6 +1605,207 @@ - (BOOL) clippingCursor
+@@ -1455,6 +1615,221 @@ - (BOOL) clippingCursor
          return clipCursorHandler.clippingCursor;
      }
  
@@ -351,7 +365,21 @@ index 25b47d28..150ecd99 100644
 +        dispatch_source_set_event_handler(timer, ^{
 +            int shown = system_overlay_check(watch);
 +
-+            if (shown >= 0 && shown != watch->last_shown)
++            if (shown < 0)
++            {
++                if (++watch->failed_reads < SYSTEM_OVERLAY_FAILED_READS)
++                    return;
++                shown = 0;
++            }
++            else
++                watch->failed_reads = 0;
++
++            if (shown || watch->last_shown != 1)
++                watch->gone_reads = 0;
++            else if (++watch->gone_reads < SYSTEM_OVERLAY_GONE_READS)
++                return;
++
++            if (shown != watch->last_shown)
 +            {
 +                watch->last_shown = shown;
 +                dispatch_async(dispatch_get_main_queue(), ^{
@@ -477,7 +505,7 @@ index 25b47d28..150ecd99 100644
      - (BOOL) isKeyPressed:(uint16_t)keyCode
      {
          int bits = sizeof(pressedKeyCodes[0]) * 8;
-@@ -1558,10 +1909,16 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+@@ -1558,10 +1933,16 @@ - (void) handleMouseMove:(NSEvent*)anEvent
  
          if ([targetWindow isKindOfClass:[WineWindow class]])
          {
@@ -495,7 +523,7 @@ index 25b47d28..150ecd99 100644
              // If we recently warped the cursor (other than in our cursor-clipping
              // event tap), discard mouse move events until we see an event which is
              // later than that time.
-@@ -2129,6 +2486,11 @@ - (void) setupObservations
+@@ -2129,6 +2510,11 @@ - (void) setupObservations
                       name:NSWorkspaceActiveSpaceDidChangeNotification
                     object:nil];
  
@@ -507,7 +535,7 @@ index 25b47d28..150ecd99 100644
          [nc addObserver:self
                 selector:@selector(releaseMouseCapture)
                     name:NSMenuDidBeginTrackingNotification
-@@ -2565,6 +2927,8 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
+@@ -2565,6 +2951,8 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
                  [self updateCursor:TRUE];
              }
          });
@@ -516,7 +544,7 @@ index 25b47d28..150ecd99 100644
      }
  
      - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
-@@ -2586,6 +2950,10 @@ - (void)applicationDidResignActive:(NSNotification *)notification
+@@ -2586,6 +2974,10 @@ - (void)applicationDidResignActive:(NSNotification *)notification
  
          [self invalidateGotFocusEvents];
  
@@ -531,7 +559,7 @@ diff --git a/dlls/winemac.drv/cocoa_cursorclipping.h b/dlls/winemac.drv/cocoa_cu
 index 8912714f..b83cfbab 100644
 --- a/dlls/winemac.drv/cocoa_cursorclipping.h
 +++ b/dlls/winemac.drv/cocoa_cursorclipping.h
-@@ -65,9 +65,21 @@
+@@ -65,9 +65,21 @@ @interface WineConfinementClipCursorHandler : NSObject <WineClipCursorHandler>
       * mouseConfinementRect set). Using this rather than a WineWindow* to avoid
       * tricky retain situations. */
      NSInteger clippingWindowNumber;
@@ -632,7 +660,7 @@ diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
 index 477efe9f..b1b23bc4 100644
 --- a/dlls/winemac.drv/macdrv_cocoa.h
 +++ b/dlls/winemac.drv/macdrv_cocoa.h
-@@ -129,6 +129,7 @@ struct macdrv_query;
+@@ -129,6 +129,7 @@
  
  /* main */
  extern bool macdrv_err_on;

@@ -19,8 +19,9 @@ DXVK and Windows count a frame against the limit until it is presented.
   d3d11.preferredMaxFrameRate set). The encode thread registers the handler before presenting and
   records per frame whether it did. After waiting for frame N - L's GPU work, PresentBoundary also
   waits for its presentation when that frame registered a handler. Vsync off is unchanged: no handler,
-  no wait. A wait that passes 100 ms is given up, logged once, and presentation waits stop until a
-  frame is presented again, so a hidden or closing window never holds the game.
+  no wait. A wait that passes 100 ms is given up and logged (each time, at most once a second, with a running
+  count), and presentation waits stop until a frame is presented again, so a hidden or closing window never
+  holds the game.
 - d3d11: SetMaximumFrameLatency(0) resets to 3 and values above 16 return E_INVALIDARG (Microsoft's
   documentation); GetMaximumFrameLatency returns the application's value. dxgi.maxFrameLatency (DXVK's
   name and meaning, 0 to 16, default 0) caps the latency in use; 0 changes nothing.
@@ -152,10 +153,18 @@ index 86cf466..ba3911c 100644
          this->UpdateStatistics(ctx.queue().statistics, ctx.currentFrameId());
        });
 diff --git a/src/dxmt/dxmt_command_queue.cpp b/src/dxmt/dxmt_command_queue.cpp
-index 89ffc37..778ec6b 100644
+index 89ffc37..6ccbf56 100644
 --- a/src/dxmt/dxmt_command_queue.cpp
 +++ b/src/dxmt/dxmt_command_queue.cpp
-@@ -61,6 +61,7 @@ CommandQueue::CommandQueue(WMT::Device device) :
+@@ -23,6 +23,7 @@
+ #include "util_env.hpp"
+ #include "util_win32_compat.h"
+ #include <atomic>
++#include <chrono>
+ 
+ #define ASYNC_ENCODING 1
+ 
+@@ -61,6 +62,7 @@ CommandQueue::CommandQueue(WMT::Device device) :
      chunk.reset();
    };
    event = device.newSharedEvent();
@@ -163,7 +172,7 @@ index 89ffc37..778ec6b 100644
  
    std::string env = env::getEnvVar("DXMT_CAPTURE_FRAME");
  
-@@ -224,6 +225,37 @@ CommandQueue::WaitForFinishThread() {
+@@ -224,6 +226,45 @@ CommandQueue::WaitForFinishThread() {
    return 0;
  }
  
@@ -190,9 +199,17 @@ index 89ffc37..778ec6b 100644
 +  presented_event.waitUntilSignaledValue(frame, kPresentedTimeoutMs);
 +  presented = presented_event.signaledValue();
 +  if (presented < frame) {
-+    static std::atomic_bool warned = false;
-+    if (!warned.exchange(true))
-+      WARN("Frame ", frame, " not presented within ", kPresentedTimeoutMs, "ms; waiting for GPU completion only until a frame is presented");
++    // Logged at every entry into the stalled state, so a game that falls back often shows it. An entry needs a
++    // frame presented since the last one, which already spaces them out; at most one line a second besides.
++    static std::atomic<uint64_t> last_log_ms = 0, entries = 0;
++    auto entry = entries.fetch_add(1, std::memory_order_relaxed) + 1;
++    auto now_ms = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count();
++    auto last = last_log_ms.load(std::memory_order_relaxed);
++    if ((entry == 1 || now_ms - last >= 1000) && last_log_ms.compare_exchange_strong(last, now_ms))
++      WARN("Frame ", frame, " not presented within ", kPresentedTimeoutMs,
++           "ms; waiting for GPU completion only until a frame is presented (stall ", entry, " in this process)");
 +    presented_wait_stalled_ = true;
 +    presented_stalled_value_ = presented;
 +  }
@@ -331,10 +348,10 @@ index 8224a0c..05684e9 100644
  
  class MetalLayer : public Object {
 diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
-index 2776e47..cfdf70e 100644
+index 2776e47..ba45dd8 100644
 --- a/src/winemetal/unix/winemetal_unix.c
 +++ b/src/winemetal/unix/winemetal_unix.c
-@@ -1315,6 +1315,20 @@ _MTLCommandBuffer_presentDrawableAfterMinimumDuration(void *obj) {
+@@ -1315,6 +1315,22 @@ _MTLCommandBuffer_presentDrawableAfterMinimumDuration(void *obj) {
    return STATUS_SUCCESS;
  }
  
@@ -346,6 +363,8 @@ index 2776e47..cfdf70e 100644
 +  [(id<MTLDrawable>)params->handle addPresentedHandler:^(id<MTLDrawable> _d) {
 +    // NOTE: runs on a Core Animation thread without Wine's thread state, so it may only touch Metal.
 +    // Dropped drawables are reported too. Never lower the value: a later frame may have been presented first.
++    // The read and the write are two steps, not one atomic step: if Core Animation ever ran two handlers at once,
++    // the value could drop by one frame, which costs one more refresh of waiting (or one 100 ms valve wait).
 +    if (event.signaledValue < value)
 +      event.signaledValue = value;
 +  }];
@@ -355,7 +374,7 @@ index 2776e47..cfdf70e 100644
  static NTSTATUS
  _MTLDevice_supportsFamily(void *obj) {
    struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
-@@ -3328,6 +3342,7 @@ const void *__wine_unix_call_funcs[] = {
+@@ -3328,6 +3344,7 @@ const void *__wine_unix_call_funcs[] = {
      &_MTLDevice_newIndirectCommandBuffer,
      &_MTLDevice_newLibraryWithSource,
      &_MTLTexture_getBytes,
@@ -363,7 +382,7 @@ index 2776e47..cfdf70e 100644
  };
  
  #ifndef DXMT_NATIVE
-@@ -3478,5 +3493,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
+@@ -3478,5 +3495,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
      &_MTLDevice_newIndirectCommandBuffer,
      &_MTLDevice_newLibraryWithSource,
      &_MTLTexture_getBytes,
