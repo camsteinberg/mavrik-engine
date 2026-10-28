@@ -396,6 +396,5 @@ def run(engine, work):
         results.append({"gate": "selftest", "result": "FAIL", "detail": "gates with no bad-input case: " + ", ".join(missing),
                         "problems": missing})
     G.report(results, "Gate self-test (each gate must fail on a bad input, for that gate's reason)")
-    import json
     json.dump(results, open(os.path.join(ctx["work"], "gates", "selftest.json"), "w"), indent=2)
     return all(r["result"] in ("PASS", "SKIP") for r in results)
