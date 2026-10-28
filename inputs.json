@@ -525,11 +525,21 @@
     "dxmt-source": {
       "component": "dxmt",
       "version": "main-a148782d43",
-      "url": "https://api.github.com/repos/3Shain/dxmt/tarball/a148782d431249405acdb1531dbb0c7e737bbece",
-      "file": "dxmt-a148782d43.tar.gz",
-      "size": 795624,
-      "sha256": "ed650f5058c44ba1abb30ad7fb8bdc3f6cb9e44170d45136c6909569ddc3265d",
-      "note": "DXMT's source at the commit its package was built from (GitHub's tarball of the commit; the mirror release carries the same file)"
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/11.0-cx26.3.0-r7/dxmt-a148782d43-source-with-submodules.tar.gz",
+      "file": "dxmt-a148782d43-source-with-submodules.tar.gz",
+      "size": 8123126,
+      "sha256": "60f8d81d92ef5e1246dc9388424cc87e17c9910daf0427f9202671ab62b49270",
+      "note": "DXMT's complete source at the commit its package was built from: git archive of a148782d43 with its two submodules filled (external/nvapi at d08488fcc8, include/native/directx at 9df86f2341), one folder named after the commit, gzip -n (dxmt/make-source.sh gives the same bytes). GitHub's tarball of the commit (795624 bytes, sha256 ed650f5058c44ba1abb30ad7fb8bdc3f6cb9e44170d45136c6909569ddc3265d, on the r7 release as dxmt-a148782d43.tar.gz) leaves both submodules empty."
+    },
+    "dxmt-winecrt0-source": {
+      "component": "dxmt",
+      "version": "wine-8.16-3shain-4dd8a2d6dc",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/11.0-cx26.3.0-r7/wine-winecrt0-source-v8.16-3shain-4dd8a2d6dc.tar.gz",
+      "file": "wine-winecrt0-source-v8.16-3shain-4dd8a2d6dc.tar.gz",
+      "size": 610236,
+      "sha256": "1a5d8adcb9878bd177bd4340d5953592d07ee1cadd8bd3eed484e890382b6e47",
+      "licence": "LGPL-2.1-or-later",
+      "note": "The source of Wine's start-up code (winecrt0) statically linked into DXMT's winemetal.dll. DXMT's CI links it from 3Shain's Wine 8.16 build, the release v8.16-3shain (wine.tar.gz, 230434672 bytes, sha256 289c7f19e270a3d3d0a6fdb07691b176c70a0795f6811e5255cba82425de4f10), whose source is https://github.com/3Shain/wine at 4dd8a2d6dca39a116d0911f247bbaf1ad5e29471. The archive holds dlls/winecrt0, every header it includes (dxmt/winecrt0-files.txt, made by dxmt/winecrt0-closure.py) and Wine's COPYING.LIB, LICENSE, AUTHORS and VERSION; dxmt/make-winecrt0-source.sh gives the same bytes."
     },
     "gstreamer-source": {
       "component": "media:gstreamer",

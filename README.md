@@ -268,7 +268,9 @@ results and the source of every LGPL and MPL part:
 
 - Wine (the CrossOver source archive, with this repository's patches in the recipe), GnuTLS,
   Nettle and GMP, Wine Mono and Wine Gecko;
-- DXMT, whose `winemetal.dll` carries Wine's start-up code;
+- DXMT, complete with its submodules (GitHub's tarball of a commit leaves them empty), and the source
+  of Wine's start-up code its `winemetal.dll` carries (winecrt0 and its headers, from 3Shain's Wine 8.16;
+  `dxmt/README.md`);
 - for the media component, the exact tarballs GStreamer's build recipes (cerbero 1.28.8) built it
   from (GStreamer and its plugin sets, GLib, FFmpeg, proxy-libintl and mpg123), with the sha256
   values cerbero pins, and cerbero itself, which holds the patches it applied.
