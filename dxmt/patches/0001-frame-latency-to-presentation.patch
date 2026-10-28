@@ -1,0 +1,403 @@
+DXMT: count the frame latency limit to presentation when vsync or a frame cap holds the game; follow
+DXGI's rules for SetMaximumFrameLatency; add dxgi.maxFrameLatency.
+
+This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written
+or co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull
+request; the finding and the numbers go to DXMT as an issue. Against DXMT a148782d43.
+
+DXMT's frame latency limit (3 frames by default) counts a frame as done when its GPU work finishes.
+Under vsync or a frame cap, finished frames then wait in Core Animation's three drawables for their
+turn on screen, and that wait was not counted: mavrik's S214 meter measured about 2.4 frames of extra
+input latency on a light vsync-held game (H3 5.87 frames against G3 3.36, H1 3.89 against G1 1.52).
+DXVK and Windows count a frame against the limit until it is presented.
+
+- winemetal: MetalDrawable_signalEventWhenPresented (unix call 146, in both call tables) registers a
+  presented handler that sets a shared event to the frame's number. The handler runs on a Core
+  Animation thread without Wine's thread state, so it only touches Metal, and never lowers the value.
+- dxmt: a present carries its frame and whether it waits for presentation (SyncInterval above 0 or
+  d3d11.preferredMaxFrameRate set). The encode thread registers the handler before presenting and
+  records per frame whether it did. After waiting for frame N - L's GPU work, PresentBoundary also
+  waits for its presentation when that frame registered a handler. Vsync off is unchanged: no handler,
+  no wait. A wait that passes 100 ms is given up, logged once, and presentation waits stop until a
+  frame is presented again, so a hidden or closing window never holds the game.
+- d3d11: SetMaximumFrameLatency(0) resets to 3 and values above 16 return E_INVALIDARG (Microsoft's
+  documentation); GetMaximumFrameLatency returns the application's value. dxgi.maxFrameLatency (DXVK's
+  name and meaning, 0 to 16, default 0) caps the latency in use; 0 changes nothing.
+
+Not here: releasing the waitable swapchain's object at presentation (the plan's step 2, it needs a
+helper thread) and a latency sleep (step 4).
+.factory/design-passes/2026-10-27-s214/dxmt-latency-plan.md in the mavrik repository has the analysis.
+
+diff --git a/dxmt.conf b/dxmt.conf
+index f283aa4..32b76e8 100644
+--- a/dxmt.conf
++++ b/dxmt.conf
+@@ -35,6 +35,14 @@
+ 
+ # d3d11.preferredMaxFrameRate = 60
+ 
++# Enforce a stricter maximum frame latency. Overrides the application
++# setting specified by calling IDXGIDevice::SetMaximumFrameLatency.
++# Setting this to 0 will have no effect.
++#
++# Supported values : 0 - 16
++
++# dxgi.maxFrameLatency = 0
++
+ # Adjust MetalFX Sptial Upscaling factor.
+ # It is multiplied by source output width & height to get the
+ # final output resolution. 
+diff --git a/src/d3d11/d3d11_device.cpp b/src/d3d11/d3d11_device.cpp
+index 62efc67..9b9e1d9 100644
+--- a/src/d3d11/d3d11_device.cpp
++++ b/src/d3d11/d3d11_device.cpp
+@@ -1,4 +1,5 @@
+ #include "com/com_guid.hpp"
++#include "config/config.hpp"
+ #include "d3d11_fence.hpp"
+ #include "d3d11_input_layout.hpp"
+ #include "d3d11_interfaces.hpp"
+@@ -1140,6 +1141,8 @@ public:
+         cmd_queue_(this->device->queue()),
+         d3d11_device_(this, adapter, feature_level, feature_flags,
+                       *this->device.get()) {
++    frame_latency_cap_ = std::clamp(Config::getInstance().getOption<int>("dxgi.maxFrameLatency", 0), 0, (int)kMaxFrameLatency);
++    cmd_queue_.SetMaxLatency(ActualFrameLatency());
+     if (adapter_->GetLocalD3DKMT()) {
+       D3DKMT_CREATEDEVICE create = {};
+       create.hAdapter = adapter_->GetLocalD3DKMT();
+@@ -1258,13 +1261,17 @@ public:
+   }
+ 
+   HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(UINT MaxLatency) override {
+-    cmd_queue_.SetMaxLatency(MaxLatency);
++    // MSDN: values can range from 1 to 16; 0 resets latency to the default
++    if (MaxLatency > kMaxFrameLatency)
++      return E_INVALIDARG;
++    frame_latency_ = MaxLatency ? MaxLatency : kDefaultFrameLatency;
++    cmd_queue_.SetMaxLatency(ActualFrameLatency());
+     return S_OK;
+   }
+ 
+   HRESULT STDMETHODCALLTYPE GetMaximumFrameLatency(UINT *pMaxLatency) override {
+     if (pMaxLatency) {
+-      *pMaxLatency = cmd_queue_.GetMaxLatency();
++      *pMaxLatency = frame_latency_;
+     }
+     return S_OK;
+   }
+@@ -1305,10 +1312,21 @@ public:
+   D3DKMT_HANDLE STDMETHODCALLTYPE GetLocalD3DKMT() final { return local_kmt_; }
+ 
+ private:
++  static constexpr UINT kDefaultFrameLatency = 3;
++  static constexpr UINT kMaxFrameLatency = 16;
++
++  // The application's value; dxgi.maxFrameLatency, when set, caps the latency in use
++  UINT
++  ActualFrameLatency() const {
++    return frame_latency_cap_ ? std::min(frame_latency_, (UINT)frame_latency_cap_) : frame_latency_;
++  }
++
+   Com<IMTLDXGIAdapter> adapter_;
+   D3DKMT_HANDLE local_kmt_ = 0;
+   std::unique_ptr<Device> device;
+   CommandQueue &cmd_queue_;
++  UINT frame_latency_ = kDefaultFrameLatency;
++  int frame_latency_cap_ = 0;
+   MTLD3D11DeviceImpl d3d11_device_;
+ };
+ 
+diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
+index 86cf466..ba3911c 100644
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -775,13 +775,15 @@ public:
+     auto &cmd_queue = device_->GetDXMTDevice().queue();
+     auto chunk = cmd_queue.CurrentChunk();
+     chunk->signal_frame_latency_fence_ = cmd_queue.CurrentFrameSeq();
++    uint64_t frame = cmd_queue.CurrentFrameSeq();
++    bool wait_presented = vsync_duration > 0;
+     if (target_) {
+       auto output = static_cast<MTLDXGIOutput *>(target_.ptr());
+       presenter->changeGammaRamp(output->GetGammaRamp());
+     }
+     if constexpr (EnableMetalFX) {
+       chunk->emitcc([
+-        this, vsync_duration, backbuffer = backbuffer_->texture(),
++        this, vsync_duration, frame, wait_presented, backbuffer = backbuffer_->texture(),
+         sync_state = SyncFrame(++presentation_count_),
+         upscaled = upscaled_backbuffer_->texture(),
+         scaler = this->metalfx_scaler, state = presenter->synchronizeLayerProperties()
+@@ -793,17 +795,17 @@ public:
+         scaler_info.output_width = upscaled->width();
+         scaler_info.output_height = upscaled->height();
+         ctx.upscale(backbuffer, upscaled, scaler);
+-        ctx.present(upscaled, presenter, vsync_duration, state.metadata);
++        ctx.present(upscaled, presenter, vsync_duration, state.metadata, frame, wait_presented);
+         ReleaseSemaphore(present_semaphore_, 1, nullptr);
+         this->UpdateStatistics(ctx.queue().statistics, ctx.currentFrameId());
+       });
+     } else {
+       chunk->emitcc([
+-        this, vsync_duration, state = presenter->synchronizeLayerProperties(),
++        this, vsync_duration, frame, wait_presented, state = presenter->synchronizeLayerProperties(),
+         sync_state = SyncFrame(++presentation_count_),
+         backbuffer = backbuffer_->texture()
+       ](ArgumentEncodingContext &ctx) mutable {
+-        ctx.present(backbuffer, presenter, vsync_duration, state.metadata);
++        ctx.present(backbuffer, presenter, vsync_duration, state.metadata, frame, wait_presented);
+         ReleaseSemaphore(present_semaphore_, 1, nullptr);
+         this->UpdateStatistics(ctx.queue().statistics, ctx.currentFrameId());
+       });
+diff --git a/src/dxmt/dxmt_command_queue.cpp b/src/dxmt/dxmt_command_queue.cpp
+index 89ffc37..778ec6b 100644
+--- a/src/dxmt/dxmt_command_queue.cpp
++++ b/src/dxmt/dxmt_command_queue.cpp
+@@ -61,6 +61,7 @@ CommandQueue::CommandQueue(WMT::Device device) :
+     chunk.reset();
+   };
+   event = device.newSharedEvent();
++  presented_event = device.newSharedEvent();
+ 
+   std::string env = env::getEnvVar("DXMT_CAPTURE_FRAME");
+ 
+@@ -224,6 +225,37 @@ CommandQueue::WaitForFinishThread() {
+   return 0;
+ }
+ 
++/**
++With vsync or a frame cap, finished frames wait in the layer's drawables for their turn on screen. Counting a frame
++against the latency limit until it is presented, as DXVK and Windows do, keeps those waits out of input latency.
++Without vsync a frame is presented as soon as it is finished, so only GPU completion counts.
++*/
++void
++CommandQueue::WaitFramePresented(uint64_t frame) {
++  // A window that is hidden or being torn down may never present. After one wait times out, stop waiting until a
++  // frame is presented again, so the game keeps running at its GPU pace.
++  constexpr uint64_t kPresentedTimeoutMs = 100;
++  if (!frame_signals_presented_[frame % kFrameSignalSlots].load(std::memory_order_relaxed))
++    return;
++  auto presented = presented_event.signaledValue();
++  if (presented >= frame) {
++    presented_wait_stalled_ = false;
++    return;
++  }
++  if (presented_wait_stalled_ && presented == presented_stalled_value_)
++    return;
++  presented_wait_stalled_ = false;
++  presented_event.waitUntilSignaledValue(frame, kPresentedTimeoutMs);
++  presented = presented_event.signaledValue();
++  if (presented < frame) {
++    static std::atomic_bool warned = false;
++    if (!warned.exchange(true))
++      WARN("Frame ", frame, " not presented within ", kPresentedTimeoutMs, "ms; waiting for GPU completion only until a frame is presented");
++    presented_wait_stalled_ = true;
++    presented_stalled_value_ = presented;
++  }
++}
++
+ void CommandQueue::Retain(uint64_t seq, Allocation* allocation) {
+   auto &chunk = chunks[seq % kCommandChunkCount];
+   auto &tracker = chunk.ref_tracker;
+diff --git a/src/dxmt/dxmt_command_queue.hpp b/src/dxmt/dxmt_command_queue.hpp
+index e109af7..e8bc59a 100644
+--- a/src/dxmt/dxmt_command_queue.hpp
++++ b/src/dxmt/dxmt_command_queue.hpp
+@@ -172,6 +172,15 @@ private:
+   uint64_t frame_count = 0;
+   uint32_t max_latency_ = 3;
+ 
++  // Whether frame N's drawable signals presented_event; written when frame N is encoded, read after frame N's GPU
++  // work is done. Frames waited on are at most 16 behind the newest, so 32 slots never overlap.
++  static constexpr uint32_t kFrameSignalSlots = 32;
++  std::array<std::atomic_bool, kFrameSignalSlots> frame_signals_presented_{};
++  bool presented_wait_stalled_ = false;
++  uint64_t presented_stalled_value_ = 0;
++
++  void WaitFramePresented(uint64_t frame);
++
+   dxmt::thread encodeThread;
+   dxmt::thread finishThread;
+   WMT::Device device;
+@@ -197,6 +206,7 @@ public:
+   InternalCommandLibrary cmd_library;
+   ArgumentEncodingContext argument_encoding_ctx;
+   WMT::Reference<WMT::SharedEvent> event;
++  WMT::Reference<WMT::SharedEvent> presented_event;
+   std::uint64_t current_event_seq_id = 0;
+   FrameStatisticsContainer statistics;
+   ResourceInitializer initializer;
+@@ -263,9 +273,11 @@ public:
+     frame_count++;
+     statistics.at(frame_count).reset();
+     // After present N-th frame (N starts from 1), wait for (N - max_latency)-th frame to finish rendering 
++    // and, when it was presented with vsync or a frame cap, to reach the screen
+     if (likely(frame_count > max_latency_)) {
+       auto t0 = clock::now();
+       frame_latency_fence_.wait(frame_count - max_latency_);
++      WaitFramePresented(frame_count - max_latency_);
+       auto t1 = clock::now();
+       statistics.at(frame_count).present_latency_interval += (t1 - t0);
+     }
+@@ -276,6 +288,11 @@ public:
+ 
+   void SetMaxLatency(uint32_t value) { max_latency_ = value; };
+ 
++  void
++  SetFrameSignalsPresented(uint64_t frame, bool value) {
++    frame_signals_presented_[frame % kFrameSignalSlots].store(value, std::memory_order_relaxed);
++  }
++
+   void
+   WaitCPUFence(uint64_t seq) {
+     cpu_coherent.wait(seq);
+diff --git a/src/dxmt/dxmt_context.cpp b/src/dxmt/dxmt_context.cpp
+index 7b29f1e..b7e845c 100644
+--- a/src/dxmt/dxmt_context.cpp
++++ b/src/dxmt/dxmt_context.cpp
+@@ -530,7 +530,10 @@ ArgumentEncodingContext::resolveTexture(
+ };
+ 
+ void
+-ArgumentEncodingContext::present(Rc<Texture> &texture, Rc<Presenter> &presenter, double after, DXMTPresentMetadata metadata) {
++ArgumentEncodingContext::present(
++    Rc<Texture> &texture, Rc<Presenter> &presenter, double after, DXMTPresentMetadata metadata, uint64_t frame,
++    bool wait_presented
++) {
+   assert(!encoder_current);
+   auto encoder_info = allocate<PresentData>();
+   encoder_info->type = EncoderType::Present;
+@@ -540,6 +543,8 @@ ArgumentEncodingContext::present(Rc<Texture> &texture, Rc<Presenter> &presenter,
+   encoder_info->presenter = presenter;
+   encoder_info->after = after;
+   encoder_info->metadata = metadata;
++  encoder_info->frame = frame;
++  encoder_info->wait_presented = wait_presented;
+ 
+   encoder_current = encoder_info;
+   encoder_info->backbuffer = access(texture, texture->fullView, ResourceAccess::Read).texture;
+@@ -1098,6 +1103,10 @@ ArgumentEncodingContext::flushCommands(WMT::CommandBuffer cmdbuf, uint64_t seqId
+       );
+       auto t1 = clock::now();
+       currentFrameStatistics().drawable_blocking_interval += (t1 - t0);
++      bool signal_presented = data->wait_presented && drawable.handle;
++      if (signal_presented)
++        drawable.signalEventWhenPresented(queue_.presented_event, data->frame);
++      queue_.SetFrameSignalsPresented(data->frame, signal_presented);
+       if (data->after > 0)
+         cmdbuf.presentDrawableAfterMinimumDuration(drawable, data->after);
+       else
+diff --git a/src/dxmt/dxmt_context.hpp b/src/dxmt/dxmt_context.hpp
+index eabe872..e8e567c 100644
+--- a/src/dxmt/dxmt_context.hpp
++++ b/src/dxmt/dxmt_context.hpp
+@@ -251,6 +251,8 @@ struct PresentData : EncoderData {
+   Rc<Presenter> presenter;
+   double after;
+   DXMTPresentMetadata metadata;
++  uint64_t frame;
++  bool wait_presented;
+ };
+ 
+ struct SpatialUpscaleData : EncoderData {
+@@ -665,7 +667,10 @@ public:
+     return (new (allocate_cpu_heap(sizeof(T), alignof(T))) T());
+   };
+ 
+-  void present(Rc<Texture> &texture, Rc<Presenter> &presenter, double after, DXMTPresentMetadata metadata);
++  void present(
++      Rc<Texture> &texture, Rc<Presenter> &presenter, double after, DXMTPresentMetadata metadata, uint64_t frame,
++      bool wait_presented
++  );
+ 
+   void upscale(Rc<Texture> &texture, Rc<Texture> &upscaled, Rc<SpatialScaler> &scaler);
+ 
+diff --git a/src/winemetal/Metal.hpp b/src/winemetal/Metal.hpp
+index 8224a0c..05684e9 100644
+--- a/src/winemetal/Metal.hpp
++++ b/src/winemetal/Metal.hpp
+@@ -564,6 +564,11 @@ public:
+   texture() {
+     return Texture{MetalDrawable_texture(handle)};
+   };
++
++  void
++  signalEventWhenPresented(SharedEvent event, uint64_t value) {
++    MetalDrawable_signalEventWhenPresented(handle, event.handle, value);
++  };
+ };
+ 
+ class MetalLayer : public Object {
+diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
+index 3327b29..907f50b 100644
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -1315,6 +1315,20 @@ _MTLCommandBuffer_presentDrawableAfterMinimumDuration(void *obj) {
+   return STATUS_SUCCESS;
+ }
+ 
++static NTSTATUS
++_MetalDrawable_signalEventWhenPresented(void *obj) {
++  struct unixcall_generic_obj_obj_uint64_noret *params = obj;
++  id<MTLSharedEvent> event = (id<MTLSharedEvent>)params->arg0;
++  uint64_t value = params->arg1;
++  [(id<MTLDrawable>)params->handle addPresentedHandler:^(id<MTLDrawable> _d) {
++    // NOTE: runs on a Core Animation thread without Wine's thread state, so it may only touch Metal.
++    // Dropped drawables are reported too. Never lower the value: a later frame may have been presented first.
++    if (event.signaledValue < value)
++      event.signaledValue = value;
++  }];
++  return STATUS_SUCCESS;
++}
++
+ static NTSTATUS
+ _MTLDevice_supportsFamily(void *obj) {
+   struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
+@@ -3310,6 +3324,7 @@ const void *__wine_unix_call_funcs[] = {
+     &_MTLDevice_newIndirectCommandBuffer,
+     &_MTLDevice_newLibraryWithSource,
+     &_MTLTexture_getBytes,
++    &_MetalDrawable_signalEventWhenPresented,
+ };
+ 
+ #ifndef DXMT_NATIVE
+@@ -3460,5 +3475,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
+     &_MTLDevice_newIndirectCommandBuffer,
+     &_MTLDevice_newLibraryWithSource,
+     &_MTLTexture_getBytes,
++    &_MetalDrawable_signalEventWhenPresented,
+ };
+ #endif
+diff --git a/src/winemetal/winemetal.h b/src/winemetal/winemetal.h
+index 97fffc7..7995b2d 100644
+--- a/src/winemetal/winemetal.h
++++ b/src/winemetal/winemetal.h
+@@ -1758,6 +1758,10 @@ WINEMETAL_API void DeveloperHUDProperties_remove(obj_handle_t obj, obj_handle_t
+ 
+ WINEMETAL_API obj_handle_t MetalDrawable_texture(obj_handle_t drawable);
+ 
++/* Sets shared_event to value when the drawable is presented, or dropped. Call it before presenting the drawable. */
++WINEMETAL_API void
++MetalDrawable_signalEventWhenPresented(obj_handle_t drawable, obj_handle_t shared_event, uint64_t value);
++
+ WINEMETAL_API obj_handle_t MetalLayer_nextDrawable(obj_handle_t layer);
+ 
+ WINEMETAL_API bool MTLDevice_supportsFXSpatialScaler(obj_handle_t device);
+diff --git a/src/winemetal/winemetal_thunks.c b/src/winemetal/winemetal_thunks.c
+index 42286c9..578b83a 100644
+--- a/src/winemetal/winemetal_thunks.c
++++ b/src/winemetal/winemetal_thunks.c
+@@ -1331,3 +1331,12 @@ MTLTexture_getBytes(
+   params.bytes_per_image = bytes_per_image;
+   UNIX_CALL(145, &params);
+ }
++
++WINEMETAL_API void
++MetalDrawable_signalEventWhenPresented(obj_handle_t drawable, obj_handle_t shared_event, uint64_t value) {
++  struct unixcall_generic_obj_obj_uint64_noret params;
++  params.handle = drawable;
++  params.arg0 = shared_event;
++  params.arg1 = value;
++  UNIX_CALL(146, &params);
++}
