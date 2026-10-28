@@ -34,7 +34,7 @@ mavrik's changes to DXMT, applied in order to DXMT's source at the pinned commit
 
 | Patch | Why mavrik needs it |
 |---|---|
-| `0001-frame-latency-to-presentation.patch` | Under vsync or a frame cap, DXMT counted a frame as done at GPU completion, so finished frames waiting in Core Animation's drawables added about 2.4 frames of input latency (mavrik's S214 meter). The frame latency limit now counts to presentation, as in DXVK and on Windows; vsync off is unchanged. Also DXGI's rules for `SetMaximumFrameLatency` and DXVK's `dxgi.maxFrameLatency`. Written by an AI agent, so not offered to DXMT as a pull request (DXMT refuses AI-written code); the finding goes to DXMT as an issue. Measured in mavrik's S215 lab against the same build without it: 2.44 frames less latency under vsync with one and three frames in flight, frame rate held. |
+| `0001-frame-latency-to-presentation.patch` | Under vsync or a frame cap, DXMT counted a frame as done at GPU completion, so finished frames waiting in Core Animation's drawables added about 2.4 frames of input latency (mavrik's S214 meter). The frame latency limit now counts to presentation, as in DXVK and on Windows; vsync off is unchanged. A presentation wait over 100 ms is given up and logged each time (at most once a second), then waits stop until a frame is presented again. Also DXGI's rules for `SetMaximumFrameLatency` and DXVK's `dxgi.maxFrameLatency`. Written by an AI agent, so not offered to DXMT as a pull request (DXMT refuses AI-written code); the finding goes to DXMT as an issue. Measured in mavrik's S215 lab against the same build without it: 2.44 frames less latency under vsync with one and three frames in flight, frame rate held. |
 
 ## DXMT's source in a release
 

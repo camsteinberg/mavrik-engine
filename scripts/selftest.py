@@ -303,6 +303,22 @@ def run(engine, work):
     case(results, "dxmt", "a build record naming a patch the recipe does not have", G.dxmt_check(bad, ctx)[0],
          r"built with patches")
 
+    # d3d11's log checks, through the gate's own probe runner on the real engine (no window, display driver off): a
+    # stand-in probe whose checks pass but whose output carries DXMT's presentation timeout line; and one whose output
+    # lacks DXMT's ordinary device line, as when DXMT's log goes somewhere the gate does not read.
+    for name, lines, expect in (
+            ("d3d11-timeout", [G.DXMT_LOG_LINE + " 0xb100", "warn:  Frame 7 " + G.PRESENT_TIMEOUT + " 100ms"],
+             re.escape(G.PRESENT_TIMEOUT)),
+            ("d3d11-nolog", ["info:  nothing from DXMT here"], re.escape(G.DXMT_LOG_LINE))):
+        exe = os.path.join(tmp, name, name + ".exe")
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        body = "".join('    puts("%s"); fflush(stdout);\n' % l.replace('"', '\\"') for l in lines)
+        open(exe + ".c", "w").write("#include <stdio.h>\nint main(void)\n{\n" + body
+                                    + '    puts("check\\tstand-in\\tok\\tran"); puts("done\\t0"); return 0;\n}\n')
+        subprocess.run([G.PE_COMPILERS["64"], "-O1", "-s", "-o", exe, exe + ".c"], check=True)
+        problems = G.probe_check(engine, [(exe, [])], forbid=[G.PRESENT_TIMEOUT], require=[G.DXMT_LOG_LINE])[0]
+        case(results, "d3d11", f"a stand-in probe printing {lines[-1]!r}", problems, expect)
+
     # d3d11: an engine clone without DXMT's Unix side (winemetal.so), where Direct3D 11 cannot reach Metal.
     if G.metal_device(ctx["work"]):
         bad = os.path.join(tmp, "no-winemetal-engine")

@@ -50,7 +50,8 @@ The gates:
   d3d11         a Windows program draws through Direct3D 11 on a visible window: DXMT's device,
                 60 frames presented into its Metal view, 120 more under vsync (SyncInterval 1) at 50
                 or more a second with no "not presented within" line from DXMT (patch 0001's 100 ms
-                valve), and a GPU readback; winemetal.so and
+                valve) while DXMT's log does reach the output ("Using feature level"), and a GPU
+                readback; winemetal.so and
                 winemac.so load from the engine. A machine with no Metal device (GitHub's Intel
                 runners are virtual machines without one) reports SKIP, never PASS
   playback      a Windows program decodes a movie (H.264 and AAC in MP4) in both halves through Media
@@ -794,16 +795,17 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
     return problems, f"{detail}; {time.time() - start:.0f} s", tail
 
 
-def run_probes(wine, probes, env, log, timeout=300, forbid=()):
+def run_probes(wine, probes, env, log, timeout=300, forbid=(), require=()):
     """Runs each (Windows program, arguments) with Wine. Returns (problems, the probes whose every check
-    passed, how many ran to the end): every "check" line must say ok, each must print "done", and no line
-    of its output may hold a text in forbid."""
+    passed, how many ran to the end): every "check" line must say ok, each must print "done", no line
+    of its output may hold a text in forbid, and some line must hold each text in require."""
     problems, probed, ran = [], [], 0
     for probe, args in probes:
         name = os.path.basename(probe)
         prompt, code, text = run_watched([wine, probe] + list(args), dict(env, WINEDEBUG="fixme-all"), log, timeout)
         lines = text.splitlines()
         problems += [f"{name}: {l.strip()}" for l in lines if any(f in l for f in forbid)]
+        problems += [f"{name}: no output line says \"{r}\"" for r in require if not any(r in l for l in lines)]
         checks = [l.split("\t") for l in lines if l.startswith("check\t")]
         problems += [f"{name}: {c[1]} failed ({c[3] if len(c) > 3 else '?'})" for c in checks if c[2:3] != ["ok"]]
         if any(l.startswith("done\t") for l in lines) and checks:
@@ -821,10 +823,11 @@ def no_crash_dialog(wine, env, log):
                  "/t", "REG_DWORD", "/d", "0", "/f"], env, log, 120)
 
 
-def probe_check(engine, probes, required=(), timeout=900, extra_env=None, draws=False, forbid=()):
+def probe_check(engine, probes, required=(), timeout=900, extra_env=None, draws=False, forbid=(), require=()):
     """A fresh prefix (wineboot --init), then each (Windows program, arguments) of probes, with
     extra_env added to Wine's environment. The Mac display driver is off, but for the probes
-    themselves when draws is True. A probe's output line holding a text in forbid is a problem. dyld lists
+    themselves when draws is True. A probe's output line holding a text in forbid is a problem, and so is
+    a text in require that no output line holds. dyld lists
     what every Wine process loads: nothing may come from outside the engine and macOS, and once every
     probe ran to the end, each of `required` (paths in the engine) must be among the loaded images.
     Returns (problems, the probes' results, the engine's loaded images). Ends everything the prefix
@@ -842,7 +845,8 @@ def probe_check(engine, probes, required=(), timeout=900, extra_env=None, draws=
             no_crash_dialog(wine, env, log)
             problems += settle(engine, env, "wineboot --init")
             if not problems:
-                p, probed, ran = run_probes(wine, probes, with_display(env) if draws else env, log, forbid=forbid)
+                p, probed, ran = run_probes(wine, probes, with_display(env) if draws else env, log, forbid=forbid,
+                                            require=require)
                 problems += p
         problems += end_prefix(engine, env)
         images = dyld_images(open(log, errors="replace").read())
@@ -1287,12 +1291,20 @@ def metal_device(work):
 
 # What DXMT logs when a frame waited for under vsync is not presented within 100 ms (dxmt/patches/0001).
 PRESENT_TIMEOUT = "not presented within"
+# A line DXMT's log always prints when a device is made (src/d3d11/d3d11.cpp): it shows DXMT's log reaches the
+# probe's output, so the absence of PRESENT_TIMEOUT means something.
+DXMT_LOG_LINE = "Using feature level"
+# Said beside a presentation timeout: a display that sleeps (or a locked screen) presents no frame either.
+PRESENT_TIMEOUT_HINT = ("; a sleeping display or a locked screen presents no frames too, so check the screen was "
+                        "awake before reading this as a broken engine")
 
 
 def d3d11_check(engine, ctx):
     probe = compile_pe_tool(ctx["work"], "d3d11probe", "64", ["d3d11", "dxgi", "uuid", "gdi32", "user32"])
     required = ["lib/wine/x86_64-unix/winemetal.so", "lib/wine/x86_64-unix/winemac.so"]
-    problems, probed, loaded = probe_check(engine, [(probe, [])], required, draws=True, forbid=[PRESENT_TIMEOUT])
+    problems, probed, loaded = probe_check(engine, [(probe, [])], required, draws=True, forbid=[PRESENT_TIMEOUT],
+                                           require=[DXMT_LOG_LINE])
+    problems = [p + PRESENT_TIMEOUT_HINT if PRESENT_TIMEOUT in p else p for p in problems]
     return problems, probed
 
 

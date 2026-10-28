@@ -88,7 +88,12 @@ fi
 echo "::group::DXMT $(pin dxmt-source version)"
 B="$WORK/dxmt-build" I="$WORK/dxmt-install" W="$WORK/dxmt-wine" SHIM="$WORK/dxmt-git"
 rm -rf "$SRC_ROOT" "$WORK/dxmt-src" "$B" "$I" "$W" "$SHIM"
-mkdir -p "$SRC_ROOT" "$W" "$SHIM"
+# /tmp is shared by every account: the folder must be new, this user's, private and not a link, and it goes when
+# this script ends, whatever happens (a second build would stop here rather than share it).
+mkdir -m 700 "$SRC_ROOT" || { echo "::error::$SRC_ROOT could not be made fresh (another build, or another account's)"; exit 1; }
+[ ! -L "$SRC_ROOT" ] && [ -O "$SRC_ROOT" ] || { echo "::error::$SRC_ROOT is a link or not this user's"; exit 1; }
+trap 'rm -rf "$SRC_ROOT"' EXIT
+mkdir -p "$W" "$SHIM"
 tar -xzf "$(src dxmt-source)" -C "$SRC_ROOT"
 D="$SRC_ROOT/$(pin dxmt-source root)"
 [ -f "$D/meson.build" ] || { echo "::error::no meson.build in the DXMT source at $D"; exit 1; }
