@@ -72,6 +72,22 @@ jobs:
           path: work/downloads
           key: ${{ steps.keys.outputs.downloads }}
 
+      - name: Restore DXMT's LLVM
+        id: llvm-cache
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: work/dxmt-llvm
+          key: ${{ steps.keys.outputs['dxmt-llvm'] }}
+
+      - name: Restore the DXMT build
+        id: dxmt-cache
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: work/dxmt-install
+          key: ${{ steps.keys.outputs.dxmt }}
+
       - name: Restore our Unix libraries
         id: deps-cache
         if: ${{ !inputs.fresh }}
@@ -96,7 +112,7 @@ jobs:
           key: ccache-${{ github.run_id }}
           restore-keys: ccache-
 
-      - name: Build (inputs, toolchain, sources and patches, Unix libraries, Wine)
+      - name: Build (inputs, toolchain, DXMT, sources and patches, Unix libraries, Wine)
         run: bash scripts/build.sh "$WORK" ${{ inputs.publish_release && '--release' || '' }}
 
       - name: Save downloads
@@ -105,6 +121,20 @@ jobs:
         with:
           path: work/downloads
           key: ${{ steps.keys.outputs.downloads }}
+
+      - name: Save DXMT's LLVM
+        if: ${{ always() && steps.llvm-cache.outputs.cache-hit != 'true' && hashFiles('work/dxmt-llvm/.stamp') != '' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: work/dxmt-llvm
+          key: ${{ steps.keys.outputs['dxmt-llvm'] }}
+
+      - name: Save the DXMT build
+        if: ${{ always() && steps.dxmt-cache.outputs.cache-hit != 'true' && hashFiles('work/dxmt-install/.stamp') != '' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: work/dxmt-install
+          key: ${{ steps.keys.outputs.dxmt }}
 
       - name: Save our Unix libraries
         if: ${{ always() && steps.deps-cache.outputs.cache-hit != 'true' && hashFiles('work/deps/.stamp') != '' }}

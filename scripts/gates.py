@@ -41,8 +41,16 @@ The gates:
                 (copyright lines, log lines, internal registry keys)
   buildpaths    no file carries the build machine's work or recipe folder (compiled-in paths, debug
                 maps, source paths)
+  dxmt          DXMT's seven files are the ones build-dxmt.sh made from the pinned source at the pinned
+                commit with this repository's dxmt/patches (build-info.json's record, file by file);
+                d3d11.dll carries the version string <commit>-mavrik.<patches>; winemetal.dll exports the
+                pinned number of names, with patch 0001's MetalDrawable_signalEventWhenPresented, which
+                d3d11.dll imports; winemetal.so's macOS target is the pinned one; none of the seven files
+                names the work folder, the recipe or the home folder
   d3d11         a Windows program draws through Direct3D 11 on a visible window: DXMT's device,
-                60 frames presented into its Metal view, and a GPU readback; winemetal.so and
+                60 frames presented into its Metal view, 120 more under vsync (SyncInterval 1) at 50
+                or more a second with no "not presented within" line from DXMT (patch 0001's 100 ms
+                valve), and a GPU readback; winemetal.so and
                 winemac.so load from the engine. A machine with no Metal device (GitHub's Intel
                 runners are virtual machines without one) reports SKIP, never PASS
   playback      a Windows program decodes a movie (H.264 and AAC in MP4) in both halves through Media
@@ -95,7 +103,7 @@ import tempfile
 import time
 import unicodedata
 
-from assemble import NOT_CARRIED, OPENED_BY
+from assemble import NOT_CARRIED, OPENED_BY, sha256 as sha256_file
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -336,12 +344,102 @@ def winemac_check(winemac_so, cx_source, dxmt_source):
     return problems, notes
 
 
+def dxmt_winemetal_source(ctx):
+    """The winemetal_unix.c DXMT was built from, patches applied (build-dxmt.sh keeps it)."""
+    return os.path.join(ctx["work"], "dxmt-install", ".build", "winemetal_unix.c")
+
+
 def gate_winemac(engine, ctx):
     so = os.path.join(engine, "lib", "wine", "x86_64-unix", "winemac.so")
     cx = os.path.join(ctx["work"], "wine-src", "dlls", "winemac.drv", "d3dmetal.c")
-    problems, notes = winemac_check(so, cx, ctx["paths"]["dxmt-winemetal-source"])
-    dxmt = ctx["inputs"]["inputs"]["dxmt-winemetal-source"]["version"]
+    problems, notes = winemac_check(so, cx, dxmt_winemetal_source(ctx))
+    dxmt = ctx["inputs"]["inputs"]["dxmt-source"]["version"]
     return not problems, "; ".join([f"_macdrv_functions exported, layout matches DXMT {dxmt}"] + notes) if not problems else "; ".join(notes), problems
+
+
+# ---------------------------------------------------------------- dxmt
+
+# The export patch 0001 adds to winemetal.dll, which d3d11.dll must import.
+DXMT_PRESENTED_EXPORT = "MetalDrawable_signalEventWhenPresented"
+
+
+def pe_exports(path):
+    """The names a PE file exports (mingw objdump's name pointer table)."""
+    text = out(["x86_64-w64-mingw32-objdump", "-p", path]).stdout
+    m = re.search(r"\[Ordinal/Name Pointer\] Table.*?\n(.*?)(?:\n\s*\n|\Z)", text, re.S)
+    return re.findall(r"^\s*\[\s*\d+\]\s+\+base\[\s*\d+\]\s+[0-9a-f]+\s+(\S+)\s*$", m.group(1), re.M) if m else []
+
+
+def pe_imports(path, dll):
+    """The names a PE file imports from dll."""
+    text = out(["x86_64-w64-mingw32-objdump", "-p", path]).stdout
+    m = re.search(r"DLL Name: " + re.escape(dll) + r"\n.*?\n(.*?)(?:\n\s*\n|\Z)", text, re.S | re.I)
+    return re.findall(r"^\s*[0-9a-f]+\s+\S+\s+[0-9a-f]+\s+(\S+)", m.group(1), re.M) if m else []
+
+
+def macho_minos(path):
+    m = re.search(r"cmd LC_BUILD_VERSION.*?minos (\S+)", out(["otool", "-l", path]).stdout, re.S)
+    return m.group(1) if m else None
+
+
+def dxmt_check(engine, ctx):
+    """(problems, notes): the engine's DXMT files are the ones build-dxmt.sh made from the pinned source and
+    this repository's patches, with the version string, the export patch 0001 adds, the macOS target and
+    no build path."""
+    pin = ctx["inputs"]["inputs"]["dxmt-source"]
+    problems = []
+    try:
+        rec = json.load(open(os.path.join(engine, "build-info.json")))["dxmt"]
+    except (OSError, KeyError, ValueError) as e:
+        return [f"build-info.json has no DXMT record ({e})"], []
+    if rec.get("commit") != pin["commit"]:
+        problems.append(f"built from DXMT {rec.get('commit')}, pinned {pin['commit']}")
+    pdir = os.path.join(REPO, "dxmt", "patches")
+    have = [{"file": p, "sha256": sha256_file(os.path.join(pdir, p))} for p in sorted(os.listdir(pdir)) if p.endswith(".patch")]
+    if rec.get("patches") != have:
+        problems.append(f"built with patches {rec.get('patches')}, the recipe has {have}")
+    lib = os.path.join(engine, "lib", "wine")
+    for f in pin["files"]:
+        path = os.path.join(lib, f)
+        if not os.path.isfile(path):
+            problems.append(f"lib/wine/{f} is missing")
+        elif sha256_file(path) != rec.get("files", {}).get(f):
+            problems.append(f"lib/wine/{f} is not the file build-dxmt.sh made")
+    version = f"{pin['commit'][:10]}-mavrik.{len(have)}"
+    if rec.get("version_string") != version:
+        problems.append(f"version string {rec.get('version_string')}, expected {version}")
+    d3d11 = os.path.join(lib, "x86_64-windows", "d3d11.dll")
+    if os.path.isfile(d3d11) and version.encode() not in open(d3d11, "rb").read():
+        problems.append(f"d3d11.dll does not carry the version string {version}")
+    winemetal = os.path.join(lib, "x86_64-windows", "winemetal.dll")
+    exports = pe_exports(winemetal) if os.path.isfile(winemetal) else []
+    if len(exports) != pin["winemetal_exports"] or DXMT_PRESENTED_EXPORT not in exports:
+        problems.append(f"winemetal.dll exports {len(exports)} names "
+                        f"({'with' if DXMT_PRESENTED_EXPORT in exports else 'without'} {DXMT_PRESENTED_EXPORT}), "
+                        f"pinned {pin['winemetal_exports']} with it")
+    if os.path.isfile(d3d11) and DXMT_PRESENTED_EXPORT not in pe_imports(d3d11, "winemetal.dll"):
+        problems.append(f"d3d11.dll does not import {DXMT_PRESENTED_EXPORT} from winemetal.dll")
+    so = os.path.join(lib, "x86_64-unix", "winemetal.so")
+    minos = macho_minos(so) if os.path.isfile(so) else None
+    if minos != pin["deployment_target"]:
+        problems.append(f"winemetal.so needs macOS {minos}, pinned {pin['deployment_target']}")
+    needles = build_paths(ctx) + [os.path.expanduser("~")]
+    for f in pin["files"]:
+        path = os.path.join(lib, f)
+        if os.path.isfile(path):
+            data = open(path, "rb").read()
+            hits = [n for n in needles if n.encode() in data]
+            if hits:
+                problems.append(f"lib/wine/{f} contains {', '.join(hits)}")
+    notes = [f"DXMT {pin['commit'][:10]} from its pinned source with {', '.join(p['file'] for p in have)}",
+             f"version {version} in d3d11.dll", f"winemetal.dll exports {len(exports)} names with {DXMT_PRESENTED_EXPORT}, "
+             f"which d3d11.dll imports", f"winemetal.so needs macOS {minos}", "no build or home path in its 7 files"]
+    return problems, notes
+
+
+def gate_dxmt(engine, ctx):
+    problems, notes = dxmt_check(engine, ctx)
+    return not problems, "; ".join(notes), problems
 
 
 def addons_versions(addons_c):
@@ -696,14 +794,16 @@ def wineboot_check(engine, gecko_version, timeout=900, probes=(), required=()):
     return problems, f"{detail}; {time.time() - start:.0f} s", tail
 
 
-def run_probes(wine, probes, env, log, timeout=300):
+def run_probes(wine, probes, env, log, timeout=300, forbid=()):
     """Runs each (Windows program, arguments) with Wine. Returns (problems, the probes whose every check
-    passed, how many ran to the end): every "check" line must say ok, and each must print "done"."""
+    passed, how many ran to the end): every "check" line must say ok, each must print "done", and no line
+    of its output may hold a text in forbid."""
     problems, probed, ran = [], [], 0
     for probe, args in probes:
         name = os.path.basename(probe)
         prompt, code, text = run_watched([wine, probe] + list(args), dict(env, WINEDEBUG="fixme-all"), log, timeout)
         lines = text.splitlines()
+        problems += [f"{name}: {l.strip()}" for l in lines if any(f in l for f in forbid)]
         checks = [l.split("\t") for l in lines if l.startswith("check\t")]
         problems += [f"{name}: {c[1]} failed ({c[3] if len(c) > 3 else '?'})" for c in checks if c[2:3] != ["ok"]]
         if any(l.startswith("done\t") for l in lines) and checks:
@@ -721,10 +821,10 @@ def no_crash_dialog(wine, env, log):
                  "/t", "REG_DWORD", "/d", "0", "/f"], env, log, 120)
 
 
-def probe_check(engine, probes, required=(), timeout=900, extra_env=None, draws=False):
+def probe_check(engine, probes, required=(), timeout=900, extra_env=None, draws=False, forbid=()):
     """A fresh prefix (wineboot --init), then each (Windows program, arguments) of probes, with
     extra_env added to Wine's environment. The Mac display driver is off, but for the probes
-    themselves when draws is True. dyld lists
+    themselves when draws is True. A probe's output line holding a text in forbid is a problem. dyld lists
     what every Wine process loads: nothing may come from outside the engine and macOS, and once every
     probe ran to the end, each of `required` (paths in the engine) must be among the loaded images.
     Returns (problems, the probes' results, the engine's loaded images). Ends everything the prefix
@@ -742,7 +842,7 @@ def probe_check(engine, probes, required=(), timeout=900, extra_env=None, draws=
             no_crash_dialog(wine, env, log)
             problems += settle(engine, env, "wineboot --init")
             if not problems:
-                p, probed, ran = run_probes(wine, probes, with_display(env) if draws else env, log)
+                p, probed, ran = run_probes(wine, probes, with_display(env) if draws else env, log, forbid=forbid)
                 problems += p
         problems += end_prefix(engine, env)
         images = dyld_images(open(log, errors="replace").read())
@@ -1185,10 +1285,14 @@ def metal_device(work):
     return name if r.returncode == 0 and name else None
 
 
+# What DXMT logs when a frame waited for under vsync is not presented within 100 ms (dxmt/patches/0001).
+PRESENT_TIMEOUT = "not presented within"
+
+
 def d3d11_check(engine, ctx):
     probe = compile_pe_tool(ctx["work"], "d3d11probe", "64", ["d3d11", "dxgi", "uuid", "gdi32", "user32"])
     required = ["lib/wine/x86_64-unix/winemetal.so", "lib/wine/x86_64-unix/winemac.so"]
-    problems, probed, loaded = probe_check(engine, [(probe, [])], required, draws=True)
+    problems, probed, loaded = probe_check(engine, [(probe, [])], required, draws=True, forbid=[PRESENT_TIMEOUT])
     return problems, probed
 
 
@@ -1483,7 +1587,7 @@ def gate_dockname(engine, ctx):
 GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", gate_pe32),
          ("winemac", gate_winemac), ("addons", gate_addons), ("wine", gate_wine), ("fonts", gate_fonts),
          ("media", gate_media), ("licences", gate_licences), ("nogpl", gate_nogpl),
-         ("identity", gate_identity), ("buildpaths", gate_buildpaths), ("d3d11", gate_d3d11),
+         ("identity", gate_identity), ("buildpaths", gate_buildpaths), ("dxmt", gate_dxmt), ("d3d11", gate_d3d11),
          ("playback", gate_playback), ("steamredirect", gate_steamredirect), ("dockname", gate_dockname)]
 
 

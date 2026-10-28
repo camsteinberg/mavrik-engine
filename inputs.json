@@ -2,7 +2,7 @@
   "comment": "Every input the build downloads, pinned by size and SHA-256. A release build refuses any entry whose size or sha256 is null. A test build downloads it, prints the values to pin and goes on.",
   "engine": {
     "name": "mavrik-engine",
-    "revision": 7,
+    "revision": 8,
     "macos_deployment_target": "14.0"
   },
   "toolchain": {
@@ -118,26 +118,105 @@
       "sha256": "f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e",
       "licence": "Apache-2.0"
     },
-    "dxmt": {
-      "role": "runtime",
+    "dxmt-source": {
+      "role": "source",
       "component": "dxmt",
-      "version": "main-a148782d43",
-      "commit": "a148782d431249405acdb1531dbb0c7e737bbece",
-      "root": "a148782d431249405acdb1531dbb0c7e737bbece",
-      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-a148782d43/dxmt-a148782d431249405acdb1531dbb0c7e737bbece.tar.gz",
-      "size": 35037374,
-      "sha256": "37c33b07a3dc6dc1703736ffe462ca2673612985e3da5fc3bcffd918de1de120",
+      "version": "main-3b252590cb",
+      "commit": "3b252590cb0290e36fca6f088b5255b871d2d95a",
+      "root": "dxmt-3b252590cb0290e36fca6f088b5255b871d2d95a",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-3b252590cb/dxmt-3b252590cb-source-with-submodules.tar.gz",
+      "size": 8129614,
+      "sha256": "b2bbd615612ba8e83f189aebe1d6b15a8bae565b1e105e433091632393ebc21a",
       "licence": "LGPL-2.1-or-later",
-      "note": "DXMT's own CI package for main at a148782d43 (2026-10-23): GitHub Actions run 39904585849 of 3Shain/dxmt, artifact 12481130812 (its zip's sha256 7dbf1e1e5aec3f01af85d7d2c3e4634b4f6e68dc432333292eaba829e2629d94, as GitHub records it), the .tar.gz inside unchanged. DXMT has no release after v0.80, and CI artifacts need a sign-in and expire (this one on 2027-01-21), so the package is mirrored on this repository's releases. Its folder is named after the commit (root).",
-      "files": {
-        "x86_64-windows/d3d11.dll": 5530513,
-        "x86_64-windows/dxgi.dll": 1912783,
-        "x86_64-windows/d3d10core.dll": 1542829,
-        "x86_64-windows/winemetal.dll": 74373,
-        "x86_64-windows/nvapi64.dll": 1945258,
-        "x86_64-windows/nvngx.dll": 1587111,
-        "x86_64-unix/winemetal.so": 32017288
-      }
+      "submodules": {
+        "external/nvapi": "d08488fcc82eef313b0464db37d2955709691e94",
+        "include/native/directx": "9df86f2341616ef1888ae59919feaa6d4fad693d"
+      },
+      "deployment_target": "15.0",
+      "meson_options": [
+        "--cross-file",
+        "build-win64.txt",
+        "-Denable_nvapi=true",
+        "-Denable_nvngx=true",
+        "--buildtype",
+        "release",
+        "--strip"
+      ],
+      "files": [
+        "x86_64-windows/d3d11.dll",
+        "x86_64-windows/dxgi.dll",
+        "x86_64-windows/d3d10core.dll",
+        "x86_64-windows/winemetal.dll",
+        "x86_64-windows/nvapi64.dll",
+        "x86_64-windows/nvngx.dll",
+        "x86_64-unix/winemetal.so"
+      ],
+      "winemetal_exports": 146,
+      "note": "DXMT's main at 3b252590cb (2026-10-27), built from source by scripts/build-dxmt.sh with this repository's patches in dxmt/patches, as DXMT's own CI job build-gcc-release-x86_64-windows-cross builds it (meson 1.10.0, LLVM 15.0.7, 3Shain's Wine 8.16, mingw-w64 gcc), with the Xcode in toolchain and the CI's macOS 15.0 target (deployment_target). The archive is git archive of the commit with its two submodules filled at the commits it records (submodules), one folder named after the commit, gzip -n (dxmt/make-source.sh gives the same bytes); GitHub's tarball of a commit leaves the submodules empty. Its unpatched file winemetal_unix.c is what the winemac gate reads. winemetal_exports: the names the built winemetal.dll exports (145 upstream at this commit, plus MetalDrawable_signalEventWhenPresented from patch 0001)."
+    },
+    "dxmt-llvm-source": {
+      "role": "build",
+      "component": "dxmt",
+      "version": "15.0.7",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-toolchain/llvm-15.0.7.src.tar.xz",
+      "size": 52935892,
+      "sha256": "4ad8b2cc8003c86d0078d15d987d84e3a739f24aae9033865c027abae93ee7a4",
+      "licence": "Apache-2.0 WITH LLVM-exception",
+      "cmake_options": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
+        "-DLLVM_HOST_TRIPLE=x86_64-apple-darwin",
+        "-DLLVM_ENABLE_ASSERTIONS=On",
+        "-DLLVM_ENABLE_ZSTD=Off",
+        "-DLLVM_TARGETS_TO_BUILD=",
+        "-DLLVM_BUILD_TOOLS=Off",
+        "-DLLVM_INCLUDE_BENCHMARKS=Off",
+        "-DBUG_REPORT_URL=https://github.com/camsteinberg/mavrik-engine/issues",
+        "-DPACKAGE_VENDOR=DXMT",
+        "-DLLVM_VERSION_PRINTER_SHOW_HOST_TARGET_INFO=Off"
+      ],
+      "cxx_flags": "-D_LIBCPP_KEEP_TRANSITIVE_INCLUDES_LLVM23",
+      "note": "LLVM's own source tarball for DXMT's LLVM_VERSION llvmorg-15.0.7 (https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/llvm-15.0.7.src.tar.xz), mirrored. DXMT's shader converter links it statically into winemetal.so. Built with the CI's cmake options (cmake_options, cxx_flags), except the crash report address, which names this repository, since this is mavrik's build."
+    },
+    "dxmt-llvm-cmake": {
+      "role": "build",
+      "component": "dxmt",
+      "version": "15.0.7",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-toolchain/cmake-15.0.7.src.tar.xz",
+      "size": 6972,
+      "sha256": "8986f29b634fdaa9862eedda78513969fe9788301c9f2d938f4c10a3e7a3e7ea",
+      "licence": "Apache-2.0 WITH LLVM-exception",
+      "note": "LLVM 15's shared CMake modules (https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/cmake-15.0.7.src.tar.xz), mirrored; a standalone llvm source tree needs them beside it as cmake/."
+    },
+    "dxmt-wine": {
+      "role": "build",
+      "component": "dxmt",
+      "version": "8.16-3shain",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-toolchain/wine-v8.16-3shain.tar.gz",
+      "size": 230434672,
+      "sha256": "289c7f19e270a3d3d0a6fdb07691b176c70a0795f6811e5255cba82425de4f10",
+      "licence": "LGPL-2.1-or-later",
+      "note": "3Shain's prebuilt Wine 8.16 (https://github.com/3Shain/wine/releases/download/v8.16-3shain/wine.tar.gz, DXMT's CI WINE_URL), mirrored. DXMT links against it: winebuild and the import libraries for the Windows DLLs, winecrt0 (statically linked into winemetal.dll; its source is release_sources' dxmt-winecrt0-source), and ntdll.so and winemac.so, which winemetal.so links by name and finds in the engine at run time."
+    },
+    "meson": {
+      "role": "tool",
+      "component": "meson",
+      "version": "1.10.0",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-toolchain/meson-1.10.0-py3-none-any.whl",
+      "size": 1057029,
+      "sha256": "4b27aafce281e652dcb437b28007457411245d975c48b5db3a797d3e93ae1585",
+      "licence": "Apache-2.0 (build tool, not shipped)",
+      "note": "The meson DXMT's CI installs (pip3 install meson==1.10.0), PyPI's wheel, mirrored; build-dxmt.sh installs it into the build's own venv."
+    },
+    "ninja": {
+      "role": "tool",
+      "component": "ninja",
+      "version": "1.13.2",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-toolchain/ninja-1.13.2-py3-none-macosx_10_9_universal2.whl",
+      "size": 306611,
+      "sha256": "fd82e26c0706ad4ab88e5fdd26f3fab0a987a90f810160f6c322e752c6af298b",
+      "licence": "Apache-2.0 (build tool, not shipped)",
+      "note": "PyPI's ninja wheel, mirrored; meson and LLVM's CMake build run it from the build's own venv."
     },
     "liberation-fonts": {
       "role": "runtime",
@@ -209,11 +288,12 @@
     "freetype": {
       "role": "source",
       "component": "freetype",
-      "version": "2.14.3",
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "size": 2670220,
-      "sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
-      "licence": "FTL"
+      "version": "2.15.0",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "size": 2716928,
+      "sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
+      "licence": "FTL",
+      "note": "FreeType 2.15.0 (2026-10-12). Its sha256 is the one Homebrew's freetype formula pins for the same URL. Built with Apple's new HVF driver off (build-deps.sh), so the library links nothing new."
     },
     "sdl3": {
       "role": "source",
@@ -247,45 +327,35 @@
     "ccache": {
       "role": "tool",
       "component": "ccache",
-      "version": "4.14.1",
-      "url": "https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-darwin.tar.gz",
-      "size": 2217445,
-      "sha256": "c279fa81e2e806b4d9e64d4a06cb569a84ef54151feef796e5d4f4e95a464563",
+      "version": "4.14.2",
+      "url": "https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-darwin.tar.gz",
+      "size": 2218731,
+      "sha256": "cf240009630b605b775c7c5c7b7105a3b196c79f31af322c1557969aa28003fc",
       "licence": "GPL-3.0-or-later (build tool, not shipped)"
-    },
-    "dxmt-winemetal-source": {
-      "role": "check",
-      "component": "dxmt",
-      "version": "main-a148782d43",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/src/winemetal/unix/winemetal_unix.c",
-      "size": 135617,
-      "sha256": "784a4ae87ecd2f164bc893cec43452f91de830ec7b5c02bb9c8d568be0dfb769",
-      "licence": "LGPL-2.1-or-later",
-      "note": "read by the winemac gate: the macdrv_functions layout DXMT at a148782d43 expects, and its fallback symbol names"
     }
   },
   "licence_texts": {
     "dxmt-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/LICENSE",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/LICENSE",
       "size": 782,
       "sha256": "b87c35aef7b2cf14de854118ca55ce5c4b284c85b5f002421fb8d46d868c2d17"
     },
     "dxmt-copying-lib": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/COPYING.LIB",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/COPYING.LIB",
       "size": 26434,
       "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
     },
     "dxmt-license-old": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/LICENSE.OLD",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/LICENSE.OLD",
       "size": 1272,
       "sha256": "3422f02eb18f1e598731b586832afab8b322badd61d45a4b95674ceec4b6108d"
     },
     "dxmt-dxvk-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/a148782d431249405acdb1531dbb0c7e737bbece/src/util/dxvk.LICENSE",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/src/util/dxvk.LICENSE",
       "size": 970,
       "sha256": "03ca4af84f5cd28cef3ed3f1ef4d17996992d35ccdbe82b29cc020ca02c16f3d"
     },
@@ -521,15 +591,6 @@
       "size": null,
       "sha256": null,
       "note": "not on GitHub: pinned once it is downloaded from this address"
-    },
-    "dxmt-source": {
-      "component": "dxmt",
-      "version": "main-a148782d43",
-      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/11.0-cx26.3.0-r7/dxmt-a148782d43-source-with-submodules.tar.gz",
-      "file": "dxmt-a148782d43-source-with-submodules.tar.gz",
-      "size": 8123126,
-      "sha256": "60f8d81d92ef5e1246dc9388424cc87e17c9910daf0427f9202671ab62b49270",
-      "note": "DXMT's complete source at the commit its package was built from: git archive of a148782d43 with its two submodules filled (external/nvapi at d08488fcc8, include/native/directx at 9df86f2341), one folder named after the commit, gzip -n (dxmt/make-source.sh gives the same bytes). GitHub's tarball of the commit (795624 bytes, sha256 ed650f5058c44ba1abb30ad7fb8bdc3f6cb9e44170d45136c6909569ddc3265d, on the r7 release as dxmt-a148782d43.tar.gz) leaves both submodules empty."
     },
     "dxmt-winecrt0-source": {
       "component": "dxmt",

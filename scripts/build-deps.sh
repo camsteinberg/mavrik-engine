@@ -90,8 +90,13 @@ fi
 if want freetype; then
 echo "::group::freetype"
 d="$(unpack freetype)"
+# FreeType 2.15's configure turns on Apple's HVF driver whenever the SDK has hvf/Scaler.h, which links
+# /usr/lib/libhvf.dylib. Wine reads no HVF fonts, so it stays off and the library links nothing new.
 ( cd "$d" && x86 ./configure "${common[@]}" --without-harfbuzz --without-png --without-brotli \
-    --with-zlib=yes --with-bzip2=yes && x86 make -j"$JOBS" && x86 make install )
+    --with-zlib=yes --with-bzip2=yes ac_cv_header_hvf_Scaler_h=no && x86 make -j"$JOBS" && x86 make install )
+if otool -L "$PREFIX/lib/libfreetype.6.dylib" | grep -q libhvf; then
+    echo "::error::freetype links libhvf"; exit 1
+fi
 echo "::endgroup::"
 fi
 

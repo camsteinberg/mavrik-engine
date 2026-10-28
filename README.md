@@ -34,9 +34,12 @@ build refuses any input without a pinned hash.
   unpacked into `share/wine`, so a new Windows folder never asks to download them. Wine Mono's
   source archive is an input too: the notices of every project inside Wine Mono come from it.
 - **MoltenVK**: Vulkan on Metal, from Khronos' own release.
-- **DXMT** (main at a148782d43, 2026-10-23; no release has followed v0.80): Direct3D 10 and 11 on
-  Metal, from DXMT's own CI package for that commit, mirrored on this repository's releases because
-  CI packages expire. Its 64-bit files go into Wine's own folders, the way mavrik has tested them.
+- **DXMT** (main at 3b252590cb, 2026-10-27; no release has followed v0.80): Direct3D 10 and 11 on
+  Metal, built here from its source with this repository's patches in [`dxmt/patches/`](dxmt/README.md)
+  (`scripts/build-dxmt.sh`, as DXMT's own CI job builds it: LLVM 15.0.7, 3Shain's Wine 8.16, meson and
+  mingw-w64, every input pinned and mirrored on this repository's releases). Patch 0001 counts DXMT's
+  frame latency to presentation under vsync, as DXVK and Windows do. Its 64-bit files go into Wine's
+  own folders, the way mavrik has tested them.
 - **Media**: GStreamer and FFmpeg from GStreamer's official macOS packages, LGPL parts only, with no
   GPL file. They sit inside the engine, so the engine never uses a GStreamer.framework installed on
   the Mac.
@@ -100,18 +103,19 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
   (patches 0013, Wine merge request 11880, and 0014, this repository's follow-up to it). In Mission
-  Control and App Exposé, which leave the game the active app, a cursor clip lets the pointer go,
-  as Wine's older event-tap clipping already did, and the clip and the hidden cursor come back at the
-  next mouse move over the game (patch 0015).
+  Control, App Exposé and Show Desktop, which leave the game the active app, a cursor clip lets the
+  pointer go: while a game clips, the Mac driver reads the window list every 100 ms for the Dock's
+  full-display window, lifts the clip while it shows, and puts the clip and the hidden cursor back when
+  it goes (patch 0015).
 - **A per-launch DLL folder**: `WINEDLLPATH_PREPEND` names folders searched before the engine's own
   builtins (patch 0018, MacPorts' and Highball's), so a launcher can put another graphics layer, such
   as Apple's D3DMetal, in front of DXMT for one game.
-- **Fixes from Highball's engine** (patches 0019 to 0032, each with its own header): the fiber and
+- **Fixes from Highball's engine** (patches 0019 to 0033, each with its own header): the fiber and
   error-code slots macOS shares with Windows code (fiber games, Unity's error codes), Unity and
   Unreal videos under DXMT, old modules no longer turning data execution prevention off for a whole
   process under Rosetta, missing GetIntegratedDisplaySize, a process's memory figures, Keychain
-  credentials, Retina screen sizes, OpenGL ES 2 calls, spatial audio channel order, app packages, and
-  UTC+3 time zone names.
+  credentials, Retina screen sizes, OpenGL ES 2 calls, spatial audio channel order, app packages,
+  UTC+3 time zone names, and DLLs kept in a program's `<program>.exe.local` folder.
 - **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
   then runs a 32-bit program in the process it starts, like a 64-bit one, in new WoW64 mode; the
   engine has no 32-bit Unix side. With `WINEARCH` unset or `win64`, Wine relaunches each 32-bit
@@ -165,9 +169,15 @@ property the case breaks):
   Wine's files names CrossOver or CodeWeavers, except a reviewed list of names no player sees
   (copyright lines, log lines, internal registry keys), each with its reason, in `gates.py`.
 - **buildpaths**: no file in the engine contains the build's work folder or the recipe's folder.
+- **dxmt**: DXMT's seven files are the ones `build-dxmt.sh` made from the pinned source and this
+  repository's DXMT patches (the build record, file by file); `d3d11.dll` carries the version string
+  `<commit>-mavrik.<patches>`; `winemetal.dll` exports the pinned number of names, with patch 0001's
+  `MetalDrawable_signalEventWhenPresented`, which `d3d11.dll` imports; `winemetal.so` needs macOS 15.0;
+  none of the seven names the work folder, the recipe or the home folder.
 - **d3d11**: a small Windows program ([`tools/d3d11probe.c`](tools/d3d11probe.c)) draws through
   Direct3D 11 on a visible window, as a game does: DXMT's device, 60 frames presented into its Metal
-  view, and a texture read back from the GPU. DXMT's `winemetal.so` and the Mac driver load from the
+  view, 120 more under vsync at 50 or more a second with no presentation wait given up (DXMT patch
+  0001), and a texture read back from the GPU. DXMT's `winemetal.so` and the Mac driver load from the
   engine. A machine with no Metal device cannot run DXMT, and the gate reports SKIP there, never
   PASS. GitHub's Intel runners are virtual machines that may have none.
 - **playback**: a small Windows program ([`tools/mediaprobe.c`](tools/mediaprobe.c)) decodes a
@@ -268,7 +278,8 @@ results and the source of every LGPL and MPL part:
 
 - Wine (the CrossOver source archive, with this repository's patches in the recipe), GnuTLS,
   Nettle and GMP, Wine Mono and Wine Gecko;
-- DXMT, complete with its submodules (GitHub's tarball of a commit leaves them empty), and the source
+- DXMT, complete with its submodules (GitHub's tarball of a commit leaves them empty), with this
+  repository's DXMT patches in the recipe, and the source
   of Wine's start-up code its `winemetal.dll` carries (winecrt0 and its headers, from 3Shain's Wine 8.16;
   `dxmt/README.md`);
 - for the media component, the exact tarballs GStreamer's build recipes (cerbero 1.28.8) built it

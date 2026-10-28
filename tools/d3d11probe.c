@@ -5,6 +5,9 @@
  *   device      D3D11CreateDeviceAndSwapChain on a visible window: a hardware device at feature
  *               level 11_0 or better, and its adapter's name
  *   present     60 frames cleared and presented to the window's swap chain (the Metal view)
+ *   vsync       120 more frames presented with SyncInterval 1, timed: at least 50 per second. Under vsync
+ *               DXMT waits for each frame's presentation (dxmt/patches/0001), and a wait that never ends
+ *               is given up after 100 ms, so a presentation that never reports drops far below that
  *   readback    a render target cleared to a known colour, copied to a staging texture and read on
  *               the CPU: the GPU really ran the commands
  *
@@ -32,6 +35,34 @@ static void pump(void)
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+}
+
+static HRESULT present_frames(IDXGISwapChain *swap, ID3D11Device *dev, ID3D11DeviceContext *ctx, int count,
+                              int *presented)
+{
+    static const float colours[2][4] = {{0.1f, 0.4f, 0.8f, 1.0f}, {0.8f, 0.4f, 0.1f, 1.0f}};
+    HRESULT hr = S_OK;
+    int i;
+
+    for (i = 0; i < count; i++)
+    {
+        ID3D11Texture2D *back = NULL;
+        ID3D11RenderTargetView *rtv = NULL;
+        hr = IDXGISwapChain_GetBuffer(swap, 0, &IID_ID3D11Texture2D, (void **)&back);
+        if (SUCCEEDED(hr)) hr = ID3D11Device_CreateRenderTargetView(dev, (ID3D11Resource *)back, NULL, &rtv);
+        if (SUCCEEDED(hr))
+        {
+            ID3D11DeviceContext_OMSetRenderTargets(ctx, 1, &rtv, NULL);
+            ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, colours[i & 1]);
+            hr = IDXGISwapChain_Present(swap, 1, 0);
+        }
+        if (rtv) ID3D11RenderTargetView_Release(rtv);
+        if (back) ID3D11Texture2D_Release(back);
+        if (FAILED(hr)) break;
+        (*presented)++;
+        pump();
+    }
+    return hr;
 }
 
 static void readback(ID3D11Device *dev, ID3D11DeviceContext *ctx)
@@ -88,7 +119,6 @@ static void readback(ID3D11Device *dev, ID3D11DeviceContext *ctx)
 int main(void)
 {
     static const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
-    static const float colours[2][4] = {{0.1f, 0.4f, 0.8f, 1.0f}, {0.8f, 0.4f, 0.1f, 1.0f}};
     WNDCLASSW wc = {0};
     DXGI_SWAP_CHAIN_DESC sd = {0};
     IDXGISwapChain *swap = NULL;
@@ -98,7 +128,7 @@ int main(void)
     char detail[256];
     HWND hwnd;
     HRESULT hr;
-    int i, presented = 0;
+    int presented = 0;
 
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = GetModuleHandleW(NULL);
@@ -140,29 +170,31 @@ int main(void)
         snprintf(detail, sizeof(detail), "feature level 0x%x on \"%s\"", level, name);
         report("device", level >= D3D_FEATURE_LEVEL_11_0, detail);
 
-        for (i = 0; i < 60; i++)
-        {
-            ID3D11Texture2D *back = NULL;
-            ID3D11RenderTargetView *rtv = NULL;
-            hr = IDXGISwapChain_GetBuffer(swap, 0, &IID_ID3D11Texture2D, (void **)&back);
-            if (SUCCEEDED(hr)) hr = ID3D11Device_CreateRenderTargetView(dev, (ID3D11Resource *)back, NULL, &rtv);
-            if (SUCCEEDED(hr))
-            {
-                ID3D11DeviceContext_OMSetRenderTargets(ctx, 1, &rtv, NULL);
-                ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, colours[i & 1]);
-                hr = IDXGISwapChain_Present(swap, 1, 0);
-            }
-            if (rtv) ID3D11RenderTargetView_Release(rtv);
-            if (back) ID3D11Texture2D_Release(back);
-            if (FAILED(hr)) break;
-            presented++;
-            pump();
-        }
+        hr = present_frames(swap, dev, ctx, 60, &presented);
         if (FAILED(hr))
             snprintf(detail, sizeof(detail), "%d of 60 frames presented, then 0x%08lx", presented, (unsigned long)hr);
         else
             snprintf(detail, sizeof(detail), "%d of 60 frames presented", presented);
         report("present", presented == 60, detail);
+
+        if (SUCCEEDED(hr))
+        {
+            LARGE_INTEGER freq, start, end;
+            double ms, fps;
+            presented = 0;
+            QueryPerformanceFrequency(&freq);
+            QueryPerformanceCounter(&start);
+            hr = present_frames(swap, dev, ctx, 120, &presented);
+            QueryPerformanceCounter(&end);
+            ms = (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart;
+            fps = ms > 0 ? presented * 1000.0 / ms : 0;
+            if (FAILED(hr))
+                snprintf(detail, sizeof(detail), "%d of 120 frames presented, then 0x%08lx", presented, (unsigned long)hr);
+            else
+                snprintf(detail, sizeof(detail), "120 frames at SyncInterval 1 in %.0f ms, %.1f per second, at least 50 needed",
+                         ms, fps);
+            report("vsync", presented == 120 && fps >= 50.0, detail);
+        }
 
         readback(dev, ctx);
         ID3D11DeviceContext_ClearState(ctx);

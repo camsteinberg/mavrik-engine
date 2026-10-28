@@ -8,12 +8,14 @@
 #                    WORK/bin; bison 3, flex, pkg-config, cmake, and mingw-w64 gcc must be installed
 #                    already (the workflow installs bison and mingw-w64 with Homebrew). The versions
 #                    are part of the cache keys and of the engine's build-info.json
-#   3. prepare.sh    the Wine sources, the patches, the addons.c check, the GStreamer packages
-#   4. build-deps.sh our Unix libraries, into WORK/deps
-#   5. build-wine.sh Wine, into WORK/wine-install
+#   3. build-dxmt.sh DXMT's 64-bit files from source with dxmt/patches, into WORK/dxmt-install (its
+#                    LLVM is cached in WORK/dxmt-llvm)
+#   4. prepare.sh    the Wine sources, the patches, the addons.c check, the GStreamer packages
+#   5. build-deps.sh our Unix libraries, into WORK/deps
+#   6. build-wine.sh Wine, into WORK/wine-install
 # Then assemble.sh, gates.sh and pack.sh make, check and pack the engine.
 #
-# Steps 4 and 5 leave WORK/<folder>/.stamp holding their cache key (buildinfo.py keys). A later run
+# Steps 3, 5 and 6 leave WORK/<folder>/.stamp holding their cache key (buildinfo.py keys). A later run
 # with the same key skips the step; FRESH=1 ignores the stamps. The workflow caches these folders
 # under the same keys, so a restored cache is skipped the same way.
 #
@@ -82,6 +84,8 @@ echo "Xcode $(xcodebuild -version | paste -sd ' ' -) at $DEVELOPER_DIR"
 echo "SDK $(xcrun --show-sdk-version), deployment target $MACOSX_DEPLOYMENT_TARGET, $(uname -m), make -j$JOBS"
 sw_vers | paste -sd ' ' -
 echo "::endgroup::"
+
+bash "$S/build-dxmt.sh" "$WORK"
 
 bash "$S/prepare.sh" "$WORK/downloads/paths.json" "$INPUTS" "$WORK"
 
