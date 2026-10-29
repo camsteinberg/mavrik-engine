@@ -1,8 +1,8 @@
-The hidden cursor stays hidden after another app was in front, and the transparent cursor is set without being undone.
+The hidden cursor stays hidden after another app was in front and at the Dock's edge, and is set without being undone.
 
 This repository's follow-up to patch 0013 (Wine merge request 11880 v2, Elvin Hayatov), to be offered on that merge
-request. Two changes to -[WineApplicationController updateCursor:] and -applicationDidBecomeActive: in the Mac
-driver:
+request (version 2, replacing version 1 of r7 to r9). Three changes to -[WineApplicationController updateCursor:]
+and -applicationDidBecomeActive: in the Mac driver:
 
 - The presentation options (Cursor Location Assistance off while a hidden or custom cursor is active) are assigned
   only when they change, and before the cursor is set, not after.
@@ -10,6 +10,9 @@ driver:
   at the first mouse move over a Wine window after activation or after the pointer was over another app's window.
   The driver keeps two transparent cursors and alternates between them, because AppKit keeps reporting the one it
   last set as current while macOS shows its own arrow, so setting that one again may change nothing.
+- While the game wants the cursor hidden and Wine is the active app, a mouse move over a Wine window sets the hidden
+  cursor again (the other one of the two) once 100 ms have passed since it was last set, so at most ten times a
+  second and only while the mouse moves.
 
 Why: with 0013 alone, a game that keeps its cursor hidden across a Cmd-Tab (its show count stays below zero, so Wine
 sends the driver no new SetCursor; Skyrim SE does this) showed the Mac arrow over the game after the switch back,
@@ -30,21 +33,33 @@ both asked for a hidden cursor count; .factory/design-passes/2026-10-23-s211/cur
 Open: before the first mouse movement after a game hides its cursor, the arrow can still show (DirectInput mode, 2 of
 3 runs in blocks 3 and 4; never with r6, whose [NSCursor hide] needs no movement). Not explained yet.
 
+Why version 2 (mavrik S216, macOS 27.0.1): over a full-screen game, the Mac arrow appeared as soon as the pointer
+touched the bottom edge of the screen and stayed until Wine lost and regained focus (the probe in DirectInput mode,
+and ABZU). A sampler of the displayed system cursor every 20 ms showed the cursor seed change once and the arrow
+appear at y 964 to 980 of 982, over Wine's window, with the Dock's full-display window (layer 20) under it, while the
+probe stayed in front with DirectInput acquired and Wine received every mouse event. No SetCursor reached the driver,
+and the check against +[NSCursor currentCursor] never re-set the cursor in a minute of movement, so AppKit still named
+the transparent one and version 1 had nothing to react to. SDL's fix for a similar fault (SDL 2.30.2, libsdl-org/SDL
+pull request 9294: re-apply the cursor when +[NSCursor currentCursor] is not the wanted one) would miss it the same
+way. Read from AppKit's code (macOS 27): -[NSCursor set] skips a custom cursor that is the one it last set, which is
+why each re-apply sets the other transparent cursor.
+
 diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
-index 46fb9cf5..49d36db1 100644
+index 46fb9cf5..d31156bf 100644
 --- a/dlls/winemac.drv/cocoa_app.h
 +++ b/dlls/winemac.drv/cocoa_app.h
-@@ -82,6 +82,8 @@ enum {
+@@ -82,6 +82,9 @@ @interface WineApplicationController : NSObject <NSApplicationDelegate>
      NSCursor*   cursor;
      BOOL        cursorIsCurrent;
      BOOL        clientWantsCursorHidden;
 +    BOOL        cursorNeedsReapply;
 +    int         transparentCursorIndex;
++    NSTimeInterval lastHiddenCursorSetTime;
  
      NSTimeInterval lastSetCursorPositionTime;
  
 diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
-index ee079d3f..25b47d28 100644
+index ee079d3f..104923f1 100644
 --- a/dlls/winemac.drv/cocoa_app.m
 +++ b/dlls/winemac.drv/cocoa_app.m
 @@ -131,18 +131,25 @@ static void set_display_name(NSString* name)
@@ -79,7 +94,7 @@ index ee079d3f..25b47d28 100644
  }
  
  
-@@ -1110,22 +1117,43 @@ - (void) updateCursor:(BOOL)force
+@@ -1110,22 +1117,54 @@ - (void) updateCursor:(BOOL)force
      {
          if (force || lastTargetWindow)
          {
@@ -88,6 +103,15 @@ index ee079d3f..25b47d28 100644
              BOOL cursorWasReset = desiredCursor && [NSCursor currentCursor] != desiredCursor;
  
 -            if (force || !cursorIsCurrent || cursorWasReset)
++            // macOS can show its own arrow over our window while AppKit still
++            // reports the hidden cursor as current: when the pointer touches the
++            // Dock's edge of the screen, the Dock's window lying under ours.
++            // While the mouse moves over our window, set it again at most every
++            // 100 ms.
++            if (clientWantsCursorHidden && !force && [NSApp isActive] &&
++                [[NSProcessInfo processInfo] systemUptime] - lastHiddenCursorSetTime >= 0.1)
++                cursorNeedsReapply = TRUE;
++
 +            if (force || !cursorIsCurrent || cursorWasReset || cursorNeedsReapply)
              {
 -                [desiredCursor set];
@@ -114,6 +138,8 @@ index ee079d3f..25b47d28 100644
 +
 +                [desiredCursor set];
 +                cursorIsCurrent = TRUE;
++                if (clientWantsCursorHidden)
++                    lastHiddenCursorSetTime = [[NSProcessInfo processInfo] systemUptime];
 +
 +                // The first mouse move over one of our windows after the cursor
 +                // may have been replaced ends the re-applying.
@@ -129,7 +155,7 @@ index ee079d3f..25b47d28 100644
              if (cursorIsCurrent)
              {
                  [[NSCursor arrowCursor] set];
-@@ -2526,8 +2554,17 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
+@@ -2526,8 +2565,17 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
          forceNextMouseMoveAbsolute = TRUE;
  
          // macOS may restore its cursor while another application is active.
