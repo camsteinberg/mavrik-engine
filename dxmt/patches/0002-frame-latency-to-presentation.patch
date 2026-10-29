@@ -1,16 +1,14 @@
-DXMT: count the frame latency limit to presentation when vsync or a frame cap holds the game; follow
-DXGI's rules for SetMaximumFrameLatency; add dxgi.maxFrameLatency.
+DXMT: count the frame latency limit to presentation when vsync or a frame cap holds the game.
 
-This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written
-or co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull
-request; the finding and the numbers go to DXMT as an issue. Against DXMT 3b252590cb (first made
-against a148782d43; only the two call-table hunks moved, by 18 lines).
+This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written or
+co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull request; the
+finding and the numbers go to DXMT as an issue. Against DXMT 3b252590cb with 0001.
 
-DXMT's frame latency limit (3 frames by default) counts a frame as done when its GPU work finishes.
-Under vsync or a frame cap, finished frames then wait in Core Animation's three drawables for their
-turn on screen, and that wait was not counted: mavrik's S214 meter measured about 2.4 frames of extra
-input latency on a light vsync-held game (H3 5.87 frames against G3 3.36, H1 3.89 against G1 1.52).
-DXVK and Windows count a frame against the limit until it is presented.
+DXMT's frame latency limit (3 frames by default) counts a frame as done when its GPU work finishes. Under vsync or a
+frame cap, finished frames then wait in Core Animation's three drawables for their turn on screen, and that wait was
+not counted: mavrik's S214 meter measured about 2.4 frames of extra input latency on a light vsync-held game (H3 5.87
+frames against G3 3.36, H1 3.89 against G1 1.52). DXVK and Windows count a frame against the limit until it is
+presented. mavrik's S215 meter: 2.44 frames less with this change against the same build without it, frame rate held.
 
 - winemetal: MetalDrawable_signalEventWhenPresented (unix call 146, in both call tables) registers a
   presented handler that sets a shared event to the frame's number. The handler runs on a Core
@@ -22,94 +20,10 @@ DXVK and Windows count a frame against the limit until it is presented.
   no wait. A wait that passes 100 ms is given up and logged (each time, at most once a second, with a running
   count), and presentation waits stop until a frame is presented again, so a hidden or closing window never
   holds the game.
-- d3d11: SetMaximumFrameLatency(0) resets to 3 and values above 16 return E_INVALIDARG (Microsoft's
-  documentation); GetMaximumFrameLatency returns the application's value. dxgi.maxFrameLatency (DXVK's
-  name and meaning, 0 to 16, default 0) caps the latency in use; 0 changes nothing.
 
-Not here: releasing the waitable swapchain's object at presentation (the plan's step 2, it needs a
-helper thread) and a latency sleep (step 4).
+Not here: releasing the waitable swapchain's object at presentation (it needs a helper thread) and a latency sleep.
 .factory/design-passes/2026-10-27-s214/dxmt-latency-plan.md in the mavrik repository has the analysis.
 
-diff --git a/dxmt.conf b/dxmt.conf
-index f283aa4..32b76e8 100644
---- a/dxmt.conf
-+++ b/dxmt.conf
-@@ -35,6 +35,14 @@
- 
- # d3d11.preferredMaxFrameRate = 60
- 
-+# Enforce a stricter maximum frame latency. Overrides the application
-+# setting specified by calling IDXGIDevice::SetMaximumFrameLatency.
-+# Setting this to 0 will have no effect.
-+#
-+# Supported values : 0 - 16
-+
-+# dxgi.maxFrameLatency = 0
-+
- # Adjust MetalFX Sptial Upscaling factor.
- # It is multiplied by source output width & height to get the
- # final output resolution. 
-diff --git a/src/d3d11/d3d11_device.cpp b/src/d3d11/d3d11_device.cpp
-index 62efc67..9b9e1d9 100644
---- a/src/d3d11/d3d11_device.cpp
-+++ b/src/d3d11/d3d11_device.cpp
-@@ -1,4 +1,5 @@
- #include "com/com_guid.hpp"
-+#include "config/config.hpp"
- #include "d3d11_fence.hpp"
- #include "d3d11_input_layout.hpp"
- #include "d3d11_interfaces.hpp"
-@@ -1140,6 +1141,8 @@ public:
-         cmd_queue_(this->device->queue()),
-         d3d11_device_(this, adapter, feature_level, feature_flags,
-                       *this->device.get()) {
-+    frame_latency_cap_ = std::clamp(Config::getInstance().getOption<int>("dxgi.maxFrameLatency", 0), 0, (int)kMaxFrameLatency);
-+    cmd_queue_.SetMaxLatency(ActualFrameLatency());
-     if (adapter_->GetLocalD3DKMT()) {
-       D3DKMT_CREATEDEVICE create = {};
-       create.hAdapter = adapter_->GetLocalD3DKMT();
-@@ -1258,13 +1261,17 @@ public:
-   }
- 
-   HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(UINT MaxLatency) override {
--    cmd_queue_.SetMaxLatency(MaxLatency);
-+    // MSDN: values can range from 1 to 16; 0 resets latency to the default
-+    if (MaxLatency > kMaxFrameLatency)
-+      return E_INVALIDARG;
-+    frame_latency_ = MaxLatency ? MaxLatency : kDefaultFrameLatency;
-+    cmd_queue_.SetMaxLatency(ActualFrameLatency());
-     return S_OK;
-   }
- 
-   HRESULT STDMETHODCALLTYPE GetMaximumFrameLatency(UINT *pMaxLatency) override {
-     if (pMaxLatency) {
--      *pMaxLatency = cmd_queue_.GetMaxLatency();
-+      *pMaxLatency = frame_latency_;
-     }
-     return S_OK;
-   }
-@@ -1305,10 +1312,21 @@ public:
-   D3DKMT_HANDLE STDMETHODCALLTYPE GetLocalD3DKMT() final { return local_kmt_; }
- 
- private:
-+  static constexpr UINT kDefaultFrameLatency = 3;
-+  static constexpr UINT kMaxFrameLatency = 16;
-+
-+  // The application's value; dxgi.maxFrameLatency, when set, caps the latency in use
-+  UINT
-+  ActualFrameLatency() const {
-+    return frame_latency_cap_ ? std::min(frame_latency_, (UINT)frame_latency_cap_) : frame_latency_;
-+  }
-+
-   Com<IMTLDXGIAdapter> adapter_;
-   D3DKMT_HANDLE local_kmt_ = 0;
-   std::unique_ptr<Device> device;
-   CommandQueue &cmd_queue_;
-+  UINT frame_latency_ = kDefaultFrameLatency;
-+  int frame_latency_cap_ = 0;
-   MTLD3D11DeviceImpl d3d11_device_;
- };
- 
 diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
 index 86cf466..ba3911c 100644
 --- a/src/d3d11/d3d11_swapchain.cpp

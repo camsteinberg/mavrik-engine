@@ -44,12 +44,12 @@ The gates:
   dxmt          DXMT's seven files are the ones build-dxmt.sh made from the pinned source at the pinned
                 commit with this repository's dxmt/patches (build-info.json's record, file by file);
                 d3d11.dll carries the version string <commit>-mavrik.<patches>; winemetal.dll exports the
-                pinned number of names, with patch 0001's MetalDrawable_signalEventWhenPresented, which
+                pinned number of names, with patch 0002's MetalDrawable_signalEventWhenPresented, which
                 d3d11.dll imports; winemetal.so's macOS target is the pinned one; none of the seven files
                 names the work folder, the recipe or the home folder
   d3d11         a Windows program draws through Direct3D 11 on a visible window: DXMT's device,
                 60 frames presented into its Metal view, 120 more under vsync (SyncInterval 1) at 50
-                or more a second with no "not presented within" line from DXMT (patch 0001's 100 ms
+                or more a second with no "not presented within" line from DXMT (patch 0002's 100 ms
                 valve) while DXMT's log does reach the output ("Using feature level"), and a GPU
                 readback; winemetal.so and
                 winemac.so load from the engine. A machine with no Metal device (GitHub's Intel
@@ -360,7 +360,7 @@ def gate_winemac(engine, ctx):
 
 # ---------------------------------------------------------------- dxmt
 
-# The export patch 0001 adds to winemetal.dll, which d3d11.dll must import.
+# The export patch 0002 adds to winemetal.dll, which d3d11.dll must import.
 DXMT_PRESENTED_EXPORT = "MetalDrawable_signalEventWhenPresented"
 
 
@@ -385,7 +385,7 @@ def macho_minos(path):
 
 def dxmt_check(engine, ctx):
     """(problems, notes): the engine's DXMT files are the ones build-dxmt.sh made from the pinned source and
-    this repository's patches, with the version string, the export patch 0001 adds, the macOS target and
+    this repository's patches, with the version string, the export patch 0002 adds, the macOS target and
     no build path."""
     pin = ctx["inputs"]["inputs"]["dxmt-source"]
     problems = []
@@ -1289,7 +1289,7 @@ def metal_device(work):
     return name if r.returncode == 0 and name else None
 
 
-# What DXMT logs when a frame waited for under vsync is not presented within 100 ms (dxmt/patches/0001).
+# What DXMT logs when a frame waited for under vsync is not presented within 100 ms (dxmt/patches/0002).
 PRESENT_TIMEOUT = "not presented within"
 # A line DXMT's log always prints when a device is made (src/d3d11/d3d11.cpp): it shows DXMT's log reaches the
 # probe's output, so the absence of PRESENT_TIMEOUT means something.

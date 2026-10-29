@@ -171,7 +171,7 @@ property the case breaks):
 - **buildpaths**: no file in the engine contains the build's work folder or the recipe's folder.
 - **dxmt**: DXMT's seven files are the ones `build-dxmt.sh` made from the pinned source and this
   repository's DXMT patches (the build record, file by file); `d3d11.dll` carries the version string
-  `<commit>-mavrik.<patches>`; `winemetal.dll` exports the pinned number of names, with patch 0001's
+  `<commit>-mavrik.<patches>`; `winemetal.dll` exports the pinned number of names, with patch 0002's
   `MetalDrawable_signalEventWhenPresented`, which `d3d11.dll` imports; `winemetal.so` needs macOS 15.0;
   none of the seven names the work folder, the recipe or the home folder.
 - **d3d11**: a small Windows program ([`tools/d3d11probe.c`](tools/d3d11probe.c)) draws through

@@ -1,0 +1,97 @@
+DXMT: follow DXGI's rules for SetMaximumFrameLatency (0 means the default of 3, above 16 is refused), return the
+application's value from GetMaximumFrameLatency, and add DXVK's dxgi.maxFrameLatency.
+
+This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written or
+co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull request; the
+finding goes to DXMT as an issue. Against DXMT 3b252590cb.
+
+DXMT stored SetMaximumFrameLatency's value as it came, and its PresentBoundary waits for the GPU work of frame
+N - L. A game that passes 0, which DXGI defines as "back to the default", so got L = 0: every Present waited for the
+frame just submitted to finish on the GPU, with no overlap between the CPU and the GPU. Civilization VI's DX11 program
+passes 0 (mavrik S215 logged it): its built-in benchmark ran 38 to 39 fps on DXMT at 3b252590cb without this change
+and 95.5 to 97.7 fps with it, interleaved, on an M1 Pro, the player's own settings.
+
+- SetMaximumFrameLatency(0) resets to 3, values above 16 return E_INVALIDARG (Microsoft's documentation);
+  GetMaximumFrameLatency returns the application's value, as DXVK does.
+- dxgi.maxFrameLatency (DXVK's name and meaning, 0 to 16, default 0) caps the latency in use; 0 changes nothing.
+
+diff --git a/dxmt.conf b/dxmt.conf
+index f283aa4..32b76e8 100644
+--- a/dxmt.conf
++++ b/dxmt.conf
+@@ -35,6 +35,14 @@
+ 
+ # d3d11.preferredMaxFrameRate = 60
+ 
++# Enforce a stricter maximum frame latency. Overrides the application
++# setting specified by calling IDXGIDevice::SetMaximumFrameLatency.
++# Setting this to 0 will have no effect.
++#
++# Supported values : 0 - 16
++
++# dxgi.maxFrameLatency = 0
++
+ # Adjust MetalFX Sptial Upscaling factor.
+ # It is multiplied by source output width & height to get the
+ # final output resolution. 
+diff --git a/src/d3d11/d3d11_device.cpp b/src/d3d11/d3d11_device.cpp
+index 62efc67..9b9e1d9 100644
+--- a/src/d3d11/d3d11_device.cpp
++++ b/src/d3d11/d3d11_device.cpp
+@@ -1,4 +1,5 @@
+ #include "com/com_guid.hpp"
++#include "config/config.hpp"
+ #include "d3d11_fence.hpp"
+ #include "d3d11_input_layout.hpp"
+ #include "d3d11_interfaces.hpp"
+@@ -1140,6 +1141,8 @@ public:
+         cmd_queue_(this->device->queue()),
+         d3d11_device_(this, adapter, feature_level, feature_flags,
+                       *this->device.get()) {
++    frame_latency_cap_ = std::clamp(Config::getInstance().getOption<int>("dxgi.maxFrameLatency", 0), 0, (int)kMaxFrameLatency);
++    cmd_queue_.SetMaxLatency(ActualFrameLatency());
+     if (adapter_->GetLocalD3DKMT()) {
+       D3DKMT_CREATEDEVICE create = {};
+       create.hAdapter = adapter_->GetLocalD3DKMT();
+@@ -1258,13 +1261,17 @@ public:
+   }
+ 
+   HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(UINT MaxLatency) override {
+-    cmd_queue_.SetMaxLatency(MaxLatency);
++    // MSDN: values can range from 1 to 16; 0 resets latency to the default
++    if (MaxLatency > kMaxFrameLatency)
++      return E_INVALIDARG;
++    frame_latency_ = MaxLatency ? MaxLatency : kDefaultFrameLatency;
++    cmd_queue_.SetMaxLatency(ActualFrameLatency());
+     return S_OK;
+   }
+ 
+   HRESULT STDMETHODCALLTYPE GetMaximumFrameLatency(UINT *pMaxLatency) override {
+     if (pMaxLatency) {
+-      *pMaxLatency = cmd_queue_.GetMaxLatency();
++      *pMaxLatency = frame_latency_;
+     }
+     return S_OK;
+   }
+@@ -1305,10 +1312,21 @@ public:
+   D3DKMT_HANDLE STDMETHODCALLTYPE GetLocalD3DKMT() final { return local_kmt_; }
+ 
+ private:
++  static constexpr UINT kDefaultFrameLatency = 3;
++  static constexpr UINT kMaxFrameLatency = 16;
++
++  // The application's value; dxgi.maxFrameLatency, when set, caps the latency in use
++  UINT
++  ActualFrameLatency() const {
++    return frame_latency_cap_ ? std::min(frame_latency_, (UINT)frame_latency_cap_) : frame_latency_;
++  }
++
+   Com<IMTLDXGIAdapter> adapter_;
+   D3DKMT_HANDLE local_kmt_ = 0;
+   std::unique_ptr<Device> device;
+   CommandQueue &cmd_queue_;
++  UINT frame_latency_ = kDefaultFrameLatency;
++  int frame_latency_cap_ = 0;
+   MTLD3D11DeviceImpl d3d11_device_;
+ };
+ 
