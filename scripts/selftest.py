@@ -274,7 +274,7 @@ def run(engine, work):
          r"libpath\.dylib contains .*" + re.escape(needles[-1]))
 
     # dxmt: the engine's DXMT files and build record in a scratch engine, then one thing changed in each copy:
-    # winemetal.dll without patch 0001's export (nvngx.dll in its place), winemetal.so naming the work folder,
+    # winemetal.dll without patch 0002's export (nvngx.dll in its place), winemetal.so naming the work folder,
     # and a build record listing another patch.
     def dxmt_engine(name):
         root = os.path.join(tmp, name)

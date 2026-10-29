@@ -6,7 +6,7 @@
  *               level 11_0 or better, and its adapter's name
  *   present     60 frames cleared and presented to the window's swap chain (the Metal view)
  *   vsync       120 more frames presented with SyncInterval 1, timed: at least 50 per second. Under vsync
- *               DXMT waits for each frame's presentation (dxmt/patches/0001), and a wait that never ends
+ *               DXMT waits for each frame's presentation (dxmt/patches/0002), and a wait that never ends
  *               is given up after 100 ms, so a presentation that never reports drops far below that
  *   readback    a render target cleared to a known colour, copied to a staging texture and read on
  *               the CPU: the GPU really ran the commands
