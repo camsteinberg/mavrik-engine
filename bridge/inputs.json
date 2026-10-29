@@ -3,7 +3,7 @@
  "bridge": {
   "name": "mavrik-steam-bridge",
   "revision": 1,
-  "engine": "built and gated against the engine scripts/build.sh made in the same work folder (cx26.3.0-r8: patch 0004 is the loader half of the bridge; 0007 to 0033 touch none of the bridge's files, and the bridge links that engine's ntdll.so, which 0018 to 0024 and 0033 change)"
+  "engine": "built and gated against the engine scripts/build.sh made in the same work folder (cx26.3.0-r9: patch 0004 is the loader half of the bridge; 0007 to 0033 touch none of the bridge's files, and the bridge links that engine's ntdll.so, which 0018 to 0024 and 0033 change)"
  },
  "inputs": {
   "proton-source": {

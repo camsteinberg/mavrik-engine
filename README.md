@@ -103,10 +103,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
   (patches 0013, Wine merge request 11880, and 0014, this repository's follow-up to it). In Mission
-  Control, App Exposé and Show Desktop, which leave the game the active app, a cursor clip lets the
-  pointer go: while a game clips, the Mac driver reads the window list every 100 ms for the Dock's
-  full-display window, lifts the clip while it shows, and puts the clip and the hidden cursor back when
-  it goes (patch 0015).
+  Control and App Exposé, which leave the game the active app, a cursor clip lets the pointer go: while a
+  game clips, the Mac driver reads the window list every 100 ms for WindowManager's full-display window at
+  layer 19 (what those two overlays draw on macOS 27), lifts the clip while it shows, and puts the clip and
+  the hidden cursor back when it goes (patch 0015).
 - **A per-launch DLL folder**: `WINEDLLPATH_PREPEND` names folders searched before the engine's own
   builtins (patch 0018, MacPorts' and Highball's), so a launcher can put another graphics layer, such
   as Apple's D3DMetal, in front of DXMT for one game.
