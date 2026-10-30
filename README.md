@@ -108,9 +108,14 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   screen with a camera housing without the strip beside it (1512x945 on a 14-inch MacBook Pro), its
   smaller modes scaled into that area, and a full-screen game gets a black strip beside the housing, as
   VLC and QuickTime Player do (patch 0040).
-- **Game Mode**: the loader's built-in Info.plist declares a game that supports Game Mode
+- **Game Mode**: every Windows program starts from a copy of Wine's loader inside the engine's own app bundle,
+  `lib/wine/x86_64-unix/mavrik.app`, whose Info.plist declares a game that supports Game Mode
   (`LSApplicationCategoryType` `public.app-category.games`, `LSSupportsGameMode` and its older name
-  `GCSupportsGameMode`), so macOS can give a full-screen game Game Mode (patch 0037).
+  `GCSupportsGameMode`), so macOS can give a full-screen game Game Mode (patch 0037, after neutron; a lab bundle got
+  it in Wine's own full screen and in a full-screen Space, mavrik S217). The same keys in the loader's built-in
+  Info.plist did nothing: macOS read them only from a bundle. The
+  bundle is laid and signed when the engine is assembled; nothing is made at run time. Its folder name is the name
+  macOS shows when a Windows program first uses the local network, with the bundle's `NSLocalNetworkUsageDescription`.
 - **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
@@ -222,7 +227,7 @@ property the case breaks):
   decomposed form, as macOS keeps it). Three more titles show the rules: a Japanese title of 36 bytes
   is cut between whole characters (to 30 bytes in the Dock, to 27 in the window server, where its
   "ゲ" decomposes to 6), `AC/DC Gate` shows as `AC∕DC Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
-  program's executable (`proc_pidpath`) must be the loader inside the engine. A title no link can carry
+  program's executable (`proc_pidpath`) must be the loader in the engine's `mavrik.app` (patch 0037). A title no link can carry
   (`..`) must still reach the Dock through patch 0006. With no title and an argv[0] that is not UTF-8,
   the program must still start (no link, so the window server keeps `wine`) and its 32-bit child keeps
   its own name. The executable path is checked as `proc_pidpath` gives it, without resolving links. Only probes started by the gate's own run are
@@ -240,6 +245,11 @@ property the case breaks):
   `MAVRIK_PAD_HIDRAW=1`, each PlayStation id must be no XInput pad and no DirectInput controller. The
   self-test breaks one property each: a DualShock 4 with `MAVRIK_PAD_HIDRAW=1` in the full selftest, the
   same id in the absent check without it, and a Switch Pro Controller with SDL's label mapping back on.
+- **gamemode**: the loader bundle `lib/wine/x86_64-unix/mavrik.app` (patch 0037) has exactly the Info.plist
+  `scripts/assemble.py` writes (the games category, `LSSupportsGameMode` and `GCSupportsGameMode`, `LSUIElement`,
+  `CFBundleExecutable` `wine`, the Local Network usage text, no document types); its `Contents/MacOS/wine` is the
+  engine's loader with a signature added; and its ad hoc signature verifies (`codesign --verify --strict`), so the
+  Info.plist is sealed. That a Windows program runs from it is the dockname gate's check.
 
 ## Build notes
 

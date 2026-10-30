@@ -265,6 +265,43 @@ def run(engine, work):
     case(results, "identity", "winedbg.exe with CrossOver's crash-dialog link",
          G.identity_problems(bad_dbg, [G.LOADER, winedbg])[0], r"codeweavers\.com/support")
 
+    # gamemode: the loader and its bundle in a scratch folder, with one thing broken in each: no bundle; an
+    # Info.plist without LSSupportsGameMode (signed again, so only the key is wrong); the same keys written
+    # again as a binary plist after signing (the seal is broken, the keys are right); and the engine's
+    # wineserver signed into the bundle in place of the loader.
+    def gamemode_engine(name):
+        root = os.path.join(tmp, name)
+        os.makedirs(os.path.dirname(os.path.join(root, G.LOADER)))
+        clone(os.path.join(engine, G.LOADER), os.path.join(root, G.LOADER))
+        clone(os.path.join(engine, G.LOADER_BUNDLE), os.path.join(root, G.LOADER_BUNDLE))
+        return root, os.path.join(root, G.LOADER_BUNDLE), os.path.join(root, G.LOADER_BUNDLE, "Contents", "Info.plist")
+
+    root, bundle, _ = gamemode_engine("gamemode-none")
+    shutil.rmtree(bundle)
+    case(results, "gamemode", "no mavrik.app beside the loader", G.loader_bundle_problems(root),
+         r"mavrik\.app: no Contents/MacOS/wine")
+    root, bundle, plist = gamemode_engine("gamemode-key")
+    info = G.plistlib.load(open(plist, "rb"))
+    del info["LSSupportsGameMode"]
+    os.remove(plist)
+    G.plistlib.dump(info, open(plist, "wb"))
+    subprocess.run(["codesign", "-f", "-s", "-", bundle], check=True, capture_output=True)
+    case(results, "gamemode", "an Info.plist without LSSupportsGameMode, signed again", G.loader_bundle_problems(root),
+         r"mavrik\.app: LSSupportsGameMode is None, not True")
+    root, bundle, plist = gamemode_engine("gamemode-seal")
+    info = G.plistlib.load(open(plist, "rb"))
+    os.remove(plist)
+    G.plistlib.dump(info, open(plist, "wb"), fmt=G.plistlib.FMT_BINARY)
+    case(results, "gamemode", "the Info.plist's keys written again after signing", G.loader_bundle_problems(root),
+         r"mavrik\.app: the signature does not verify")
+    root, bundle, _ = gamemode_engine("gamemode-exe")
+    exe = os.path.join(root, G.LOADER_BUNDLE_EXE)
+    os.remove(exe)
+    shutil.copy2(os.path.join(engine, "bin", "wineserver"), exe)
+    subprocess.run(["codesign", "-f", "-s", "-", bundle], check=True, capture_output=True)
+    case(results, "gamemode", "the engine's wineserver signed into the bundle", G.loader_bundle_problems(root),
+         r"Contents/MacOS/wine: not the engine's loader")
+
     # buildpaths: a library with the work folder's path compiled in.
     bp = os.path.join(tmp, "buildpaths", "lib", "libpath.dylib")
     needles = G.build_paths(ctx)
@@ -377,6 +414,15 @@ def run(engine, work):
              G.dockname_check(bad, ctx, cases=[G.DOCK_FALLBACK])[0],
              r"dockprobe(32|64)\.exe: the Dock shows 'wine', not '\.\.'")
 
+        # dockname, the executable: an engine clone without mavrik.app, so Wine starts every program from the
+        # loader beside ntdll.so, as before patch 0037: inside the engine, but not from the bundle.
+        bad = os.path.join(tmp, "no-bundle-engine")
+        clone(engine, bad)
+        shutil.rmtree(os.path.join(bad, G.LOADER_BUNDLE))
+        case(results, "dockname", "an engine clone without lib/wine/x86_64-unix/mavrik.app",
+             G.dockname_check(bad, ctx, cases=["Gate Dock Name"])[0],
+             r"dockprobe(32|64)\.exe: started from \S*/x86_64-unix/wine, not from the loader in")
+
         # dockname: titles past the loader's 32-byte name slot once escaped, one of '&' (5 bytes each
         # escaped) and one of CJK characters (3 bytes each). The Dock must show each cut between whole
         # escapes or whole characters; a cut inside one makes Core Foundation reject the loader's
@@ -404,8 +450,11 @@ def run(engine, work):
             ntdll = os.path.join(bad, "lib", "wine", "x86_64-unix", "ntdll.so")
             os.remove(ntdll)
             shutil.copy2(old, ntdll)
+            # Only the window server's problems are kept: an ntdll built without patch 0037 also starts the
+            # programs from the loader beside it, not from mavrik.app (the no-bundle row's check).
             case(results, "dockname", "an engine clone with an ntdll that makes the link only with WINEDLLPATH set",
-                 G.dockname_check(bad, ctx, cases=["Gate Dock Name"])[0],
+                 [p for p in G.dockname_check(bad, ctx, cases=["Gate Dock Name"])[0]
+                  if not p.endswith(f"not from the loader in {G.LOADER_BUNDLE}")],
                  r"dockprobe(32|64)\.exe: the window server shows 'wine', not 'Gate Dock Name'")
             problems = G.dockname_check(bad, ctx, cases=["Gate Dock Name"],
                                         extra_env={"WINEDLLPATH": os.path.join(bad, "lib", "wine")})[0]
