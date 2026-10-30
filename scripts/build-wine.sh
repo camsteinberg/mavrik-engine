@@ -23,6 +23,12 @@ ncpu=$(sysctl -n hw.ncpu)
 JOBS="${JOBS:-$(( ncpu + ncpu / 2 ))}"
 x86() { arch -x86_64 "$@"; }
 MAP="-ffile-prefix-map=$WORK/="
+# The 32-bit Windows half is built with Proton's i386 flags (Proton's Makefile.in, i386_CFLAGS): float math in
+# SSE registers instead of the x87 stack, which Rosetta runs slowly (DirectSound's resampler in 32-bit games;
+# mavrik S217, r11-mouse-sound.md part B), on a Pentium 4 (nocona) baseline, with the stack realigned at
+# every entry from Windows code that keeps only 4-byte alignment. Wine's configure takes i386_CFLAGS for its
+# i386 cross compiler only; the 64-bit half and the Unix side keep CROSSCFLAGS and CFLAGS.
+I386_EXTRA="-mstackrealign -march=nocona -mfpmath=sse"
 
 export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:$GST/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
@@ -49,7 +55,8 @@ x86 "$SRC/configure" \
     --without-pulse --without-sane --without-udev --without-usb --without-v4l2 \
     --without-wayland --without-x \
     CC="ccache clang -arch x86_64" CXX="ccache clang++ -arch x86_64" \
-    CFLAGS="-O2 $MAP" CROSSCFLAGS="-O2 $MAP" LDFLAGS="-Wl,-headerpad_max_install_names" \
+    CFLAGS="-O2 $MAP" CROSSCFLAGS="-O2 $MAP" i386_CFLAGS="-O2 $MAP $I386_EXTRA" \
+    LDFLAGS="-Wl,-headerpad_max_install_names" \
     i386_CC="ccache i686-w64-mingw32-gcc" x86_64_CC="ccache x86_64-w64-mingw32-gcc" \
     ac_cv_lib_soname_vulkan= ac_cv_lib_soname_MoltenVK=libMoltenVK.dylib \
     || { tail -200 config.log; exit 1; }
