@@ -95,7 +95,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   still names the process in the Dock and the app switcher with a private LaunchServices call (patch
   0006), looked up at run time; the menu bar then shows `wine`.
 - **Sound**: Wine sets the Mac output device's buffer frame size to its own period when a stream starts, and
-  reports the device's real period (512 frames at 48 kHz, 10.67 ms) to games (patch 0009, upstream Wine's).
+  reports the device's real period (512 frames at 48 kHz, 10.67 ms) to games (patch 0009, upstream Wine's),
+  counted in the device's frames when the stream's rate differs (patch 0038). The 32-bit Windows half is
+  built with Proton's i386 flags (`-mstackrealign -march=nocona -mfpmath=sse`), so its float math, such as
+  DirectSound's resampler, is SSE, not the x87 code Rosetta runs slowly.
 - **Full screen**: a game's always-on-top full-screen window drops to the normal window level while
   the engine is not the active app (patch 0008), so Cmd-Tab can leave a full-screen game. Other
   always-on-top windows stay above the Dock, as in Wine. While a game's window covers a whole screen and
@@ -340,7 +343,8 @@ checks them against their pins and prints the values still to pin.
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
   through a link named after it.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors, and the Liberation fonts'
-  designers (Ascender, Steve Matteson, Red Hat). Proton, whose Windows font names 0017 follows.
+  designers (Ascender, Steve Matteson, Red Hat). Proton, whose Windows font names 0017 follows and
+  whose 32-bit compiler flags (`i386_CFLAGS`) `build-wine.sh` uses.
 - The media component's script started as mavrik's own `make-media-component.sh`.
 
 ## Licence

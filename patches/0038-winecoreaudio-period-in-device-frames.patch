@@ -1,0 +1,55 @@
+A sound stream at another rate than the Mac's output gets a Mac pull of one period: patch 0009's buffer size is counted in device frames.
+
+This repository's patch to winecoreaudio (version 1), on top of 0009 (upstream's period frame size), to be offered
+to WineHQ. It is mavrik's own: upstream master (checked 2026-10-30) has 0009's code unchanged.
+
+0009 sets the Mac's I/O buffer (kAudioDevicePropertyBufferFrameSize) to the stream's period so the Mac pulls one
+period at a time. But it computes the period in the stream's frames (at the format's nSamplesPerSec) and hands that
+number to the device, whose buffer size and its allowed range count frames at the device's nominal rate. A shared
+stream at another rate than the device (a 48 kHz stream on a 44.1 kHz output, or the reverse) therefore got a pull
+longer or shorter than its period: 557 frames for a 48 kHz stream's 11.6 ms period became 557 device frames, 12.6
+ms at 44.1 kHz. A pull longer than the refill is the starving pattern 0009 exists to stop. Apple's output unit
+converts the stream's rate to the device's, so the stream's own format stays as it was.
+
+Now the period is converted to device frames at the device's nominal rate (0009's get_device_sample_rate; the
+stream's own rate if that read fails), clamped to the device's range there, and set as the device's buffer size;
+the stream's period in its own frames is computed back from it, so a clamp still shows in the period Wine reports.
+At the same rate nothing changes.
+
+Checked (mavrik S217 lab): applies after patches 0001 to 0037 with no fuzz; winecoreaudio builds with the engine's
+toolchain with no new warning. Its effect on underruns rides mavrik r11's sound run and no-regression run.
+
+diff --git a/dlls/winecoreaudio.drv/coreaudio.c b/dlls/winecoreaudio.drv/coreaudio.c
+index 43310e3..fbf438d 100644
+--- a/dlls/winecoreaudio.drv/coreaudio.c
++++ b/dlls/winecoreaudio.drv/coreaudio.c
+@@ -811,7 +811,7 @@ static HRESULT get_device_sample_rate(AudioDeviceID dev_id, EDataFlow flow,
+ static NTSTATUS unix_create_stream(void *args)
+ {
+     struct create_stream_params *params = args;
+-    unsigned int min_period_frames, max_period_frames;
++    unsigned int min_period_frames, max_period_frames, dev_period_frames, dev_rate;
+     struct coreaudio_stream *stream;
+     AURenderCallbackStruct input;
+     OSStatus sc;
+@@ -847,9 +847,18 @@ static NTSTATUS unix_create_stream(void *args)
+                                                               &max_period_frames)))
+         goto end;
+ 
+-    stream->period_frames = max(min_period_frames, min(stream->period_frames, max_period_frames));
++    /* mavrik: the device's buffer size and its range count device frames, at the device's
++     * rate, while period_frames counts the stream's. Convert, so that a stream at another
++     * rate gets a Mac pull of one period, not of period_frames device frames (a 48 kHz
++     * stream on a 44.1 kHz device pulled 12.6 ms for an 11.6 ms period, more than the
++     * game refills). The same rate changes nothing. */
++    if (FAILED(get_device_sample_rate(stream->dev_id, stream->flow, &dev_rate)) || !dev_rate)
++        dev_rate = stream->fmt->nSamplesPerSec;
++    dev_period_frames = muldiv(stream->period_frames, dev_rate, stream->fmt->nSamplesPerSec);
++    dev_period_frames = max(min_period_frames, min(dev_period_frames, max_period_frames));
++    stream->period_frames = max(1, muldiv(dev_period_frames, stream->fmt->nSamplesPerSec, dev_rate));
+     stream->period = muldiv(stream->period_frames, 10000000, stream->fmt->nSamplesPerSec);
+-    if (FAILED(params->result = set_device_period_frame_size(stream->dev_id, stream->flow, stream->period_frames)))
++    if (FAILED(params->result = set_device_period_frame_size(stream->dev_id, stream->flow, dev_period_frames)))
+         goto end;
+ 
+     stream->bufsize_frames = muldiv(params->duration, stream->fmt->nSamplesPerSec, 10000000);
