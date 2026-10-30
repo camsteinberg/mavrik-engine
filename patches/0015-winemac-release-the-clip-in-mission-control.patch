@@ -1,6 +1,7 @@
-The pointer is no longer held inside a game's window in Mission Control and App Exposé, and the hidden cursor is set again after them.
+The pointer is no longer held inside a game's window in Mission Control, App Exposé and Show Desktop, and the hidden cursor is set again after them.
 
-This repository's patch to the Mac driver (version 3, replacing version 2 of r8 and version 1 of r7), to be offered to
+This repository's patch to the Mac driver (version 4, replacing version 3 of r9, version 2 of r8 and
+version 1 of r7), to be offered to
 WineHQ. It needs
 nothing from patches 0013 and 0014 except 0014's cursorNeedsReapply flag; without 0014 those lines are left out.
 
@@ -26,7 +27,7 @@ or an hour and three quarters of real games.
 - While the app is active, the cursor is clipped and the handler is the confinement one, a timer on a background
   queue reads the window list every 100 ms (20 ms leeway), at once on activation, and at a Space change. It asks
   one question: is a window of WindowManager's (matched by the process id of com.apple.WindowManager, never by its
-  name) on screen, at layer 19, covering the whole display that holds the clip rect? If a later macOS draws these
+  name) on screen, at layer 19 or 18, covering the whole display that holds the clip rect? If a later macOS draws these
   overlays differently, it never fires, which leaves Wine's confinement as it was. It uses
   only CoreGraphics and needs no permission (window titles are withheld without Screen Recording; owner, level
   and bounds are not). It reports only a change, to the main thread.
@@ -48,6 +49,13 @@ or an hour and three quarters of real games.
   when a watch ends, the read's median and worst time in microseconds. These lines lack Wine's pid:tid prefix;
   the version offered to WineHQ should send them through a real debug channel.
 
+Version 4 (r11): Show Desktop (F11, its hot corner or the trackpad spread) held the pointer too (mavrik S216, hand
+test step 8: "stuck within the confines of the bottom toolbar"). Show Desktop leaves Wine active with its window key,
+so the confinement stays, and the window server slides the window almost off screen; the confinement rect is
+relative to the window, so the pointer stayed in the sliver left at the screen's edge. Show Desktop draws
+WindowManager's full-display window at layer 18, which nothing else draws (every state mavrik S215 recorded, and 485
+window list records of game play), and the watch now counts it as an overlay too. Everything else is version 3's.
+
 Checked (mavrik S215): applies to the CrossOver 26.3.0 tree after patches 0001 to 0014 with no fuzz, and 0016 to
 0032 still apply after it with no fuzz; the changed files compile with the tree's warning flags with no new
 warning (Xcode 26.2, x86_64). The same check, timed on an M1 Pro with macOS 27.0.1 (a command-line program that
@@ -63,8 +71,8 @@ index 49d36db1..600347b6 100644
  
      id<WineClipCursorHandler> clipCursorHandler;
  
-+    /* Watch for Mission Control and App Exposé (WindowManager's windows)
-+     * while the confinement handler clips the cursor. */
++    /* Watch for Mission Control, App Exposé and Show Desktop (WindowManager's
++     * windows) while the confinement handler clips the cursor. */
 +    dispatch_queue_t systemOverlayQueue;
 +    dispatch_source_t systemOverlayTimer;
 +    unsigned int systemOverlayWatchGeneration;
@@ -79,7 +87,7 @@ diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
 index 25b47d28..308b39e8 100644
 --- a/dlls/winemac.drv/cocoa_app.m
 +++ b/dlls/winemac.drv/cocoa_app.m
-@@ -56,6 +56,149 @@
+@@ -56,6 +56,154 @@
  static NSString* const WineExternalQuitNotificationWinePrefixKey = @"WinePrefix";
  
  bool macdrv_err_on;
@@ -119,18 +127,22 @@ index 25b47d28..308b39e8 100644
 +    uint64_t period_start;      /* CLOCK_UPTIME_RAW, in nanoseconds */
 +};
 +
-+/* Is Mission Control or App Exposé shown on the display that holds the clip
-+ * rect?  On macOS 27 both draw a window of WindowManager's at layer 19 that
-+ * covers the whole display; WindowManager puts no other window above the
-+ * desktop level, except Show Desktop's at layer 18, and the Dock's own window
-+ * (layer 20) covers the whole display at all times, so it says nothing (mavrik
-+ * measured each state's window list, S215).  This uses only CoreGraphics, so
++/* Is Mission Control, App Exposé or Show Desktop shown on the display that
++ * holds the clip rect?  On macOS 27 Mission Control and App Exposé draw a
++ * window of WindowManager's at layer 19 that covers the whole display, and
++ * Show Desktop one at layer 18; WindowManager puts no other window above the
++ * desktop level, and the Dock's own window (layer 20) covers the whole display
++ * at all times, so it says nothing (mavrik measured each state's window list,
++ * S215).  Show Desktop slides our window almost off screen and the
++ * confinement follows it, so the pointer was held at the screen's edge
++ * (S216).  This uses only CoreGraphics, so
 + * it runs off the main thread, and it needs no permission: window titles are
 + * withheld without Screen Recording, but the owner, level and bounds are not.
 + * If a later macOS draws these overlays differently, this never fires, which
 + * leaves the confinement as Wine keeps it.  Returns -1 if the window list
 + * can't be read. */
-+#define SYSTEM_OVERLAY_LAYER 19
++#define SYSTEM_OVERLAY_LAYER 19                /* Mission Control, App Exposé */
++#define SYSTEM_OVERLAY_SHOW_DESKTOP_LAYER 18
 +
 +static int system_overlay_shown(pid_t owner_pid, CGRect clip_rect)
 +{
@@ -167,7 +179,8 @@ index 25b47d28..308b39e8 100644
 +        if (!number || !CFNumberGetValue(number, kCFNumberIntType, &pid) || pid != owner_pid)
 +            continue;
 +        number = CFDictionaryGetValue(info, kCGWindowLayer);
-+        if (!number || !CFNumberGetValue(number, kCFNumberIntType, &layer) || layer != SYSTEM_OVERLAY_LAYER)
++        if (!number || !CFNumberGetValue(number, kCFNumberIntType, &layer) ||
++            (layer != SYSTEM_OVERLAY_LAYER && layer != SYSTEM_OVERLAY_SHOW_DESKTOP_LAYER))
 +            continue;
 +        bounds_dict = CFDictionaryGetValue(info, kCGWindowBounds);
 +        if (!bounds_dict || !CGRectMakeWithDictionaryRepresentation(bounds_dict, &bounds))
@@ -229,7 +242,7 @@ index 25b47d28..308b39e8 100644
  
  
  #if !defined(MAC_OS_VERSION_14_0) || MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_VERSION_14_0
-@@ -285,6 +428,9 @@ - (void) dealloc
+@@ -285,6 +433,9 @@ - (void) dealloc
          [cursor release];
          [screenFrameCGRects release];
          [applicationIcon release];
@@ -239,7 +252,7 @@ index 25b47d28..308b39e8 100644
          [clipCursorHandler release];
          [cursorTimer release];
          [cursorFrames release];
-@@ -921,6 +1067,7 @@ - (void) activeSpaceDidChange
+@@ -921,6 +1072,7 @@ - (void) activeSpaceDidChange
      {
          [self updateFullscreenWindows];
          [self adjustWindowLevels];
@@ -247,7 +260,7 @@ index 25b47d28..308b39e8 100644
      }
  
      - (void) sendDisplaysChanged:(BOOL)activating
-@@ -1350,6 +1497,12 @@ - (BOOL) setCursorPosition:(CGPoint)pos
+@@ -1350,6 +1502,12 @@ - (BOOL) setCursorPosition:(CGPoint)pos
      {
          BOOL ret;
  
@@ -260,7 +273,7 @@ index 25b47d28..308b39e8 100644
          if ([windowsBeingDragged count])
              ret = FALSE;
          else if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(setCursorPosition:)])
-@@ -1422,7 +1575,19 @@ - (BOOL) startClippingCursor:(CGRect)rect
+@@ -1422,7 +1580,19 @@ - (BOOL) startClippingCursor:(CGRect)rect
                  clipCursorHandler = [[WineEventTapClipCursorHandler alloc] init];
          }
  
@@ -281,7 +294,7 @@ index 25b47d28..308b39e8 100644
              return TRUE;
  
          if (![clipCursorHandler startClippingCursor:rect])
-@@ -1431,6 +1596,7 @@ - (BOOL) startClippingCursor:(CGRect)rect
+@@ -1431,6 +1601,7 @@ - (BOOL) startClippingCursor:(CGRect)rect
          [self setCursorPosition:NSPointToCGPoint([self flippedMouseLocation:[NSEvent mouseLocation]])];
  
          [self updateWindowsForCursorClipping];
@@ -289,7 +302,7 @@ index 25b47d28..308b39e8 100644
  
          return TRUE;
      }
-@@ -1446,6 +1612,7 @@ - (BOOL) stopClippingCursor
+@@ -1446,6 +1617,7 @@ - (BOOL) stopClippingCursor
          lastSetCursorPositionTime = [[NSProcessInfo processInfo] systemUptime];
  
          [self updateWindowsForCursorClipping];
@@ -297,7 +310,7 @@ index 25b47d28..308b39e8 100644
  
          return TRUE;
      }
-@@ -1455,6 +1622,221 @@ - (BOOL) clippingCursor
+@@ -1455,6 +1627,221 @@ - (BOOL) clippingCursor
          return clipCursorHandler.clippingCursor;
      }
  
@@ -313,8 +326,8 @@ index 25b47d28..308b39e8 100644
 +     *
 +     * The confinement handler's rect is kept by the window server while we are
 +     * the active app, and the app stays active while macOS shows Mission
-+     * Control or App Exposé: the pointer could not leave the game's window
-+     * there.  No event tells us those overlays are shown (the
++     * Control, App Exposé or Show Desktop: the pointer could not leave the
++     * game's window there.  No event tells us those overlays are shown (the
 +     * mouse events keep coming to us under the confinement), so while we clip
 +     * this way, a timer on a background queue reads the window list every
 +     * 100 ms and reports a change of system_overlay_shown() to the main thread.
@@ -519,7 +532,7 @@ index 25b47d28..308b39e8 100644
      - (BOOL) isKeyPressed:(uint16_t)keyCode
      {
          int bits = sizeof(pressedKeyCodes[0]) * 8;
-@@ -1558,10 +1940,16 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+@@ -1558,10 +1945,16 @@ - (void) handleMouseMove:(NSEvent*)anEvent
  
          if ([targetWindow isKindOfClass:[WineWindow class]])
          {
@@ -537,7 +550,7 @@ index 25b47d28..308b39e8 100644
              // If we recently warped the cursor (other than in our cursor-clipping
              // event tap), discard mouse move events until we see an event which is
              // later than that time.
-@@ -2129,6 +2517,11 @@ - (void) setupObservations
+@@ -2129,6 +2522,11 @@ - (void) setupObservations
                       name:NSWorkspaceActiveSpaceDidChangeNotification
                     object:nil];
  
@@ -549,7 +562,7 @@ index 25b47d28..308b39e8 100644
          [nc addObserver:self
                 selector:@selector(releaseMouseCapture)
                     name:NSMenuDidBeginTrackingNotification
-@@ -2565,6 +2958,8 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
+@@ -2565,6 +2963,8 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
                  [self updateCursor:TRUE];
              }
          });
@@ -558,7 +571,7 @@ index 25b47d28..308b39e8 100644
      }
  
      - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
-@@ -2586,6 +2981,10 @@ - (void)applicationDidResignActive:(NSNotification *)notification
+@@ -2586,6 +2986,10 @@ - (void)applicationDidResignActive:(NSNotification *)notification
  
          [self invalidateGotFocusEvents];
  
@@ -585,7 +598,7 @@ index 8912714f..69f627b4 100644
      /* Returns true if the API in use by this handler is available. */
      + (BOOL) isAvailable;
  
-+    /* While a system overlay (Mission Control, App Exposé) is
++    /* While a system overlay (Mission Control, App Exposé, Show Desktop) is
 +     * shown, the confinement is lifted and the clipping rect and
 +     * clippingCursor are kept.  -resumeClippingCursor puts it back and returns
 +     * TRUE if it did; -setSuspendedClipRect: records a new clipping rect
@@ -627,8 +640,8 @@ index b6151a2c..423fa52e 100644
  
 +    /* The window server keeps a confinement rect while the app is frontmost
 +     * and the window is key, and both stay true while macOS shows Mission
-+     * Control or App Exposé, so the pointer could not leave the window's area
-+     * there.  The event tap handler lets events for another
++     * Control, App Exposé or Show Desktop, so the pointer could not leave the
++     * window's area there.  The event tap handler lets events for another
 +     * process through unclipped; here the rect is removed until the overlay
 +     * is gone. */
 +    - (void) suspendClippingCursor
