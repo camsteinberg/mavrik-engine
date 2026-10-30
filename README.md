@@ -98,7 +98,9 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   reports the device's real period (512 frames at 48 kHz, 10.67 ms) to games (patch 0009, upstream Wine's).
 - **Full screen**: a game's always-on-top full-screen window drops to the normal window level while
   the engine is not the active app (patch 0008), so Cmd-Tab can leave a full-screen game. Other
-  always-on-top windows stay above the Dock, as in Wine.
+  always-on-top windows stay above the Dock, as in Wine. While a game's window covers a whole screen and
+  the engine is the active app, the Dock and the menu bar are hidden (patch 0034), so the Dock doesn't
+  wake at the screen's edge under the game.
 - **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
