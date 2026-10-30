@@ -110,8 +110,9 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   window at layer 19 (Mission Control and App Exposé on macOS 27) or 18 (Show Desktop), lifts the clip while
   it shows, and puts the clip and the hidden cursor back when it goes (patch 0015).
 - **Game controllers**: PlayStation pads reach games as XInput pads through SDL, like Xbox and Nintendo
-  pads (`MAVRIK_PAD_HIDRAW=1` keeps them raw HID for one game); XInput rumble lasts until the game changes
-  it; XInput's battery call answers as for a wired pad (patch 0035, from neutron). A pad's Home and Share
+  pads (`MAVRIK_PAD_HIDRAW=1` keeps them raw HID for one game); Nintendo pads are mapped by position, so the
+  Pro Controller's right face button is XInput's B, where an Xbox pad has it; XInput rumble lasts until the
+  game changes it; XInput's battery call answers as for a wired pad (patch 0035, from neutron). A pad's Home and Share
   buttons go to the game, not to macOS's Game Overlay and screenshots (patch 0036, from neutron).
   `MAVRIK_PAD_VIRTUAL=1` or `=<vid>:<pid>` attaches a scripted virtual pad, which `tools/gamepadprobe.c`
   (neutron's probe) checks in XInput, DirectInput, raw input and Windows.Gaming.Input.

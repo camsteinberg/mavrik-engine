@@ -1,4 +1,4 @@
-PlayStation pads reach games as XInput pads through SDL, XInput rumble lasts until the game changes it, XInput's battery call answers as a wired pad does, and winebus has a virtual test pad.
+PlayStation pads reach games as XInput pads through SDL, Nintendo pads are mapped by position, XInput rumble lasts until the game changes it, XInput's battery call answers as a wired pad does, and winebus has a virtual test pad.
 
 This repository's patch to winebus and XInput, adapted from neutron's patches/wine/0017-winebus-sdl-gamepads.patch
 (github.com/fourlexboehm/neutron at 0ac2574d, LGPL-2.1-or-later, Copyright 2026 the neutron contributors; Wine
@@ -31,6 +31,10 @@ Windows game, and mavrik runs no Windows Steam.
 - SDL may deliver pad events to winedevice, which never has the focus
   (SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS; SDL3 also turns on GameController's background monitoring with it,
   for pads it reads through GameController). An environment variable of the same name still wins.
+- Nintendo pads are mapped by position, not by their printed labels (SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS
+  "0", SDL3's own default): the Switch Pro Controller's right face button is XInput's B and its bottom one XInput's
+  A, where an Xbox pad has them, so a game's "press A" prompt means the same place on every pad (mavrik's choice,
+  S217; Steam Input on Windows offers both). SDL2's default had matched labels. The variable still wins.
 - MAVRIK_PAD_VIRTUAL=1 (Xbox 360 ids) or =<vid>:<pid> attaches an SDL virtual gamepad that presses A, then B and
   dpad up, then moves the left stick and trigger, every 400 ms; it echoes rumble back as the right stick and
   trigger, and a rumble of 0xffff/0x0001 unplugs it for one second. It stays still for 1.5 s after each plug-in:
@@ -42,16 +46,16 @@ Windows game, and mavrik runs no Windows Steam.
 Checked (mavrik S217 lab): applies after patches 0001 to 0034 with no fuzz; winebus and the xinput DLLs build with
 the engine's toolchain with no new warning. On r10 with these modules laid in (display driver off, a fresh prefix),
 tools/gamepadprobe.c's selftest passed 18 of 18 checks in 64- and 32-bit, in two passes, with the virtual pad as
-045e:028e (Xbox 360), 054c:09cc (DualShock 4) and 054c:0ce6 (DualSense): XInput buttons and axes, rumble echoed
-and still held after 1.5 s, the stop, the wired battery, DirectInput, raw input, Windows.Gaming.Input, unplug and
-replug. With MAVRIK_PAD_HIDRAW=1 the Sony ids' SDL copies were dropped ("ignoring non-hidraw device") and the Xbox
-id still passed 18 of 18. As 057e:2009 (Switch Pro) it passed 18 of 18 with SDL_GAMECONTROLLER_USE_BUTTON_LABELS=0;
-with SDL's default, which this Wine already used for Nintendo pads, A and B are mapped by their labels, so the
-scripted A and B read swapped (15 or 16 of 18). Real pads (SDL's HIDAPI and GameController drivers inside
-winedevice, real motors) are for mavrik's walk.
+045e:028e (Xbox 360), 054c:09cc (DualShock 4), 054c:0ce6 (DualSense) and 057e:2009 (Switch Pro): XInput buttons
+and axes, rumble echoed and still held after 1.5 s, the stop, the wired battery, DirectInput, raw input,
+Windows.Gaming.Input, unplug and replug. With MAVRIK_PAD_HIDRAW=1 the Sony ids' SDL copies were dropped ("ignoring
+non-hidraw device") and the Xbox id still passed 18 of 18. Before the positional hint, 057e:2009 passed 15 or 16 of
+18 (the scripted bottom button read as B), and 18 of 18 only with SDL_GAMECONTROLLER_USE_BUTTON_LABELS=0 set by
+hand. scripts/gates.py's controllers gate runs these cases. Real pads (SDL's HIDAPI and GameController drivers
+inside winedevice, real motors) are for mavrik's walk.
 
 diff --git a/dlls/winebus.sys/bus_sdl.c b/dlls/winebus.sys/bus_sdl.c
-index f274d54..54668d4 100644
+index f274d54..45bd060 100644
 --- a/dlls/winebus.sys/bus_sdl.c
 +++ b/dlls/winebus.sys/bus_sdl.c
 @@ -477,6 +477,11 @@ static NTSTATUS sdl_device_haptics_start(struct unix_device *iface, UINT duratio
@@ -210,17 +214,21 @@ index f274d54..54668d4 100644
      if (!(sdl_handle = dlopen(SONAME_LIBSDL2, RTLD_NOW)))
      {
          WARN("could not load %s\n", SONAME_LIBSDL2);
-@@ -1155,6 +1287,9 @@ NTSTATUS sdl_bus_init(void *args)
+@@ -1155,6 +1287,13 @@ NTSTATUS sdl_bus_init(void *args)
      pSDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
      pSDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
  #endif
 +    /* mavrik, after neutron: winedevice never has the focus, so SDL must not drop pad
 +     * events for a background app (an environment variable of the same name still wins) */
 +    pSDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
++    /* mavrik: Nintendo pads by position, as SDL3 and Xbox games expect (the right face
++     * button is XInput's B, as on an Xbox pad); SDL2's default matched their printed
++     * labels, so the Pro Controller's A read as XInput A. The variable still wins. */
++    pSDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
  
      if (pSDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) < 0)
      {
-@@ -1188,6 +1323,7 @@ NTSTATUS sdl_bus_init(void *args)
+@@ -1188,6 +1327,7 @@ NTSTATUS sdl_bus_init(void *args)
          }
      }
  
@@ -228,7 +236,7 @@ index f274d54..54668d4 100644
      return STATUS_SUCCESS;
  
  failed:
-@@ -1207,6 +1343,7 @@ NTSTATUS sdl_bus_wait(void *args)
+@@ -1207,6 +1347,7 @@ NTSTATUS sdl_bus_wait(void *args)
      do
      {
          if (bus_event_queue_pop(&event_queue, result)) return STATUS_PENDING;
