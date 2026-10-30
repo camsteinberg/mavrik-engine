@@ -104,6 +104,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   always-on-top windows stay above the Dock, as in Wine. While a game's window covers a whole screen and
   the engine is the active app, the Dock and the menu bar are hidden (patch 0034), so the Dock doesn't
   wake at the screen's edge under the game.
+- **Fit below the notch**: with the Mac driver option `FitBelowNotch=y` (off by default), a game sees each
+  screen with a camera housing without the strip beside it (1512x945 on a 14-inch MacBook Pro), its
+  smaller modes scaled into that area, and a full-screen game gets a black strip beside the housing, as
+  VLC and QuickTime Player do (patch 0040).
 - **Game Mode**: the loader's built-in Info.plist declares a game that supports Game Mode
   (`LSApplicationCategoryType` `public.app-category.games`, `LSSupportsGameMode` and its older name
   `GCSupportsGameMode`), so macOS can give a full-screen game Game Mode (patch 0037).
@@ -339,6 +343,8 @@ checks them against their pins and prints the values still to pin.
 - [NotProton](https://github.com/NotProtonNot/NotProton), which showed Valve's bridge working on a Mac
   with the Mac Steam app. Nothing is copied from it.
 - Chromium, Firefox and WebKit, whose way of naming a process in the Dock patch 0006 follows.
+- VLC, whose handling of the camera housing (a black window, the picture below the safe area) patch 0040
+  follows.
 - Wine's developers, whose commits patches 0009, 0011 and 0012 carry unchanged (Zhiyi Zhang's Core Audio
   period fix and Giovanni Mascellani's guard; Esme Povirk's Wine Mono updates; Alexandre Julliard's FAudio
   imports and Alex Henrie's FAudio fix).

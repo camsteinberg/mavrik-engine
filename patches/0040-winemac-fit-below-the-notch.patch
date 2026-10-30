@@ -1,0 +1,872 @@
+With the Mac driver option FitBelowNotch, a full-screen game uses only the area below the camera housing and the strip beside it is black; off by default.
+
+This repository's patch to the Mac driver (version 2, after its adversarial review), mavrik's own; the route is VLC's
+(2022: a black window over the whole screen, the picture below the safe area, as QuickTime Player does). Rebased
+after 0034, whose full-screen pass shows the black window, and 0039.
+
+Why: a full-screen game covers the whole panel, so on a MacBook with a camera housing its top 37 points (74 pixels
+in Retina mode) are drawn behind the housing, which hides their middle (Civ VI's resource bar). macOS's own fix
+(NSPrefersDisplaySafeAreaCompatibilityMode, Finder's "Scale to fit below built-in camera") is read from an app
+bundle, which Wine's loader is not, changes the whole display on each activation and scales with black bars at the
+sides too; Windows has no safe-area call a game could read. So the display itself is reported smaller.
+
+- The option: HKCU\Software\Wine\Mac Driver\FitBelowNotch=y, read prefix-wide like RetinaMode (the monitors must be
+  the same in every process); off when absent. Off, or on a screen without a housing (an external display, a closed
+  lid), nothing changes: every helper below then equals the code it replaces.
+- The strip: the panel's own size below the camera, the tallest mode CoreGraphics lists at the screen's point width
+  and a smaller height (1512x945 on a 14-inch MacBook Pro at its default 1512x982, so 37 points, and 3024x1890 in
+  Retina mode), else the 16:10 size below it; never less than NSScreen's safeAreaInsets.top (32 there, Apple's line
+  for "not hidden by the housing"), nor more than twice it. The screen's frame without it is the frame Windows sees.
+  Each screen's strip is read on the main thread when the Cocoa app starts and when the screens change, and kept:
+  the Unix side reads the kept values, never AppKit, and every process has Windows' y=0 from its start.
+- What the game sees: that frame as the monitor (and the visible frame inside it as the work area), the desktop rect
+  likewise; the current mode is the monitor's size (after Retina's doubling); the display offers that one mode, the
+  current one with its position, with no synthesized 8 and 16 bpp copies, so win32u builds its standard sizes up to
+  it and scales a smaller one into it uniformly, centred, with black bars (its own virtual modes, as with
+  EmulateModeset); ChangeDisplaySettings then succeeds without changing the Mac's real mode, which would bring the
+  whole panel back.
+- Coordinates: Windows' y=0 moves to the bottom of the primary screen's strip (notch_offset). New helpers,
+  cg{rect,point}_win_from_screen and cg{rect,point}_screen_from_win, add the offset to Retina's scale, and replace
+  the old ones only where a rect or point is an absolute screen position: the monitors and the desktop rect; mouse
+  moves, clicks, wheel turns, GetCursorPos, SetCursorPos and ClipCursor; the event queue's mouse positions after a
+  warp; status item clicks; window frames to and from Wine (creation, moves, frame changes, live-resize queries,
+  restore requests); the IME rect. Sizes and positions inside a window keep the old ones. flipRect and
+  primaryScreenHeight keep the real frame: they also convert real Quartz positions.
+- The pointer over the strip is at the game's top edge, as at a real screen's top: every absolute position sent to
+  Windows (moves, clicks, wheel turns, GetCursorPos, the positions reset after a warp) is clamped to its screen's
+  Windows frame, and the pinned-pointer test uses the Windows frames, so a move up there goes as a relative move
+  with its true delta (a game's mouse-look keeps turning) and a move down there goes without its downward part
+  until the pointer leaves the strip (sending it would be undone by a jump up as the pointer left).
+- Full screen: a window covering a screen's Windows frame is full screen (screen_covered_by_rect); a scaled mode's
+  window is too, since win32u frames a full-screen window at the whole raw monitor. It gets the full-screen level,
+  0034 hides the Dock and menu bar, and constrainFrameRect leaves it alone. ClipCursor's "covers every screen means
+  no clip" test uses the Windows frame too, so a full-screen clip stays no confinement, as today.
+- A scaled mode's black bars: win32u passes the picture's rect (absolute, in Windows pixels) for the bars, which
+  setMask: drew as points from the window's corner, twice the size in Retina mode, hiding the picture's top; it is
+  now made relative to the window and converted to points. Without the option almost nothing reaches it (real mode
+  lists keep win32u's scaled modes off), and on the main display with Retina mode off the rect is unchanged.
+- The black strip: while Wine is active, each notched screen with a full-screen window of ours gets a black
+  borderless window over its whole frame one level below the game (NSStatusWindowLevel: above the menu bar and the
+  Dock), transient in Mission Control, never key or main. It takes clicks in the strip, so they reach neither the
+  game nor the desktop; pointer moves over it go to the game window. It goes when Wine resigns active or no
+  full-screen window is left, and follows the screens when they change (a new frame; a removed screen's is hidden).
+- Screens changing (a lid closed, another resolution, a display unplugged) read the strips again before the change
+  goes to Windows. With an external display above the built-in one, the strip is a gap between the two monitors in
+  Windows' desktop, which the pointer crosses at the clamped edge.
+
+MAVRIK_NOTCH_TRACE=1 prints each notched display's strip, how it was found, and its monitor on stderr.
+
+Checked (mavrik S217 lab): applies after patches 0001 to 0039 with no fuzz; winemac builds with the engine's toolchain
+with no new warning. It draws, so its probe (mavrik's tools/notchprobe.c: modes, monitor, metrics, a red bar on a
+full-screen window's top rows, a cursor round trip, raw input and GetCursorPos with the pointer over the strip, a
+1280x720 mode captured as a letterbox) runs in mavrik's away block, and the look in its walk.
+
+diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
+index 360b263..6f5c7e9 100644
+--- a/dlls/winemac.drv/cocoa_app.h
++++ b/dlls/winemac.drv/cocoa_app.h
+@@ -117,6 +117,9 @@ @interface WineApplicationController : NSObject <NSApplicationDelegate>
+ 
+     // CrossOver Hack 10912: Mac Edit menu
+     NSMutableArray* changedKeyEquivalents;
++
++    /* mavrik: FitBelowNotch's black windows, by display number */
++    NSMutableDictionary* notchBackdrops;
+ }
+ 
+ @property (nonatomic) CGEventSourceKeyboardType keyboardType;
+@@ -177,6 +180,12 @@ @interface WineApplication : NSApplication
+ 
+ void OnMainThreadAsync(dispatch_block_t block);
+ 
++/* mavrik: FitBelowNotch, cocoa_display.m */
++void macdrv_refresh_notch_strips(void);
++CGFloat macdrv_screen_notch_strip(NSScreen* screen);
++NSRect macdrv_screen_wine_frame(NSScreen* screen);
++BOOL macdrv_clamp_point_below_notch(CGPoint* point);
++
+ /* mavrik: raw mouse input, cocoa_rawmouse.m */
+ BOOL macdrv_raw_mouse_available(void (^changed)(void));
+ void macdrv_raw_mouse_start(WineWindow* window);
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index 24589b3..a7d8f12 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -301,6 +301,27 @@ static void set_display_name(NSString* name)
+ }
+ 
+ 
++/* mavrik: FitBelowNotch's black window over a notched screen, one level below
++ * a full-screen game window, so the strip beside the camera housing is black
++ * and the menu bar and Dock stay under it. It takes the clicks in the strip
++ * (they reach neither the game nor the desktop) and never becomes key or main.
++ * Pointer moves over it go to the game window, above the game's y=0. */
++@interface WineNotchBackdropWindow : NSWindow
++@property (retain, nonatomic) WineWindow* gameWindow;
++@end
++
++@implementation WineNotchBackdropWindow
++    - (void) dealloc
++    {
++        [_gameWindow release];
++        [super dealloc];
++    }
++
++    - (BOOL) canBecomeKeyWindow { return NO; }
++    - (BOOL) canBecomeMainWindow { return NO; }
++@end
++
++
+ @implementation WineApplication
+ 
+ @synthesize wineController;
+@@ -865,7 +886,9 @@ - (CGFloat) primaryScreenHeight
+                 rect = [screenFrameCGRects mutableBytes];
+                 for (screen in screens)
+                 {
+-                    CGRect temp = NSRectToCGRect([screen frame]);
++                    /* mavrik: the frame Windows sees, so the pointer over FitBelowNotch's
++                     * strip counts as pinned at the top edge */
++                    CGRect temp = NSRectToCGRect(macdrv_screen_wine_frame(screen));
+                     temp.origin.y = primaryScreenHeight - CGRectGetMaxY(temp);
+                     *rect++ = temp;
+                 }
+@@ -1082,6 +1105,8 @@ - (void) updateFullscreenWindows
+             }
+         }
+ 
++        [self updateNotchBackdrops];
++
+         if (capture_displays_for_fullscreen && [NSApp isActive])
+         {
+             if (anyFullscreen)
+@@ -1097,6 +1122,71 @@ - (void) updateFullscreenWindows
+         }
+     }
+ 
++    /* mavrik: FitBelowNotch. While we are active, each notched screen with a
++     * full-screen window of ours gets the black window under it; otherwise none
++     * is shown. */
++    - (void) updateNotchBackdrops
++    {
++        NSMutableSet* shown = [NSMutableSet set];
++
++        if (fit_below_notch && [NSApp isActive])
++        {
++            for (NSScreen* screen in [NSScreen screens])
++            {
++                NSNumber* key = [screen deviceDescription][@"NSScreenNumber"];
++                WineNotchBackdropWindow* backdrop;
++                WineWindow* game = nil;
++
++                if (!key || !macdrv_screen_notch_strip(screen))
++                    continue;
++                for (NSNumber* windowNumber in [NSWindow windowNumbersWithOptions:0])
++                {
++                    WineWindow* window = (WineWindow*)[NSApp windowWithWindowNumber:[windowNumber integerValue]];
++                    if ([window isKindOfClass:[WineWindow class]] && window.fullscreen && [window isVisible] &&
++                        NSIntersectsRect([window frame], [screen frame]))
++                    {
++                        game = window;
++                        break;
++                    }
++                }
++                if (!game)
++                    continue;
++
++                if (!notchBackdrops)
++                    notchBackdrops = [[NSMutableDictionary alloc] init];
++                if (!(backdrop = notchBackdrops[key]))
++                {
++                    backdrop = [[[WineNotchBackdropWindow alloc] initWithContentRect:[screen frame]
++                                                                           styleMask:NSWindowStyleMaskBorderless
++                                                                             backing:NSBackingStoreBuffered
++                                                                               defer:NO] autorelease];
++                    backdrop.backgroundColor = [NSColor blackColor];
++                    backdrop.opaque = YES;
++                    backdrop.hasShadow = NO;
++                    backdrop.releasedWhenClosed = NO;
++                    backdrop.collectionBehavior = NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorIgnoresCycle;
++                    backdrop.level = NSStatusWindowLevel;
++                    notchBackdrops[key] = backdrop;
++                }
++                backdrop.gameWindow = game;
++                [backdrop setFrame:[screen frame] display:NO];
++                if (![backdrop isVisible])
++                    [backdrop orderFront:nil];
++                [shown addObject:key];
++            }
++        }
++
++        for (NSNumber* key in notchBackdrops)
++        {
++            WineNotchBackdropWindow* backdrop = notchBackdrops[key];
++            if ([shown containsObject:key])
++                continue;
++            backdrop.gameWindow = nil;
++            if ([backdrop isVisible])
++                [backdrop orderOut:nil];
++        }
++    }
++
+     - (void) activeSpaceDidChange
+     {
+         [self updateFullscreenWindows];
+@@ -2066,7 +2156,11 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+             windowUnderNumber = [NSWindow windowNumberAtPoint:point
+                                   belowWindowWithWindowNumber:0];
+             targetWindow = (WineWindow*)[NSApp windowWithWindowNumber:windowUnderNumber];
+-            if (!NSMouseInRect(point, [targetWindow contentRectForFrameRect:[targetWindow frame]], NO))
++            // FitBelowNotch: over the black strip the game window gets the move,
++            // at its top edge (the position is clamped below).
++            if ([targetWindow isKindOfClass:[WineNotchBackdropWindow class]])
++                targetWindow = ((WineNotchBackdropWindow*)targetWindow).gameWindow;
++            else if (!NSMouseInRect(point, [targetWindow contentRectForFrameRect:[targetWindow frame]], NO))
+                 targetWindow = nil;
+         }
+ 
+@@ -2164,7 +2258,8 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+             {
+                 if (self.clippingCursor)
+                     [clipCursorHandler clipCursorLocation:&point];
+-                point = cgpoint_win_from_mac(point);
++                macdrv_clamp_point_below_notch(&point);
++                point = cgpoint_win_from_screen(point);
+ 
+                 event = macdrv_create_event(MOUSE_MOVED_ABSOLUTE, targetWindow);
+                 event->mouse_moved.x = floor(point.x);
+@@ -2182,6 +2277,13 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+                 mouseMoveDeltaX += [anEvent deltaX];
+                 mouseMoveDeltaY += [anEvent deltaY];
+ 
++                /* mavrik: FitBelowNotch. Over the strip the game's cursor stays at its
++                 * top edge, as the pointer pinned at a real top edge does: a move up
++                 * goes as it is, a move down goes without its downward part (it would
++                 * be undone by a jump up when the pointer leaves the strip). */
++                if (mouseMoveDeltaY > 0 && macdrv_clamp_point_below_notch(&point))
++                    mouseMoveDeltaY = 0;
++
+                 event = macdrv_create_event(MOUSE_MOVED_RELATIVE, targetWindow);
+                 event->mouse_moved.x = mouseMoveDeltaX * scale;
+                 event->mouse_moved.y = mouseMoveDeltaY * scale;
+@@ -2309,7 +2411,8 @@ - (void) handleMouseButton:(NSEvent*)theEvent
+             {
+                 macdrv_event* event;
+ 
+-                pt = cgpoint_win_from_mac(pt);
++                macdrv_clamp_point_below_notch(&pt);
++                pt = cgpoint_win_from_screen(pt);
+ 
+                 event = macdrv_create_event(MOUSE_BUTTON, window);
+                 event->mouse_button.button = [theEvent buttonNumber];
+@@ -2393,7 +2496,8 @@ - (void) handleScrollWheel:(NSEvent*)theEvent
+                 double x, y;
+                 BOOL continuous = FALSE;
+ 
+-                pt = cgpoint_win_from_mac(pt);
++                macdrv_clamp_point_below_notch(&pt);
++                pt = cgpoint_win_from_screen(pt);
+ 
+                 event = macdrv_create_event(MOUSE_SCROLL, window);
+                 event->mouse_scroll.no_move = rawMouseActive;
+@@ -3116,6 +3220,7 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
+     - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
+     {
+         primaryScreenHeightValid = FALSE;
++        macdrv_refresh_notch_strips();
+         [self sendDisplaysChanged:FALSE];
+         [self adjustWindowLevels];
+ 
+@@ -3123,6 +3228,9 @@ - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
+         // Accumulated mouse movement deltas are invalidated.  Make sure the next
+         // mouse move event starts over from an absolute baseline.
+         forceNextMouseMoveAbsolute = TRUE;
++
++        // FitBelowNotch's black windows: a screen's new frame, a removed screen's hidden.
++        [self updateNotchBackdrops];
+     }
+ 
+     - (void)applicationDidResignActive:(NSNotification *)notification
+@@ -3139,6 +3247,9 @@ - (void)applicationDidResignActive:(NSNotification *)notification
+         // The pointer is the next app's: raw mode ends before it takes input.
+         [self updateRawMouse];
+ 
++        // FitBelowNotch's black windows stay only while we are active.
++        [self updateNotchBackdrops];
++
+         if (!temporarilyIgnoreResignEventsForDialog)
+         {
+             event = macdrv_create_event(APP_DEACTIVATED, nil);
+@@ -3456,8 +3567,12 @@ int macdrv_get_cursor_position(CGPoint *pos)
+ {
+     OnMainThread(^{
+         NSPoint location = [NSEvent mouseLocation];
++        CGPoint point;
++
+         location = [[WineApplicationController sharedController] flippedMouseLocation:location];
+-        *pos = cgpoint_win_from_mac(NSPointToCGPoint(location));
++        point = NSPointToCGPoint(location);
++        macdrv_clamp_point_below_notch(&point);
++        *pos = cgpoint_win_from_screen(point);
+     });
+ 
+     return TRUE;
+@@ -3474,7 +3589,7 @@ int macdrv_set_cursor_position(CGPoint pos)
+     __block int ret;
+ 
+     OnMainThread(^{
+-        ret = [[WineApplicationController sharedController] setCursorPosition:cgpoint_mac_from_win(pos)];
++        ret = [[WineApplicationController sharedController] setCursorPosition:cgpoint_screen_from_win(pos)];
+     });
+ 
+     return ret;
+@@ -3497,7 +3612,7 @@ int macdrv_clip_cursor(CGRect r)
+         CGRect rect = r;
+ 
+         if (!CGRectIsInfinite(rect))
+-            rect = cgrect_mac_from_win(rect);
++            rect = cgrect_screen_from_win(rect);
+ 
+         if (!CGRectIsInfinite(rect))
+         {
+@@ -3510,7 +3625,8 @@ int macdrv_clip_cursor(CGRect r)
+             clipping = FALSE;
+             for (screen in [NSScreen screens])
+             {
+-                if (!NSContainsRect(nsrect, [screen frame]))
++                /* mavrik: the frame Windows sees (FitBelowNotch leaves out the strip) */
++                if (!NSContainsRect(nsrect, macdrv_screen_wine_frame(screen)))
+                 {
+                     clipping = TRUE;
+                     break;
+diff --git a/dlls/winemac.drv/cocoa_display.m b/dlls/winemac.drv/cocoa_display.m
+index a96c27f..a29e11f 100644
+--- a/dlls/winemac.drv/cocoa_display.m
++++ b/dlls/winemac.drv/cocoa_display.m
+@@ -26,6 +26,7 @@
+ #import <Metal/Metal.h>
+ #endif
+ #include <dlfcn.h>
++#include <pthread.h>
+ #include "macdrv_cocoa.h"
+ 
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+@@ -36,6 +37,194 @@ @interface NSScreen (SafeAreaInsetsForOldSDKs)
+ @property (readonly) NSEdgeInsets safeAreaInsets API_AVAILABLE(macos(12.0));
+ @end
+ 
++#define TRACE_NOTCH(...) do { static int on = -1; if (on < 0) { const char* e = getenv("MAVRIK_NOTCH_TRACE"); on = e && !strcmp(e, "1"); } \
++    if (on) fprintf(stderr, "trace:notch: " __VA_ARGS__); } while (0)
++
++/***********************************************************************
++ *              FitBelowNotch's strips
++ *
++ * mavrik: FitBelowNotch. A full-screen game gets the area below the camera
++ * housing, and the strip beside the housing is black, as VLC and QuickTime
++ * Player do (NSPrefersDisplaySafeAreaCompatibilityMode is not used: it is
++ * read from an app bundle, changes the whole display on each activation and
++ * scales with black bars at the sides too).
++ *
++ * Each screen's strip is read on the main thread, when the Cocoa app starts
++ * and when the screens change, and kept here: the Unix side never reads
++ * AppKit for it, and notch_offset has one writer.
++ */
++struct notch_strip
++{
++    CGDirectDisplayID id;
++    CGRect bounds;      /* the screen in Quartz's top-down points, when read */
++    CGFloat strip;
++};
++
++static pthread_mutex_t notch_strips_mutex = PTHREAD_MUTEX_INITIALIZER;
++static struct notch_strip notch_strips[16];
++static int notch_strip_count;
++
++CGFloat notch_offset;
++
++/* The strip in points: the panel's own size below the camera, the tallest
++ * mode it lists at the screen's point width and a smaller height (1512x945 on
++ * a 14-inch MacBook Pro at its default 1512x982, so 37), else the 16:10 size
++ * below it; never less than the safe area's top inset (32 there, Apple's line
++ * for "not hidden by the housing"), nor more than twice it. 0 on a screen
++ * without a housing (an external display, a closed lid) or before macOS 12. */
++static CGFloat compute_notch_strip(NSScreen* screen, CGDirectDisplayID display_id)
++{
++    CGFloat safe = 0, strip = 0, width = NSWidth(screen.frame), height = NSHeight(screen.frame);
++    CFDictionaryRef options;
++    CFArrayRef modes = NULL;
++    size_t below = 0;
++    CFIndex i;
++
++    if (@available(macOS 12.0, *))
++        safe = ceil(screen.safeAreaInsets.top);
++    if (safe <= 0 || safe >= height / 4)
++        return 0;
++
++    options = CFDictionaryCreate(NULL, (const void**)&kCGDisplayShowDuplicateLowResolutionModes,
++                                 (const void**)&kCFBooleanTrue, 1, &kCFTypeDictionaryKeyCallBacks,
++                                 &kCFTypeDictionaryValueCallBacks);
++    modes = CGDisplayCopyAllDisplayModes(display_id, options);
++    if (options)
++        CFRelease(options);
++    for (i = 0; modes && i < CFArrayGetCount(modes); i++)
++    {
++        CGDisplayModeRef mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
++        size_t mode_height = CGDisplayModeGetHeight(mode);
++
++        if (CGDisplayModeGetWidth(mode) == (size_t)width && mode_height < height && mode_height > below)
++            below = mode_height;
++    }
++    if (modes)
++        CFRelease(modes);
++
++    if (below)
++        strip = height - below;
++    if (strip < safe || strip > safe * 2)
++        strip = height - floor(width * 10 / 16);
++    if (strip < safe || strip > safe * 2)
++        strip = safe;
++    TRACE_NOTCH("display %u: %gx%g, safe area %g, listed below it %zu, strip %g pt\n", display_id, width, height,
++                safe, below, ceil(strip));
++    return ceil(strip);
++}
++
++/***********************************************************************
++ *              macdrv_refresh_notch_strips
++ *
++ * Reads every screen's strip again, and notch_offset, the primary screen's:
++ * where Windows' y=0 is. Main thread only: when the Cocoa app starts (before
++ * any Unix thread asks) and when the screens change.
++ */
++void macdrv_refresh_notch_strips(void)
++{
++@autoreleasepool
++{
++    struct notch_strip strips[sizeof(notch_strips) / sizeof(notch_strips[0])];
++    int count = 0;
++
++    if (!fit_below_notch)
++        return;
++    for (NSScreen* screen in [NSScreen screens])
++    {
++        NSNumber* number = [screen deviceDescription][@"NSScreenNumber"];
++
++        if (count >= sizeof(strips) / sizeof(strips[0]))
++            break;
++        strips[count].id = [number unsignedIntValue];
++        strips[count].bounds = CGDisplayBounds(strips[count].id);
++        strips[count].strip = number ? compute_notch_strip(screen, strips[count].id) : 0;
++        count++;
++    }
++
++    pthread_mutex_lock(&notch_strips_mutex);
++    memcpy(notch_strips, strips, count * sizeof(strips[0]));
++    notch_strip_count = count;
++    notch_offset = count ? strips[0].strip : 0;
++    pthread_mutex_unlock(&notch_strips_mutex);
++}
++}
++
++/***********************************************************************
++ *              macdrv_display_notch_strip
++ *
++ * The strip of the screen showing display_id, as last read; 0 without the
++ * option. Any thread.
++ */
++CGFloat macdrv_display_notch_strip(CGDirectDisplayID display_id)
++{
++    CGFloat strip = 0;
++    int i;
++
++    if (!fit_below_notch)
++        return 0;
++    pthread_mutex_lock(&notch_strips_mutex);
++    for (i = 0; i < notch_strip_count; i++)
++    {
++        if (notch_strips[i].id == display_id)
++        {
++            strip = notch_strips[i].strip;
++            break;
++        }
++    }
++    pthread_mutex_unlock(&notch_strips_mutex);
++    return strip;
++}
++
++CGFloat macdrv_screen_notch_strip(NSScreen* screen)
++{
++    if (!fit_below_notch || !screen)
++        return 0;
++    return macdrv_display_notch_strip([[screen deviceDescription][@"NSScreenNumber"] unsignedIntValue]);
++}
++
++/* The frame Windows sees for screen: its frame without the strip (Cocoa's
++ * origin is at the bottom, so only the height changes). */
++NSRect macdrv_screen_wine_frame(NSScreen* screen)
++{
++    NSRect frame = screen.frame;
++
++    frame.size.height -= macdrv_screen_notch_strip(screen);
++    return frame;
++}
++
++/***********************************************************************
++ *              macdrv_clamp_point_below_notch
++ *
++ * An absolute position (Quartz's top-down points) in a screen's strip is
++ * moved down to the strip's bottom edge, the top of the screen's Windows
++ * frame, so Windows never gets a position above it: the pointer over the
++ * black strip is at the game's top edge, as at a real screen's top. Returns
++ * whether the point was in a strip. Any thread.
++ */
++BOOL macdrv_clamp_point_below_notch(CGPoint* point)
++{
++    BOOL clamped = FALSE;
++    int i;
++
++    if (!fit_below_notch)
++        return FALSE;
++    pthread_mutex_lock(&notch_strips_mutex);
++    for (i = 0; i < notch_strip_count; i++)
++    {
++        CGRect bounds = notch_strips[i].bounds;
++
++        if (notch_strips[i].strip > 0 && CGRectContainsPoint(bounds, *point) &&
++            point->y < CGRectGetMinY(bounds) + notch_strips[i].strip)
++        {
++            point->y = CGRectGetMinY(bounds) + notch_strips[i].strip;
++            clamped = TRUE;
++            break;
++        }
++    }
++    pthread_mutex_unlock(&notch_strips_mutex);
++    return clamped;
++}
++
+ static BOOL needs_skyrim_se_launcher_hack(void)
+ {
+     static BOOL did_check = FALSE, needs_hack;
+@@ -981,8 +1170,11 @@ int macdrv_get_monitors(CGDirectDisplayID adapter_id, struct macdrv_monitor** ne
+                     primary_index = monitor_count;
+ 
+                 monitors[monitor_count].id = display_ids[i];
+-                monitors[monitor_count].rc_monitor = cgrect_win_from_mac(convert_display_rect(screen.frame, primary_frame));
+-                monitors[monitor_count].rc_work = cgrect_win_from_mac(convert_display_rect(screen.visibleFrame, primary_frame));
++                monitors[monitor_count].rc_monitor = cgrect_win_from_screen(convert_display_rect(macdrv_screen_wine_frame(screen), primary_frame));
++                monitors[monitor_count].rc_work = cgrect_win_from_screen(convert_display_rect(NSIntersectionRect(screen.visibleFrame, macdrv_screen_wine_frame(screen)), primary_frame));
++                if (macdrv_screen_notch_strip(screen))
++                    TRACE_NOTCH("display %u: strip %g pt, monitor %s\n", display_ids[i], macdrv_screen_notch_strip(screen),
++                                [NSStringFromRect(NSRectFromCGRect(monitors[monitor_count].rc_monitor)) UTF8String]);
+ 
+                 vendor_number = CGDisplayVendorNumber(monitors[monitor_count].id);
+                 model_number = CGDisplayModelNumber(monitors[monitor_count].id);
+diff --git a/dlls/winemac.drv/cocoa_event.m b/dlls/winemac.drv/cocoa_event.m
+index 7c86fc1..315dc4e 100644
+--- a/dlls/winemac.drv/cocoa_event.m
++++ b/dlls/winemac.drv/cocoa_event.m
+@@ -347,7 +347,8 @@ - (void) resetMouseEventPositions:(CGPoint)pos
+     {
+         MacDrvEvent* event;
+ 
+-        pos = cgpoint_win_from_mac(pos);
++        macdrv_clamp_point_below_notch(&pos);
++        pos = cgpoint_win_from_screen(pos);
+ 
+         [eventsLock lock];
+ 
+diff --git a/dlls/winemac.drv/cocoa_main.m b/dlls/winemac.drv/cocoa_main.m
+index 869b3c7..296a4ef 100644
+--- a/dlls/winemac.drv/cocoa_main.m
++++ b/dlls/winemac.drv/cocoa_main.m
+@@ -79,6 +79,9 @@ static void run_cocoa_app(void* info)
+         [[NSUserDefaults standardUserDefaults] registerDefaults:
+             [NSDictionary dictionaryWithObject:@"YES" forKey:@"NSUseActiveDisplayForMainScreen"]];
+ 
++        /* mavrik: FitBelowNotch's strips and Windows' y=0, before any Unix thread asks */
++        macdrv_refresh_notch_strips();
++
+         if ([NSApp respondsToSelector:@selector(setWineController:)])
+         {
+             WineApplicationController* controller = [WineApplicationController sharedController];
+diff --git a/dlls/winemac.drv/cocoa_status_item.m b/dlls/winemac.drv/cocoa_status_item.m
+index 31f8a66..24c9447 100644
+--- a/dlls/winemac.drv/cocoa_status_item.m
++++ b/dlls/winemac.drv/cocoa_status_item.m
+@@ -114,7 +114,7 @@ - (void) postMouseButtonEvent:(NSEvent*)nsevent;
+         NSUInteger typeMask = NSEventMaskFromType([nsevent type]);
+         CGPoint point = CGEventGetLocation([nsevent CGEvent]);
+ 
+-        point = cgpoint_win_from_mac(point);
++        point = cgpoint_win_from_screen(point);
+ 
+         event = macdrv_create_event(STATUS_ITEM_MOUSE_BUTTON, nil);
+         event->status_item_mouse_button.item = (macdrv_status_item)self;
+@@ -175,7 +175,7 @@ - (void) mouseMoved:(NSEvent*)nsevent
+         macdrv_event* event;
+         CGPoint point = CGEventGetLocation([nsevent CGEvent]);
+ 
+-        point = cgpoint_win_from_mac(point);
++        point = cgpoint_win_from_screen(point);
+ 
+         event = macdrv_create_event(STATUS_ITEM_MOUSE_MOVE, nil);
+         event->status_item_mouse_move.item = (macdrv_status_item)self;
+diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
+index ffb7c6a..c8a803e 100644
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -83,7 +83,8 @@ static BOOL frame_intersects_screens(NSRect frame, NSArray* screens)
+ {
+     for (NSScreen* screen in screens)
+     {
+-        if (NSContainsRect(rect, [screen frame]))
++        /* mavrik: the frame Windows sees (FitBelowNotch leaves out the strip) */
++        if (NSContainsRect(rect, macdrv_screen_wine_frame(screen)))
+             return screen;
+     }
+     return nil;
+@@ -931,7 +932,7 @@ - (NSRect) firstRectForCharacterRange:(NSRange)aRange actualRange:(NSRangePointe
+         aRange = NSIntersectionRange(aRange, NSMakeRange(0, [markedText length]));
+ 
+         pthread_mutex_lock(&ime_composition_rect_mutex);
+-        ret = NSRectFromCGRect(cgrect_mac_from_win(ime_composition_rect));
++        ret = NSRectFromCGRect(cgrect_screen_from_win(ime_composition_rect));
+         pthread_mutex_unlock(&ime_composition_rect_mutex);
+ 
+         [[WineApplicationController sharedController] flipRect:&ret];
+@@ -2207,7 +2208,7 @@ - (void) postWindowFrameChanged:(NSRect)frame fullscreen:(BOOL)isFullscreen resi
+                                forWindow:self];
+ 
+         event = macdrv_create_event(WINDOW_FRAME_CHANGED, self);
+-        event->window_frame_changed.frame = cgrect_win_from_mac(NSRectToCGRect(frame));
++        event->window_frame_changed.frame = cgrect_win_from_screen(NSRectToCGRect(frame));
+         event->window_frame_changed.fullscreen = isFullscreen;
+         event->window_frame_changed.in_resize = resizing;
+         event->window_frame_changed.skip_size_move_loop = skipSizeMove;
+@@ -2625,7 +2626,7 @@ - (void) sendEvent:(NSEvent*)event
+ 
+                     event = macdrv_create_event(WINDOW_RESTORE_REQUESTED, self);
+                     event->window_restore_requested.keep_frame = true;
+-                    event->window_restore_requested.frame = cgrect_win_from_mac(NSRectToCGRect(frame));
++                    event->window_restore_requested.frame = cgrect_win_from_screen(NSRectToCGRect(frame));
+                     [queue postEvent:event];
+                     macdrv_release_event(event);
+ 
+@@ -3273,13 +3274,13 @@ - (NSSize) windowWillResize:(NSWindow*)sender toSize:(NSSize)frameSize
+             query = macdrv_create_query();
+             query->type = QUERY_RESIZE_SIZE;
+             query->window = (macdrv_window)[self retain];
+-            query->resize_size.rect = cgrect_win_from_mac(NSRectToCGRect(rect));
++            query->resize_size.rect = cgrect_win_from_screen(NSRectToCGRect(rect));
+             query->resize_size.from_left = resizingFromLeft;
+             query->resize_size.from_top = resizingFromTop;
+ 
+             if ([self.queue query:query timeout:0.1])
+             {
+-                rect = NSRectFromCGRect(cgrect_mac_from_win(query->resize_size.rect));
++                rect = NSRectFromCGRect(cgrect_screen_from_win(query->resize_size.rect));
+                 rect = [self frameRectForContentRect:rect];
+                 frameSize = rect.size;
+             }
+@@ -3303,7 +3304,7 @@ - (void) windowWillStartLiveResize:(NSNotification *)notification
+ 
+             event = macdrv_create_event(WINDOW_RESTORE_REQUESTED, self);
+             event->window_restore_requested.keep_frame = true;
+-            event->window_restore_requested.frame = cgrect_win_from_mac(NSRectToCGRect(frame));
++            event->window_restore_requested.frame = cgrect_win_from_screen(NSRectToCGRect(frame));
+             [queue postEvent:event];
+             macdrv_release_event(event);
+         }
+@@ -3470,7 +3471,7 @@ macdrv_window macdrv_create_cocoa_window(const struct macdrv_window_features* wf
+ 
+     OnMainThread(^{
+         window = [[WineWindow createWindowWithFeatures:wf
+-                                           windowFrame:NSRectFromCGRect(cgrect_mac_from_win(frame))
++                                           windowFrame:NSRectFromCGRect(cgrect_screen_from_win(frame))
+                                                   hwnd:hwnd
+                                                  queue:(WineEventQueue*)queue] retain];
+     });
+@@ -3615,7 +3616,7 @@ void macdrv_set_cocoa_window_frame(macdrv_window w, const CGRect* new_frame)
+     WineWindow* window = (WineWindow*)w;
+ 
+     OnMainThread(^{
+-        [window setFrameFromWine:NSRectFromCGRect(cgrect_mac_from_win(*new_frame))];
++        [window setFrameFromWine:NSRectFromCGRect(cgrect_screen_from_win(*new_frame))];
+     });
+ }
+ 
+@@ -3633,7 +3634,7 @@ void macdrv_get_cocoa_window_frame(macdrv_window w, CGRect* out_frame)
+ 
+         frame = [window contentRectForFrameRect:[window wine_fractionalFrame]];
+         [[WineApplicationController sharedController] flipRect:&frame];
+-        *out_frame = cgrect_win_from_mac(NSRectToCGRect(frame));
++        *out_frame = cgrect_win_from_screen(NSRectToCGRect(frame));
+     });
+ }
+ 
+diff --git a/dlls/winemac.drv/display.c b/dlls/winemac.drv/display.c
+index 2663eb8..ba95f6e 100644
+--- a/dlls/winemac.drv/display.c
++++ b/dlls/winemac.drv/display.c
+@@ -793,6 +793,15 @@ LONG macdrv_ChangeDisplaySettings(LPDEVMODEW displays, LPCWSTR primary_name, HWN
+ 
+     TRACE("%p %s %p 0x%08x %p\n", displays, debugstr_w(primary_name), hwnd, flags, lpvoid);
+ 
++    /* mavrik: below the notch the display offers one mode, the area below it, and
++     * win32u scales its standard sizes into it; a real mode change would bring the
++     * whole panel back, so none is made (as win32u's EmulateModeset does). */
++    if (macdrv_display_notch_strip(CGMainDisplayID()) > 0)
++    {
++        TRACE("FitBelowNotch: no real mode change\n");
++        return DISP_CHANGE_SUCCESSFUL;
++    }
++
+     init_original_display_mode();
+ 
+     /* TODO: support displays other than the main one */
+@@ -941,6 +950,13 @@ static void display_get_current_mode(struct macdrv_monitor *monitor, DEVMODEW *d
+         free_display_mode_descriptor(desc);
+     }
+ 
++    /* mavrik: below the notch the mode is the monitor's size (after Retina's doubling) */
++    if (macdrv_display_notch_strip(display_id) > 0)
++    {
++        devmode->dmPelsWidth = CGRectGetWidth(monitor->rc_monitor);
++        devmode->dmPelsHeight = CGRectGetHeight(monitor->rc_monitor);
++    }
++
+     CFRelease(display_mode);
+ }
+ 
+@@ -1143,6 +1159,14 @@ UINT macdrv_UpdateDisplayDevices(const struct gdi_device_manager *device_manager
+             }
+ 
+             if (!(modes = display_get_modes(adapter->id, &mode_count))) break;
++            /* mavrik: below the notch, one mode (no synthesized 8 and 16 bpp copies, which
++             * would turn win32u's virtual modes off) */
++            if (macdrv_display_notch_strip(adapter->id) > 0 && current_mode.dmPelsWidth && mode_count)
++            {
++                modes[0] = current_mode;    /* with its position: win32u places the monitor by it */
++                mode_count = 1;
++                TRACE("FitBelowNotch: one mode %ux%u\n", (UINT)modes[0].dmPelsWidth, (UINT)modes[0].dmPelsHeight);
++            }
+             device_manager->add_modes( &current_mode, mode_count, modes, param );
+             free(modes);
+             macdrv_free_monitors(monitors, monitor_count);
+diff --git a/dlls/winemac.drv/gdi.c b/dlls/winemac.drv/gdi.c
+index bd6ab44..9cf415b 100644
+--- a/dlls/winemac.drv/gdi.c
++++ b/dlls/winemac.drv/gdi.c
+@@ -71,8 +71,15 @@ static void compute_desktop_rect(void)
+     }
+ 
+     for (i = 0; i < count; i++)
+-        desktop_rect = CGRectUnion(desktop_rect, CGDisplayBounds(displayIDs[i]));
+-    desktop_rect = cgrect_win_from_mac(desktop_rect);
++    {
++        CGRect bounds = CGDisplayBounds(displayIDs[i]);
++        CGFloat strip = macdrv_display_notch_strip(displayIDs[i]);  /* mavrik: FitBelowNotch */
++
++        bounds.origin.y += strip;
++        bounds.size.height -= strip;
++        desktop_rect = CGRectUnion(desktop_rect, bounds);
++    }
++    desktop_rect = cgrect_win_from_screen(desktop_rect);
+ }
+ 
+ 
+diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+index c0ffa95..90fc99d 100644
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -147,6 +147,9 @@
+ extern bool retina_enabled;  /* Whether Retina mode is enabled via registry setting. */
+ extern bool retina_on;       /* Whether Retina mode is currently active (enabled and display is in default mode). */
+ extern bool enable_app_nap;
++extern bool fit_below_notch;    /* mavrik: FitBelowNotch, see cocoa_display.m */
++extern CGFloat notch_offset;    /* mavrik: the primary screen's strip in points while FitBelowNotch is on, else 0 */
++extern CGFloat macdrv_display_notch_strip(CGDirectDisplayID display_id);
+ 
+ /* mavrik: pad buttons bound to macOS system gestures go to the game, see cocoa_gamepad.m */
+ extern void macdrv_start_gamepad_gestures(void);
+@@ -225,6 +228,37 @@ static inline CGPoint cgpoint_win_from_mac(CGPoint point)
+     return point;
+ }
+ 
++/* mavrik: an absolute screen position (Quartz's top-down points) and Windows'
++ * desktop coordinates. With FitBelowNotch, Windows' y=0 is the bottom of the
++ * primary screen's strip beside the camera housing (notch_offset); otherwise
++ * these equal the cg*_win_from_mac and cg*_mac_from_win above. Sizes, and
++ * positions inside a window, use those. */
++static inline CGRect cgrect_win_from_screen(CGRect rect)
++{
++    rect.origin.y -= notch_offset;
++    return cgrect_win_from_mac(rect);
++}
++
++static inline CGRect cgrect_screen_from_win(CGRect rect)
++{
++    rect = cgrect_mac_from_win(rect);
++    rect.origin.y += notch_offset;
++    return rect;
++}
++
++static inline CGPoint cgpoint_win_from_screen(CGPoint point)
++{
++    point.y -= notch_offset;
++    return cgpoint_win_from_mac(point);
++}
++
++static inline CGPoint cgpoint_screen_from_win(CGPoint point)
++{
++    point = cgpoint_mac_from_win(point);
++    point.y += notch_offset;
++    return point;
++}
++
+ extern int macdrv_start_cocoa_app(unsigned long long tickcount);
+ extern void macdrv_window_rejected_focus(const struct macdrv_event *event);
+ extern void macdrv_beep(void);
+diff --git a/dlls/winemac.drv/macdrv_main.c b/dlls/winemac.drv/macdrv_main.c
+index f630cb5..9b5a66c 100644
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -62,6 +62,7 @@ int gl_surface_mode = GL_SURFACE_IN_FRONT_OPAQUE;
+ bool retina_enabled = false;
+ bool enable_app_nap = false;
+ bool raw_mouse_input = true;
++bool fit_below_notch = false;
+ 
+ UINT64 app_icon_callback = 0;
+ UINT64 app_quit_request_callback = 0;
+@@ -403,6 +404,11 @@ static void setup_options(void)
+ 
+     retina_on = retina_enabled;
+ 
++    /* mavrik: a full-screen game uses only the area below the camera housing (cocoa_display.m).
++     * Read prefix-wide, as RetinaMode: the monitors must be the same for all processes. */
++    if (!get_config_key(hkey, NULL, "FitBelowNotch", buffer, sizeof(buffer)))
++        fit_below_notch = IS_OPTION_TRUE(buffer[0]);
++
+     /* mavrik, after neutron: a pad's Home and Share buttons go to the game, see cocoa_gamepad.m */
+     {
+         const char *env = getenv("MAVRIK_PAD_SYSTEM_GESTURES");
+diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+index 741f7fd..472e3eb 100644
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -1727,7 +1727,14 @@ void macdrv_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UINT
+ 
+     if (fullscreen || fullscreen != data->fullscreen)
+     {
+-        CGRect rect = (fullscreen && !EqualRect(&data->rects.window, &data->rects.visible)) ? cgrect_from_rect(data->rects.window) : CGRectZero;
++        CGRect rect = CGRectZero;
++
++        /* mavrik: setMask: takes the picture's rect inside the Cocoa window, in points from its
++         * top left: rects.window is absolute and in Windows pixels (twice the points with Retina
++         * mode), and the Cocoa window is at rects.visible. */
++        if (fullscreen && !EqualRect(&data->rects.window, &data->rects.visible))
++            rect = cgrect_mac_from_win(CGRectOffset(cgrect_from_rect(data->rects.window),
++                                                    -data->rects.visible.left, -data->rects.visible.top));
+         macdrv_set_window_mask(data->cocoa_window, rect);
+         data->fullscreen = fullscreen;
+     }
