@@ -1,0 +1,83 @@
+The Dock and menu bar are hidden while a Wine window covers a whole screen, so the Dock no longer wakes under a game.
+
+This repository's patch to the Mac driver (version 1), to be offered to WineHQ. It needs nothing from other patches
+except 0014's cursorNeedsReapply flag (the hidden cursor set again after the options change); without 0014 that line is
+left out and -updateCursor:TRUE alone is called.
+
+-[WineApplicationController updateFullscreenWindows] already finds a visible window of ours on the active Space that
+covers a whole screen (WineWindow.fullscreen, outside a full-screen Space), and is already called on activation, on a
+Space change, when a window gains or loses that size, and when such a window is shown, hidden, minimized or restored.
+It used that only for CaptureDisplaysForFullscreen, which is off by default. Now, while Wine is the active app and
+such a window exists, it adds NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar to the
+application's presentation options, and takes them off when none is left (or when called while inactive). The other
+option bits (0013 and 0014's Cursor Location Assistance bit) are kept, the options are assigned only when they
+change, and the cursor is set again after a change, as 0014 does for its own bit. AppKit applies presentation
+options only while the app is active (NSApplication.h: "in effect for the system when this application is the active
+application"), so another app in front has its Dock. Nothing that blocks Cmd-Tab, Mission Control or App Exposé is
+set (no DisableProcessSwitching).
+
+Why: Wine's full-screen window sits above the Dock (window level 26 over the Dock's 20) but the Dock stays live under
+it. On macOS 27 the Dock sets its arrow cursor each time the pointer touches its edge of the screen, over a game that
+hides the cursor: one arrow that stayed 73 s with 0014 v1, and with 0014 v2 (re-applied every 100 ms) still 225
+flashes in 75 s of mouse-look, median 61 ms, longest 240 ms, 19% of the time, all at y 917 to 980 of 982 (mavrik S216,
+a sampler of the displayed system cursor beside the DirectInput probe). It also stops the Dock from appearing over
+games that show their own pointer and scroll at the bottom edge.
+
+Precedent: SDL's Cocoa backend returns NSApplicationPresentationFullScreen | NSApplicationPresentationHideDock |
+NSApplicationPresentationHideMenuBar from -window:willUseFullScreenPresentationOptions: for its exclusive full screen
+(src/video/cocoa/SDL_cocoawindow.m, SDL2 and SDL3); that is a full-screen Space. For full screen without a Space it
+raises the window level only (kCGMainMenuWindowLevel + 1), as Wine does, which leaves the Dock live underneath.
+
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index 975456d0..b92598a4 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1036,9 +1036,13 @@ - (void) adjustWindowLevels
+ 
+     - (void) updateFullscreenWindows
+     {
+-        if (capture_displays_for_fullscreen && [NSApp isActive])
++        const NSApplicationPresentationOptions hideDockAndMenuBar = NSApplicationPresentationHideDock |
++                                                                    NSApplicationPresentationHideMenuBar;
++        NSApplicationPresentationOptions options;
++        BOOL anyFullscreen = FALSE;
++
++        if ([NSApp isActive])
+         {
+-            BOOL anyFullscreen = FALSE;
+             NSNumber* windowNumber;
+             for (windowNumber in [NSWindow windowNumbersWithOptions:0])
+             {
+@@ -1049,7 +1053,32 @@ - (void) updateFullscreenWindows
+                     break;
+                 }
+             }
++        }
++
++        // While one of our windows covers a whole screen (outside a full-screen
++        // Space, where AppKit does this itself), hide the Dock and the menu bar.
++        // Our window sits above them, but the Dock still wakes at its edge of the
++        // screen and shows its arrow over a game that hides the cursor.  macOS
++        // applies presentation options only while we are the active app.
++        options = NSApp.presentationOptions;
++        if (anyFullscreen)
++            options |= hideDockAndMenuBar;
++        else
++            options &= ~hideDockAndMenuBar;
++        if (options != NSApp.presentationOptions)
++        {
++            NSApp.presentationOptions = options;
++
++            // Changing the presentation options can make macOS reset the cursor.
++            if ([NSApp isActive])
++            {
++                cursorNeedsReapply = TRUE;
++                [self updateCursor:TRUE];
++            }
++        }
+ 
++        if (capture_displays_for_fullscreen && [NSApp isActive])
++        {
+             if (anyFullscreen)
+             {
+                 if ([self areDisplaysCaptured] || CGCaptureAllDisplays() == CGDisplayNoErr)
