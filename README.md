@@ -116,6 +116,8 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   Info.plist did nothing: macOS read them only from a bundle. The
   bundle is laid and signed when the engine is assembled; nothing is made at run time. Its folder name is the name
   macOS shows when a Windows program first uses the local network, with the bundle's `NSLocalNetworkUsageDescription`.
+  Wine's start no longer looks up the Mac's `.local` host name (patch 0041), so starting a Windows program doesn't
+  touch the local network or wait on that prompt.
 - **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
@@ -359,6 +361,7 @@ checks them against their pins and prints the values still to pin.
   period fix and Giovanni Mascellani's guard; Esme Povirk's Wine Mono updates; Alexandre Julliard's FAudio
   imports and Alex Henrie's FAudio fix).
 - Elvin Hayatov, whose Wine merge request 11880 patch 0013 carries (the transparent hidden cursor).
+- Ivo Ivanov, whose route in Wine bug 60322 (no lookup of a `.local` host name) patch 0041 follows.
 - [neutron](https://github.com/fourlexboehm/neutron) (LGPL-2.1-or-later), a Proton-style Steam tool for
   macOS: patches 0035 and 0036 adapt its game controller patch (`0017-winebus-sdl-gamepads.patch`), and
   `tools/gamepadprobe.c` is its `tests/gamepad_list.c` with mavrik's variable names.
