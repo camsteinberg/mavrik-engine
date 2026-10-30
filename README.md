@@ -214,6 +214,16 @@ property the case breaks):
   (`launchctl managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate
   reports SKIP; inside one, it runs and passes or fails. Two self-test rows need revision 4's
   `ntdll.so` (CrossOver's hack as shipped), named in `SELFTEST_OLD_NTDLL`; without it they are not run.
+- **controllers**: game controllers through patch 0035's scripted virtual pad, with no real pad.
+  [`tools/gamepadprobe.c`](tools/gamepadprobe.c) (neutron's probe) runs its selftest in a fresh Windows
+  folder, each case in its own Wine session (the pad's variables count when the session starts), with
+  the virtual pad as an Xbox 360 pad (045e:028e), a DualShock 4 (054c:09cc), a DualSense (054c:0ce6)
+  and a Switch Pro Controller (057e:2009, by position), in both halves: all 18 checks must pass
+  (XInput buttons and axes, rumble echoed, still held after 1.5 s and stopped, the wired battery,
+  DirectInput, raw input, Windows.Gaming.Input, unplug, replug and input after it). With
+  `MAVRIK_PAD_HIDRAW=1`, each PlayStation id must be no XInput pad and no DirectInput controller. The
+  self-test breaks one property each: a DualShock 4 with `MAVRIK_PAD_HIDRAW=1` in the full selftest, the
+  same id in the absent check without it, and a Switch Pro Controller with SDL's label mapping back on.
 
 ## Build notes
 
