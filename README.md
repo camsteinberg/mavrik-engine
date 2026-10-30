@@ -109,6 +109,12 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   go: while a game clips, the Mac driver reads the window list every 100 ms for WindowManager's full-display
   window at layer 19 (Mission Control and App Exposé on macOS 27) or 18 (Show Desktop), lifts the clip while
   it shows, and puts the clip and the hidden cursor back when it goes (patch 0015).
+- **Game controllers**: PlayStation pads reach games as XInput pads through SDL, like Xbox and Nintendo
+  pads (`MAVRIK_PAD_HIDRAW=1` keeps them raw HID for one game); XInput rumble lasts until the game changes
+  it; XInput's battery call answers as for a wired pad (patch 0035, from neutron). A pad's Home and Share
+  buttons go to the game, not to macOS's Game Overlay and screenshots (patch 0036, from neutron).
+  `MAVRIK_PAD_VIRTUAL=1` or `=<vid>:<pid>` attaches a scripted virtual pad, which `tools/gamepadprobe.c`
+  (neutron's probe) checks in XInput, DirectInput, raw input and Windows.Gaming.Input.
 - **A per-launch DLL folder**: `WINEDLLPATH_PREPEND` names folders searched before the engine's own
   builtins (patch 0018, MacPorts' and Highball's), so a launcher can put another graphics layer, such
   as Apple's D3DMetal, in front of DXMT for one game.
@@ -314,6 +320,9 @@ checks them against their pins and prints the values still to pin.
   period fix and Giovanni Mascellani's guard; Esme Povirk's Wine Mono updates; Alexandre Julliard's FAudio
   imports and Alex Henrie's FAudio fix).
 - Elvin Hayatov, whose Wine merge request 11880 patch 0013 carries (the transparent hidden cursor).
+- [neutron](https://github.com/fourlexboehm/neutron) (LGPL-2.1-or-later), a Proton-style Steam tool for
+  macOS: patches 0035 and 0036 adapt its game controller patch (`0017-winebus-sdl-gamepads.patch`), and
+  `tools/gamepadprobe.c` is its `tests/gamepad_list.c` with mavrik's variable names.
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
   through a link named after it.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors, and the Liberation fonts'
