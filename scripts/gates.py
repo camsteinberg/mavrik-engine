@@ -73,6 +73,13 @@ The gates:
                 starts (no link) and its 32-bit child keeps its own name. The executable path is checked
                 as proc_pidpath gives it, without resolving links. Gates run outside a login (Aqua)
                 session report SKIP
+  controllers   game controllers through patch 0035's virtual pad (MAVRIK_PAD_VIRTUAL), each case in its own
+                wineserver session of one fresh prefix (winedevice reads the pad variables when the session
+                starts): tools/gamepadprobe.c's selftest passes all 18 checks (XInput, rumble held and stopped,
+                the wired battery, DirectInput, raw input, Windows.Gaming.Input, unplug and replug) in both
+                halves with the pad as an Xbox 360 pad (045e:028e), a DualShock 4 (054c:09cc), a DualSense
+                (054c:0ce6) and a Switch Pro Controller (057e:2009, by position); and with MAVRIK_PAD_HIDRAW=1
+                each PlayStation id is no XInput pad and no DirectInput controller (selftest absent)
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 
@@ -1596,11 +1603,82 @@ def gate_dockname(engine, ctx):
                           "engine's loader"), problems
 
 
+# ---------------------------------------------------------------- controllers
+
+PAD_LIBS = ["dinput8", "dxguid", "hid", "runtimeobject", "ole32"]
+PAD_IDS = ["045e:028e", "054c:09cc", "054c:0ce6", "057e:2009"]
+PAD_CHECKS = 18   # gamepadprobe's selftest
+PAD_ABSENT_CHECKS = 2   # gamepadprobe's selftest absent
+
+
+def pad_cases():
+    """(name, bits, the Unix environment the session starts with, the probe's selftest arguments)."""
+    cases = [(f"{vid} {bits}-bit", bits, {"MAVRIK_PAD_VIRTUAL": vid}, []) for bits in ("64", "32") for vid in PAD_IDS]
+    cases += [(f"{vid} {bits}-bit with MAVRIK_PAD_HIDRAW=1", bits, {"MAVRIK_PAD_VIRTUAL": vid, "MAVRIK_PAD_HIDRAW": "1"},
+               ["absent"]) for vid, bits in (("054c:09cc", "64"), ("054c:0ce6", "32"))]
+    return cases
+
+
+def stop_session(engine, env, step):
+    """Ends the prefix's wineserver session (wineserver -k, then -w), then checks nothing of the prefix is left."""
+    try:
+        subprocess.run([os.path.join(engine, "bin", "wineserver"), "-k"], env=env, capture_output=True, timeout=30)
+    except (subprocess.TimeoutExpired, OSError):
+        pass  # end_prefix reports it
+    return settle(engine, env, step, bound=60) + end_prefix(engine, env)
+
+
+def controllers_check(engine, ctx, cases=None, timeout=900):
+    """A fresh prefix (wineboot --init, the display driver off), then each case of pad_cases() in its own wineserver
+    session: tools/gamepadprobe.c's selftest must pass every check (PAD_CHECKS, or PAD_ABSENT_CHECKS for "absent"),
+    and each check that failed is a problem. Ends everything the prefix started and removes it, whatever happens.
+    Returns (problems, the cases that passed)."""
+    probes = {bits: compile_pe_tool(ctx["work"], "gamepadprobe", bits, PAD_LIBS) for bits in ("64", "32")}
+    home = tempfile.mkdtemp(prefix="pads-")
+    env = dict(wine_env(engine, home), WINEDEBUG="fixme-all")
+    wine = os.path.join(engine, "bin", "wine")
+    log = os.path.join(home, "pads.log")
+    problems, passed = [], []
+    try:
+        prompt, code, _ = run_watched([wine, "wineboot", "--init"], env, log, timeout)
+        if prompt or code != 0:
+            problems.append(f"wineboot --init: {prompt or 'exit %s' % code}")
+        else:
+            no_crash_dialog(wine, env, log)
+            problems += stop_session(engine, env, "wineboot --init")
+        for name, bits, extra, args in ([] if problems else cases or pad_cases()):
+            case_env = dict(env, **extra)
+            prompt, code, text = run_watched([wine, probes[bits], "selftest"] + args, case_env, log, 180)
+            problems += [f"{name}: {p}" for p in stop_session(engine, case_env, name)]
+            lines = text.splitlines()
+            problems += [f"{name}: {l[5:].strip()}" for l in lines if l.startswith("FAIL ")]
+            want = PAD_ABSENT_CHECKS if args else PAD_CHECKS
+            total = [m for m in (re.match(r"gamepad selftest: (\d+)/(\d+) passed", l) for l in lines) if m]
+            if not total:
+                problems.append(f"{name}: the probe did not run to the end (exit {code}{', timed out' if code is None else ''})")
+            elif (int(total[-1][1]), int(total[-1][2])) != (want, want):
+                problems.append(f"{name}: {total[-1][1]} of {total[-1][2]} checks passed, not {want} of {want}")
+            else:
+                passed.append(f"{name} {want}/{want}")
+    finally:
+        problems += end_prefix(engine, env)
+        if os.path.exists(log):
+            shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-pads-last.log"))
+        shutil.rmtree(home, ignore_errors=True)
+    return problems, passed
+
+
+def gate_controllers(engine, ctx):
+    problems, passed = controllers_check(engine, ctx)
+    return not problems, "selftest " + "; ".join(passed), problems
+
+
 GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", gate_pe32),
          ("winemac", gate_winemac), ("addons", gate_addons), ("wine", gate_wine), ("fonts", gate_fonts),
          ("media", gate_media), ("licences", gate_licences), ("nogpl", gate_nogpl),
          ("identity", gate_identity), ("buildpaths", gate_buildpaths), ("dxmt", gate_dxmt), ("d3d11", gate_d3d11),
-         ("playback", gate_playback), ("steamredirect", gate_steamredirect), ("dockname", gate_dockname)]
+         ("playback", gate_playback), ("steamredirect", gate_steamredirect), ("dockname", gate_dockname),
+         ("controllers", gate_controllers)]
 
 
 # ---------------------------------------------------------------- running

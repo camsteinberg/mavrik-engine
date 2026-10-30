@@ -342,6 +342,23 @@ def run(engine, work):
          G.steamredirect_check(engine, ctx, {"PROTON_DISABLE_LSTEAMCLIENT": "1"})[0],
          r"steamprobe(32|64)\.exe: redirect failed")
 
+    # controllers: three sessions on the real engine whose environment breaks one property each. A DualShock 4 with
+    # MAVRIK_PAD_HIDRAW=1 in the full selftest (raw HID only, so no XInput pad); the same id in "selftest absent"
+    # without it (an XInput pad where none may be); a Switch Pro Controller with SDL's label mapping turned back on
+    # (the bottom button reads as B, so the scripted A press is never seen).
+    for bad_input, extra, args, expect in (
+            ("a DualShock 4 with MAVRIK_PAD_HIDRAW=1 in the full selftest",
+             {"MAVRIK_PAD_VIRTUAL": "054c:09cc", "MAVRIK_PAD_HIDRAW": "1"}, [],
+             r"^054c:09cc 64-bit: (xinput_connected: no XInput pad|the probe did not run to the end)"),
+            ("a DualShock 4 without MAVRIK_PAD_HIDRAW in selftest absent", {"MAVRIK_PAD_VIRTUAL": "054c:09cc"}, ["absent"],
+             r"^054c:09cc 64-bit: (xinput_absent|dinput_absent|\d+ of 2 checks passed)"),
+            ("a Switch Pro Controller with SDL_GAMECONTROLLER_USE_BUTTON_LABELS=1",
+             {"MAVRIK_PAD_VIRTUAL": "057e:2009", "SDL_GAMECONTROLLER_USE_BUTTON_LABELS": "1"}, [],
+             r"^057e:2009 64-bit: (xinput_button_\w+|hotplug_input|wgi_button_a|dinput_button|\d+ of 18 checks passed)")):
+        name = f"{extra['MAVRIK_PAD_VIRTUAL']} 64-bit"
+        case(results, "controllers", bad_input, G.controllers_check(engine, ctx, cases=[(name, "64", extra, args)])[0],
+             expect)
+
     # dockname: an engine clone whose Mac driver cannot find LaunchServices' naming call (the name it looks
     # up is changed in winemac.so, which is then signed again), with the title no link can carry, so the
     # Dock keeps "wine" (patch 0007's link names the process for every other title; the call is its
