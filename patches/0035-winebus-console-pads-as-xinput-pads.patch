@@ -1,0 +1,317 @@
+PlayStation pads reach games as XInput pads through SDL, XInput rumble lasts until the game changes it, XInput's battery call answers as a wired pad does, and winebus has a virtual test pad.
+
+This repository's patch to winebus and XInput, adapted from neutron's patches/wine/0017-winebus-sdl-gamepads.patch
+(github.com/fourlexboehm/neutron at 0ac2574d, LGPL-2.1-or-later, Copyright 2026 the neutron contributors; Wine
+11.19 on macOS), rebased on CrossOver 26.3.0's Wine 11.0 with the variables renamed MAVRIK_PAD_*. neutron's
+winemac half is patch 0036.
+
+The fault: winebus sees each pad twice on a Mac, through SDL and through IOHID, and keeps one copy. For Sony's
+DualShock 4 and DualSense it always kept the raw IOHID copy, and only a gamepad copy gets the XInput child that
+XInput and Windows.Gaming.Input open. So a PlayStation pad was no XInput pad: most PC games saw no controller
+(mavrik S217 read it in S214's log: "ignoring non-hidraw device 054c:09cc", then "creating hidraw device
+054c:09cc"). On Linux, Steam Input hides the real pad behind a virtual Xbox pad; the Mac Steam app makes none for a
+Windows game, and mavrik runs no Windows Steam.
+
+- Sony pads keep the SDL copy, so they are XInput gamepads like every other pad, with Sony's ids and Wine's own
+  report layout. Raw HID stays Wine's choice when SDL is off or MAVRIK_PAD_HIDRAW=1 is in the Unix environment
+  (for a game with its own PlayStation support); services.exe gives winedevice a fresh Windows environment, so
+  the SDL bus reads the variable and sets options.pad_hidraw (at the end of struct bus_options). The variable
+  counts when the prefix's wineserver starts, as it is winedevice's. Nintendo pads already go through SDL in this
+  Wine (11.19 prefers raw HID for the Pro Controller, which neutron's patch covers; a move to that Wine extends
+  this to them).
+- If the SDL bus can't start, disable_sdl is set, and a failed udev bus sets disable_input, so Wine's existing
+  rule keeps the raw IOHID copies (before, they were dropped for SDL copies that never came). The mappings are
+  freed whatever disable_sdl says.
+- XInput rumble lasts until the game changes it: XInput sends only changes, and SDL stopped the motors after
+  Wine's 1000 ms default cutoff. A cutoff of 1000 ms or more becomes SDL's 0 (no end); a shorter one a game set
+  still applies.
+- XInputGetBatteryInformation answers a connected pad as Windows does for a wired one (BATTERY_TYPE_WIRED,
+  BATTERY_LEVEL_FULL; a headset query reads disconnected) instead of ERROR_NOT_SUPPORTED, which no Windows driver
+  returns.
+- SDL may deliver pad events to winedevice, which never has the focus
+  (SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS; SDL3 also turns on GameController's background monitoring with it,
+  for pads it reads through GameController). An environment variable of the same name still wins.
+- MAVRIK_PAD_VIRTUAL=1 (Xbox 360 ids) or =<vid>:<pid> attaches an SDL virtual gamepad that presses A, then B and
+  dpad up, then moves the left stick and trigger, every 400 ms; it echoes rumble back as the right stick and
+  trigger, and a rumble of 0xffff/0x0001 unplugs it for one second. It stays still for 1.5 s after each plug-in:
+  winebus drops input until hidclass starts the device, and moves the dpad's hat switch by steps, so a dpad press
+  lost that way and its release left the hat stuck at "down" (mavrik S217, 4 of 13 probe runs before the hold;
+  Wine's own behaviour, not this patch's). With it, mavrik's tools/gamepadprobe.c (from
+  neutron's tests/gamepad_list.c) checks the whole path with no real pad. Off unless the variable is set.
+
+Checked (mavrik S217 lab): applies after patches 0001 to 0034 with no fuzz; winebus and the xinput DLLs build with
+the engine's toolchain with no new warning. On r10 with these modules laid in (display driver off, a fresh prefix),
+tools/gamepadprobe.c's selftest passed 18 of 18 checks in 64- and 32-bit, in two passes, with the virtual pad as
+045e:028e (Xbox 360), 054c:09cc (DualShock 4) and 054c:0ce6 (DualSense): XInput buttons and axes, rumble echoed
+and still held after 1.5 s, the stop, the wired battery, DirectInput, raw input, Windows.Gaming.Input, unplug and
+replug. With MAVRIK_PAD_HIDRAW=1 the Sony ids' SDL copies were dropped ("ignoring non-hidraw device") and the Xbox
+id still passed 18 of 18. As 057e:2009 (Switch Pro) it passed 18 of 18 with SDL_GAMECONTROLLER_USE_BUTTON_LABELS=0;
+with SDL's default, which this Wine already used for Nintendo pads, A and B are mapped by their labels, so the
+scripted A and B read swapped (15 or 16 of 18). Real pads (SDL's HIDAPI and GameController drivers inside
+winedevice, real motors) are for mavrik's walk.
+
+diff --git a/dlls/winebus.sys/bus_sdl.c b/dlls/winebus.sys/bus_sdl.c
+index f274d54..54668d4 100644
+--- a/dlls/winebus.sys/bus_sdl.c
++++ b/dlls/winebus.sys/bus_sdl.c
+@@ -477,6 +477,11 @@ static NTSTATUS sdl_device_haptics_start(struct unix_device *iface, UINT duratio
+ 
+     if (impl->effect_support & WINE_SDL_JOYSTICK_RUMBLE)
+     {
++        /* mavrik, after neutron: XInput and Windows.Gaming.Input rumble lasts until
++         * the game changes it, but SDL stopped it after Wine's 1 s default cutoff
++         * (XInput sends only changes). Duration 0 makes SDL keep it; shorter
++         * cutoffs a game set still apply. */
++        if (duration_ms >= 1000) duration_ms = 0;
+         pSDL_JoystickRumble(impl->sdl_joystick, rumble_intensity, buzz_intensity, duration_ms);
+         if (pSDL_JoystickRumbleTriggers)
+             pSDL_JoystickRumbleTriggers(impl->sdl_joystick, left_intensity, right_intensity, duration_ms);
+@@ -1073,15 +1078,142 @@ static void process_device_event(SDL_Event *event)
+     pthread_mutex_unlock(&sdl_cs);
+ }
+ 
++/* mavrik, neutron's test pad: MAVRIK_PAD_VIRTUAL=1 attaches an SDL virtual gamepad
++ * with Xbox 360 ids (=<vid>:<pid> in hex for others, e.g. 054c:09cc), so the whole
++ * path (SDL, winebus, XInput, DirectInput, raw input, Windows.Gaming.Input, rumble,
++ * hotplug) can be checked with no real pad (tools/gamepadprobe.c selftest). It
++ * stays still for 1.5 s after each plug-in (winebus drops input until the device is
++ * started, and a lost dpad press leaves its hat switch off by one), then every
++ * 400 ms it moves on: nothing, A, B + dpad up, left stick right/up + left trigger,
++ * nothing. Rumble comes back as input: right stick X = low frequency motor / 2,
++ * right trigger = high frequency motor / 2. Rumble 0xffff/0x0001 unplugs it for 1 s. */
++#if SDL_VERSION_ATLEAST(2, 24, 0)
++static int (*pSDL_JoystickAttachVirtualEx)(const SDL_VirtualJoystickDesc *desc);
++static int (*pSDL_JoystickDetachVirtual)(int device_index);
++static int (*pSDL_JoystickSetVirtualAxis)(SDL_Joystick *joystick, int axis, Sint16 value);
++static int (*pSDL_JoystickSetVirtualButton)(SDL_Joystick *joystick, int button, Uint8 value);
++static SDL_Joystick *(*pSDL_JoystickFromInstanceID)(SDL_JoystickID instance_id);
++static SDL_JoystickID (*pSDL_JoystickGetDeviceInstanceID)(int device_index);
++static int (*pSDL_NumJoysticks)(void);
++
++static BOOL virtual_pad;
++static unsigned int virtual_pad_vid = 0x045e, virtual_pad_pid = 0x028e;
++static SDL_JoystickID virtual_pad_id = -1;
++static Uint32 virtual_pad_start, virtual_pad_replug;
++static volatile Uint16 virtual_pad_low, virtual_pad_high;
++
++static void SDLCALL virtual_pad_update(void *userdata)
++{
++    SDL_Joystick *joystick = pSDL_JoystickFromInstanceID(virtual_pad_id);
++    Uint32 elapsed = pSDL_GetTicks() - virtual_pad_start;
++    unsigned int phase = elapsed < 1500 ? 0 : (elapsed - 1500) / 400 % 5;
++
++    if (!joystick) return;
++    pSDL_JoystickSetVirtualButton(joystick, SDL_CONTROLLER_BUTTON_A, phase == 1);
++    pSDL_JoystickSetVirtualButton(joystick, SDL_CONTROLLER_BUTTON_B, phase == 2);
++    pSDL_JoystickSetVirtualButton(joystick, SDL_CONTROLLER_BUTTON_DPAD_UP, phase == 2);
++    pSDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_LEFTX, phase == 3 ? 32767 : 0);
++    pSDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_LEFTY, phase == 3 ? -32768 : 0);
++    pSDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_TRIGGERLEFT, phase == 3 ? 32767 : -32768);
++    pSDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_RIGHTX, virtual_pad_low / 2);
++    pSDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, (int)virtual_pad_high - 32768);
++}
++
++static int SDLCALL virtual_pad_rumble(void *userdata, Uint16 low, Uint16 high)
++{
++    TRACE("virtual pad rumble %#x %#x\n", low, high);
++    if (low == 0xffff && high == 0x0001) virtual_pad_replug = pSDL_GetTicks();
++    else virtual_pad_low = low, virtual_pad_high = high;
++    /* sdl2-compat hands this SDL2 int (0 = success) to SDL3 as a bool, so success
++     * has to be non-zero there, or SDL3 never sends the stop */
++    return 1;
++}
++
++static void virtual_pad_attach(void)
++{
++    static SDL_VirtualJoystickDesc desc =
++    {
++        .version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION,
++        .type = SDL_JOYSTICK_TYPE_GAMECONTROLLER,
++        .naxes = SDL_CONTROLLER_AXIS_MAX,
++        .nbuttons = SDL_CONTROLLER_BUTTON_DPAD_RIGHT + 1,
++        .button_mask = (1 << (SDL_CONTROLLER_BUTTON_DPAD_RIGHT + 1)) - 1,
++        .axis_mask = (1 << SDL_CONTROLLER_AXIS_MAX) - 1,
++        .name = "mavrik virtual pad",
++        .Update = virtual_pad_update,
++        .Rumble = virtual_pad_rumble,
++    };
++    int index;
++
++    desc.vendor_id = virtual_pad_vid;
++    desc.product_id = virtual_pad_pid;
++    index = pSDL_JoystickAttachVirtualEx(&desc);
++
++    virtual_pad_low = virtual_pad_high = 0;
++    virtual_pad_start = pSDL_GetTicks();
++    virtual_pad_id = index < 0 ? -1 : pSDL_JoystickGetDeviceInstanceID(index);
++    if (index < 0) ERR("could not attach the virtual pad: %s\n", pSDL_GetError());
++    else TRACE("virtual pad %04x:%04x attached, index %d id %d\n", virtual_pad_vid, virtual_pad_pid, index, virtual_pad_id);
++}
++
++static void virtual_pad_init(void)
++{
++    const char *env = getenv("MAVRIK_PAD_VIRTUAL");
++
++    if (!env || (strcmp(env, "1") && sscanf(env, "%x:%x", &virtual_pad_vid, &virtual_pad_pid) != 2)) return;
++#define LOAD_FUNCPTR(f) if (!(p##f = dlsym(sdl_handle, #f))) { ERR("no %s for the virtual pad\n", #f); return; }
++    LOAD_FUNCPTR(SDL_JoystickAttachVirtualEx);
++    LOAD_FUNCPTR(SDL_JoystickDetachVirtual);
++    LOAD_FUNCPTR(SDL_JoystickSetVirtualAxis);
++    LOAD_FUNCPTR(SDL_JoystickSetVirtualButton);
++    LOAD_FUNCPTR(SDL_JoystickFromInstanceID);
++    LOAD_FUNCPTR(SDL_JoystickGetDeviceInstanceID);
++    LOAD_FUNCPTR(SDL_NumJoysticks);
++#undef LOAD_FUNCPTR
++    virtual_pad = TRUE;
++    virtual_pad_attach();
++}
++
++/* Runs in the bus thread: unplugs the pad when asked and plugs it in again after 1 s. */
++static void virtual_pad_poll(void)
++{
++    int i;
++
++    if (!virtual_pad || !virtual_pad_replug) return;
++    if (virtual_pad_id != -1)
++    {
++        for (i = 0; i < pSDL_NumJoysticks(); i++)
++            if (pSDL_JoystickGetDeviceInstanceID(i) == virtual_pad_id) pSDL_JoystickDetachVirtual(i);
++        TRACE("virtual pad detached\n");
++        virtual_pad_id = -1;
++    }
++    else if (pSDL_GetTicks() - virtual_pad_replug >= 1000)
++    {
++        virtual_pad_replug = 0;
++        virtual_pad_attach();
++    }
++}
++#else
++static void virtual_pad_init(void) {}
++static void virtual_pad_poll(void) {}
++#endif
++
+ NTSTATUS sdl_bus_init(void *args)
+ {
+-    const char *mapping;
++    const char *mapping, *env;
+     int i;
+ 
+     TRACE("args %p\n", args);
+ 
+     options = (struct bus_options *)args;
+ 
++    /* mavrik: see is_hidraw_enabled in main.c */
++    if ((env = getenv("MAVRIK_PAD_HIDRAW")) && !strcmp(env, "1"))
++    {
++        ((struct bus_options *)args)->pad_hidraw = TRUE;
++        TRACE("PlayStation pads as raw HID devices\n");
++    }
++
+     if (!(sdl_handle = dlopen(SONAME_LIBSDL2, RTLD_NOW)))
+     {
+         WARN("could not load %s\n", SONAME_LIBSDL2);
+@@ -1155,6 +1287,9 @@ NTSTATUS sdl_bus_init(void *args)
+     pSDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
+     pSDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
+ #endif
++    /* mavrik, after neutron: winedevice never has the focus, so SDL must not drop pad
++     * events for a background app (an environment variable of the same name still wins) */
++    pSDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+ 
+     if (pSDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) < 0)
+     {
+@@ -1188,6 +1323,7 @@ NTSTATUS sdl_bus_init(void *args)
+         }
+     }
+ 
++    virtual_pad_init();
+     return STATUS_SUCCESS;
+ 
+ failed:
+@@ -1207,6 +1343,7 @@ NTSTATUS sdl_bus_wait(void *args)
+     do
+     {
+         if (bus_event_queue_pop(&event_queue, result)) return STATUS_PENDING;
++        virtual_pad_poll();
+         if (pSDL_WaitEventTimeout(&event, 10) != 0) process_device_event(&event);
+         else check_all_devices_effects_state();
+     } while (event.type != quit_event);
+diff --git a/dlls/winebus.sys/main.c b/dlls/winebus.sys/main.c
+index 81e4166..d3cc406 100644
+--- a/dlls/winebus.sys/main.c
++++ b/dlls/winebus.sys/main.c
+@@ -539,8 +539,19 @@ static BOOL is_hidraw_enabled(WORD vid, WORD pid, const USAGE_AND_PAGE *usages,
+     if (usages->Usage != HID_USAGE_GENERIC_GAMEPAD && usages->Usage != HID_USAGE_GENERIC_JOYSTICK) return TRUE;
+ 
+     if (options.disable_sdl && options.disable_input) prefer_hidraw = TRUE;
+-    if (is_dualshock4_gamepad(vid, pid)) prefer_hidraw = TRUE;
+-    if (is_dualsense_gamepad(vid, pid)) prefer_hidraw = TRUE;
++    /* mavrik, after neutron's 0017 (github.com/fourlexboehm/neutron): Wine keeps
++     * PlayStation pads as raw HID devices, which games read as no XInput pad, and
++     * Proton leaves XInput to Steam Input; the Mac Steam app makes no virtual pad
++     * for a Windows game. So they go through SDL as XInput gamepads like every
++     * other pad, unless SDL is off or MAVRIK_PAD_HIDRAW=1 (raw HID for a game with
++     * its own PlayStation support). services.exe gives winedevice a fresh Windows
++     * environment, so the SDL bus reads the variable from the Unix environment
++     * into options.pad_hidraw. Nintendo pads already go through SDL here. */
++    if (options.disable_sdl || options.pad_hidraw)
++    {
++        if (is_dualshock4_gamepad(vid, pid)) prefer_hidraw = TRUE;
++        if (is_dualsense_gamepad(vid, pid)) prefer_hidraw = TRUE;
++    }
+ 
+     switch (vid)
+     {
+@@ -1222,7 +1233,7 @@ static void bus_options_cleanup(void)
+ {
+     struct device_options *device, *next;
+ 
+-    if (!options.disable_sdl) sdl_bus_free_mappings(&options);
++    sdl_bus_free_mappings(&options); /* mavrik: disable_sdl is also set when SDL failed to start */
+ 
+     LIST_FOR_EACH_ENTRY_SAFE(device, next, &options.devices, struct device_options, entry)
+     {
+@@ -1303,7 +1314,10 @@ static NTSTATUS fdo_pnp_dispatch(DEVICE_OBJECT *device, IRP *irp)
+         keyboard_device_create();
+ 
+         if (!sdl_driver_init()) options.disable_input = TRUE;
+-        udev_driver_init();
++        /* mavrik, after neutron: without SDL (or udev) nothing maps the pads, so
++         * the raw IOHID devices must not be dropped for SDL devices that never come */
++        else options.disable_sdl = TRUE;
++        if (udev_driver_init()) options.disable_input = TRUE;
+         iohid_driver_init();
+         xbox_driver_init();
+ 
+diff --git a/dlls/winebus.sys/unixlib.h b/dlls/winebus.sys/unixlib.h
+index 19779b2..fee576a 100644
+--- a/dlls/winebus.sys/unixlib.h
++++ b/dlls/winebus.sys/unixlib.h
+@@ -66,6 +66,7 @@ struct bus_options
+     UINT mappings_count;
+     struct list devices;
+     char **mappings;
++    BOOL pad_hidraw; /* mavrik: MAVRIK_PAD_HIDRAW=1, set by the SDL bus, see main.c */
+ };
+ 
+ struct xbox_bus_options
+diff --git a/dlls/xinput1_3/main.c b/dlls/xinput1_3/main.c
+index c1ad48e..89c18c6 100644
+--- a/dlls/xinput1_3/main.c
++++ b/dlls/xinput1_3/main.c
+@@ -1124,7 +1124,14 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetBatteryInformation(DWORD index, BYTE typ
+     if (index >= XUSER_MAX_COUNT) return ERROR_BAD_ARGUMENTS;
+     if (!controllers[index].device) return ERROR_DEVICE_NOT_CONNECTED;
+ 
+-    return ERROR_NOT_SUPPORTED;
++    /* mavrik, after neutron: the HID gamepads have no battery report; answer as Windows
++     * does for a wired pad instead of ERROR_NOT_SUPPORTED, which no Windows driver returns */
++    if (battery)
++    {
++        battery->BatteryType = type == BATTERY_DEVTYPE_GAMEPAD ? BATTERY_TYPE_WIRED : BATTERY_TYPE_DISCONNECTED;
++        battery->BatteryLevel = type == BATTERY_DEVTYPE_GAMEPAD ? BATTERY_LEVEL_FULL : BATTERY_LEVEL_EMPTY;
++    }
++    return ERROR_SUCCESS;
+ }
+ 
+ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetCapabilitiesEx(DWORD unk, DWORD index, DWORD flags, XINPUT_CAPABILITIES_EX *caps)

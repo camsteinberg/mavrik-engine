@@ -1,0 +1,140 @@
+A pad's Home (PS) and Share buttons go to the game instead of macOS's Game Overlay, Launchpad and screenshots.
+
+This repository's patch to the Mac driver, from neutron's patches/wine/0017-winebus-sdl-gamepads.patch
+(dlls/winemac.drv/cocoa_gamepad.m, with its hooks in neutron's 0010 and 0014; github.com/fourlexboehm/neutron at
+0ac2574d, LGPL-2.1-or-later, Copyright 2026 the neutron contributors), with the variable renamed.
+
+Games read pads in winedevice (winebus through SDL, patch 0035), a background process. macOS binds a pad's Home or
+PS button and its Share or Create button to system gestures and applies them for the frontmost app, which is the
+game's Wine process; SDL turns them off only in its own process (SDL_mfijoystick.m). So each Wine process with the
+Mac driver asks GameController to leave every button bound to a system gesture to the app
+(preferredSystemGestureState = GCSystemGestureStateDisabled), for the pads connected now and each one connected
+later, on the main queue, as a native game does. MAVRIK_PAD_SYSTEM_GESTURES=1 keeps the macOS gestures. winemac.so
+links GameController (macOS 11 and later; the engine's target is 14.0).
+
+Checked (mavrik S217 lab): applies after patches 0001 to 0035 with no fuzz and winemac.so builds with no new
+warning. Its effect needs a real pad and the screen, so it is proven in mavrik's walk.
+
+diff --git a/dlls/winemac.drv/Makefile.in b/dlls/winemac.drv/Makefile.in
+index b2f87ce..3a811c9 100644
+--- a/dlls/winemac.drv/Makefile.in
++++ b/dlls/winemac.drv/Makefile.in
+@@ -8,6 +8,7 @@ UNIX_LIBS    = \
+ 	-framework Carbon \
+ 	-framework CoreVideo \
+ 	-framework Foundation \
++	-framework GameController \
+ 	-framework IOKit \
+ 	-framework Metal \
+ 	-framework OpenGL \
+@@ -21,6 +22,7 @@ SOURCES = \
+ 	cocoa_cursorclipping.m \
+ 	cocoa_display.m \
+ 	cocoa_event.m \
++	cocoa_gamepad.m \
+ 	cocoa_icon_utils.m \
+ 	cocoa_main.m \
+ 	cocoa_opengl.m \
+diff --git a/dlls/winemac.drv/cocoa_gamepad.m b/dlls/winemac.drv/cocoa_gamepad.m
+new file mode 100644
+index 0000000..6e857d9
+--- /dev/null
++++ b/dlls/winemac.drv/cocoa_gamepad.m
+@@ -0,0 +1,66 @@
++/*
++ * MACDRV game controller system gestures
++ *
++ * mavrik, from neutron's 0017 (github.com/fourlexboehm/neutron): games read
++ * pads in winedevice (winebus through SDL), a background process. macOS binds
++ * a pad's Home or PS button (Launchpad, the Game Overlay) and its Share or
++ * Create button (screenshots, recording) to system gestures and applies them
++ * for the frontmost app, which is the game's Wine process. So this process
++ * asks GameController to leave those buttons to the game, as a native game
++ * does. MAVRIK_PAD_SYSTEM_GESTURES=1 keeps the macOS gestures.
++ *
++ * Copyright 2026 the neutron contributors
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#import <GameController/GameController.h>
++
++#include "macdrv_cocoa.h"
++
++
++static void disable_system_gestures(GCController* controller)
++{
++    GCPhysicalInputProfile* profile = controller.physicalInputProfile;
++
++    for (NSString* name in profile.buttons)
++    {
++        GCControllerButtonInput* button = profile.buttons[name];
++
++        if (!button.boundToSystemGesture) continue;
++        button.preferredSystemGestureState = GCSystemGestureStateDisabled;
++    }
++}
++
++/***********************************************************************
++ *              macdrv_start_gamepad_gestures
++ *
++ * Turn the system gestures off for every connected and future pad. The
++ * handlers run on the main queue.
++ */
++void macdrv_start_gamepad_gestures(void)
++{
++    dispatch_async(dispatch_get_main_queue(), ^{
++        [[NSNotificationCenter defaultCenter] addObserverForName:GCControllerDidConnectNotification
++                                                          object:nil
++                                                           queue:nil
++                                                      usingBlock:^(NSNotification* note){
++            disable_system_gestures(note.object);
++        }];
++
++        for (GCController* controller in [GCController controllers])
++            disable_system_gestures(controller);
++    });
++}
+diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+index b1b23bc..c0b1b0a 100644
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -148,6 +148,9 @@
+ extern bool retina_on;       /* Whether Retina mode is currently active (enabled and display is in default mode). */
+ extern bool enable_app_nap;
+ 
++/* mavrik: pad buttons bound to macOS system gestures go to the game, see cocoa_gamepad.m */
++extern void macdrv_start_gamepad_gestures(void);
++
+ static inline CGRect cgrect_mac_from_win(CGRect rect)
+ {
+     if (retina_on)
+diff --git a/dlls/winemac.drv/macdrv_main.c b/dlls/winemac.drv/macdrv_main.c
+index c75d842..47897f1 100644
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -397,6 +397,12 @@ static void setup_options(void)
+ 
+     retina_on = retina_enabled;
+ 
++    /* mavrik, after neutron: a pad's Home and Share buttons go to the game, see cocoa_gamepad.m */
++    {
++        const char *env = getenv("MAVRIK_PAD_SYSTEM_GESTURES");
++        if (!env || strcmp(env, "1")) macdrv_start_gamepad_gestures();
++    }
++
+     if (appkey) NtClose(appkey);
+     if (hkey) NtClose(hkey);
+ }
