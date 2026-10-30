@@ -1,0 +1,688 @@
+While a game hides the cursor and holds the pointer, a mouse's own counts go to it as Windows' raw input does, with none of macOS's pointer acceleration; the trackpad keeps today's path.
+
+This repository's patch to the Mac driver (version 1), after Recall's wine-mouselook.patch (github.com/AsherJN/recall
+at 7aa7fb3, Josh Nelson; a change to Wine, LGPL-2.1-or-later): its design (GameController's GCMouse while the game
+holds the pointer, the Mac pointer stopped, 1 ms batching, AppKit's moves dropped while the mouse reports, clicks and
+scrolls that don't move Wine's cursor, GetCursorPos left to Wine's server), written for this tree. To be offered to
+WineHQ. Needs 0013's clientWantsCursorHidden, 0015's overlay lift and restore (v4: Show Desktop too) and 0036's
+GameController link.
+
+The fault: a game that holds the pointer (mouse-look) got [NSEvent deltaX], the Mac's accelerated pointer motion in
+points, coalesced to about one move per display frame (winit measured 8 ms between AppKit moves against 1 ms at the
+device), and lost the moves stamped before each of its own SetCursorPos warps. Windows games expect raw counts: the
+same hand movement turned the camera by different amounts at different speeds (mavrik S210, the user's Skyrim walk).
+
+- Raw mode is on while all of these hold, re-evaluated when any of them changes: Wine is the active app; the key
+  window is a visible WineWindow and none is being dragged; the game hides the cursor (0013's state); the confinement
+  clip holds the pointer and 0015 hasn't lifted it for an overlay; a GameController mouse that is not a trackpad is
+  connected; the Mac driver option RawMouseInput isn't "n" (default on, not shown to players: for lab comparisons and
+  the per-game fix list). Only with the confinement clip, because 0015's watch runs then: Mission Control, App Exposé
+  and Show Desktop lift the clip and so end raw mode, and the player has the pointer there. A game that holds the
+  pointer by warping alone keeps AppKit's path, as does every Mac with only a trackpad (the player's choice: the
+  trackpad keeps macOS's acceleration).
+- On: CGAssociateMouseAndMouseCursorPosition(false) stops the Mac pointer; each counted mouse's mouseMovedHandler
+  runs on one serial queue at user-interactive priority (cocoa_rawmouse.m) and adds the counts (GameController's Y
+  axis points up); at most once a millisecond the whole counts go to the key window's queue as one MOUSE_MOVED_RELATIVE,
+  the remainders kept. Wine's server puts relative moves into WM_INPUT unchanged and moves its cursor by them. Counts
+  are never scaled for Retina mode: Windows' raw input is in counts at any DPI.
+- AppKit's moves during raw mode: dropped while a counted mouse reported in the last 250 ms (the same motion); others
+  (the trackpad) go as relative moves with macOS's acceleration, as when the pointer is pinned at the clip's edge. The
+  hidden cursor is still set again (0014 v2).
+- SetCursorPos in raw mode warps nothing and drops no queued move; the position is kept, and GetCursorPos answers
+  Wine's own position. Clicks and wheel turns carry no position (no_move), so the stopped pointer never moves Wine's
+  cursor.
+- Off (any condition gone, resign active first of all): the handlers are cleared, the pointer associated again and
+  put where the game last put its cursor, unless macOS shows an overlay; the next AppKit move is absolute. The stopped
+  pointer is this process's window-server state and ends with it.
+
+The mouse-or-trackpad test is one function, raw_mouse_device_counts() (Recall's: the device's vendorName names a
+Trackpad).
+
+Checked (mavrik S217 lab): applies after patches 0001 to 0038 with no fuzz; winemac builds with the engine's toolchain
+with no new warning. Its effect needs a mouse, the screen and a game: mavrik's away block and walk.
+
+diff --git a/dlls/winemac.drv/Makefile.in b/dlls/winemac.drv/Makefile.in
+index 3a811c9..300c2e9 100644
+--- a/dlls/winemac.drv/Makefile.in
++++ b/dlls/winemac.drv/Makefile.in
+@@ -26,6 +26,7 @@ SOURCES = \
+ 	cocoa_icon_utils.m \
+ 	cocoa_main.m \
+ 	cocoa_opengl.m \
++	cocoa_rawmouse.m \
+ 	cocoa_status_item.m \
+ 	cocoa_window.m \
+ 	d3dmetal.c \
+diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
+index 4c3c959..360b263 100644
+--- a/dlls/winemac.drv/cocoa_app.h
++++ b/dlls/winemac.drv/cocoa_app.h
+@@ -88,6 +88,12 @@ @interface WineApplicationController : NSObject <NSApplicationDelegate>
+ 
+     NSTimeInterval lastSetCursorPositionTime;
+ 
++    /* mavrik: raw mouse input (cocoa_rawmouse.m) */
++    BOOL rawMouseActive;
++    WineWindow* rawMouseWindow;     /* for comparison only; cocoa_rawmouse.m retains it */
++    CGPoint rawMouseGamePosition;   /* where the game last put its cursor, in Mac points */
++    BOOL rawMouseGamePositionSet;
++
+     id<WineClipCursorHandler> clipCursorHandler;
+ 
+     /* Watch for Mission Control, App Exposé and Show Desktop (WindowManager's
+@@ -171,5 +177,11 @@ @interface WineApplication : NSApplication
+ 
+ void OnMainThreadAsync(dispatch_block_t block);
+ 
++/* mavrik: raw mouse input, cocoa_rawmouse.m */
++BOOL macdrv_raw_mouse_available(void (^changed)(void));
++void macdrv_raw_mouse_start(WineWindow* window);
++void macdrv_raw_mouse_stop(void);
++BOOL macdrv_raw_mouse_reported_within(uint64_t ns);
++
+ void LogError(const char* func, NSString* format, ...);
+ void LogErrorv(const char* func, NSString* format, va_list args);
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index 22ca33c..24589b3 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1361,6 +1361,7 @@ - (void) hideCursor
+         {
+             clientWantsCursorHidden = TRUE;
+             [self updateCursor:TRUE];
++            [self updateRawMouse];
+         }
+     }
+ 
+@@ -1370,6 +1371,7 @@ - (void) unhideCursor
+         {
+             clientWantsCursorHidden = FALSE;
+             [self updateCursor:FALSE];
++            [self updateRawMouse];
+         }
+     }
+ 
+@@ -1548,6 +1550,17 @@ - (BOOL) setCursorPosition:(CGPoint)pos
+         if (systemOverlayShown && [NSApp isActive])
+             return TRUE;
+ 
++        // Raw mode stopped the Mac pointer and sends the game relative moves
++        // only: a warp would move nothing and drop the moves queued before it.
++        // Wine's server has the game's position; the Mac pointer goes there
++        // when raw mode ends.
++        if (rawMouseActive)
++        {
++            rawMouseGamePosition = pos;
++            rawMouseGamePositionSet = TRUE;
++            return TRUE;
++        }
++
+         if ([windowsBeingDragged count])
+             ret = FALSE;
+         else if (self.clippingCursor && [clipCursorHandler respondsToSelector:@selector(setCursorPosition:)])
+@@ -1642,6 +1655,7 @@ - (BOOL) startClippingCursor:(CGRect)rect
+ 
+         [self updateWindowsForCursorClipping];
+         [self updateSystemOverlayWatch:FALSE];
++        [self updateRawMouse];
+ 
+         return TRUE;
+     }
+@@ -1658,10 +1672,77 @@ - (BOOL) stopClippingCursor
+ 
+         [self updateWindowsForCursorClipping];
+         [self updateSystemOverlayWatch:FALSE];
++        [self updateRawMouse];
+ 
+         return TRUE;
+     }
+ 
++    /*
++     * ---------- Raw mouse input (mavrik, after Recall) ----------
++     *
++     * While the game hides the cursor and the confinement clip holds the
++     * pointer, with Wine in front and a visible key window of ours, the Mac
++     * pointer is stopped (CGAssociateMouseAndMouseCursorPosition) and a
++     * mouse's own counts from GameController go to the game as relative moves
++     * (cocoa_rawmouse.m): no macOS acceleration, one move per device report
++     * up to 1,000 a second, none lost to the game's warps. Only with the
++     * confinement clip, because then 0015's watch runs: an overlay (Mission
++     * Control, App Exposé, Show Desktop) lifts the clip and so ends raw mode,
++     * and the player has the pointer there. A game that holds the pointer by
++     * warping alone keeps AppKit's path. The trackpad, and a Mac with no
++     * mouse, keep AppKit's path too. The Mac driver option RawMouseInput=n
++     * turns it off.
++     */
++    - (BOOL) rawMouseWanted
++    {
++        WineConfinementClipCursorHandler* handler = [self confinementClipCursorHandler];
++        NSWindow* key = [NSApp keyWindow];
++
++        if (!raw_mouse_input || !clientWantsCursorHidden || systemOverlayShown || ![NSApp isActive] ||
++            [windowsBeingDragged count])
++            return FALSE;
++        if (!handler.clippingCursor || handler.clippingSuspended)
++            return FALSE;
++        if (![key isKindOfClass:[WineWindow class]] || ![key isVisible] || [key isMiniaturized])
++            return FALSE;
++        return macdrv_raw_mouse_available(^{ [self updateRawMouse]; });
++    }
++
++    - (void) updateRawMouse
++    {
++        if ([self rawMouseWanted])
++        {
++            WineWindow* key = (WineWindow*)[NSApp keyWindow];
++
++            if (!rawMouseActive)
++            {
++                rawMouseActive = TRUE;
++                rawMouseGamePositionSet = FALSE;
++                CGAssociateMouseAndMouseCursorPosition(false);
++                TRACE_CURSOR("raw mouse on\n");
++            }
++            if (rawMouseWindow != key)
++            {
++                rawMouseWindow = key;
++                macdrv_raw_mouse_start(key);
++            }
++        }
++        else if (rawMouseActive)
++        {
++            macdrv_raw_mouse_stop();
++            rawMouseActive = FALSE;
++            rawMouseWindow = nil;
++            CGAssociateMouseAndMouseCursorPosition(true);
++
++            // The Mac pointer stayed where raw mode stopped it; put it where
++            // the game last put its cursor, unless macOS has the pointer.
++            if (rawMouseGamePositionSet && [NSApp isActive] && !systemOverlayShown)
++                [self setCursorPosition:rawMouseGamePosition];
++            forceNextMouseMoveAbsolute = TRUE;
++            TRACE_CURSOR("raw mouse off\n");
++        }
++    }
++
+     - (BOOL) clippingCursor
+     {
+         return clipCursorHandler.clippingCursor;
+@@ -1818,6 +1899,9 @@ - (void) liftConfinementForSystemOverlay
+         [handler suspendClippingCursor];
+         systemOverlayShown = TRUE;
+ 
++        // Raw mode ends with the clip: macOS's overlay needs the pointer.
++        [self updateRawMouse];
++
+         // As the event tap handler does for events destined for another
+         // process: treat our next mouse move as absolute.  macOS shows its own
+         // cursor over the overlay, so set ours again after it.
+@@ -1865,6 +1949,7 @@ - (void) restoreConfinementAfterSystemOverlay
+             });
+ 
+             TRACE_CURSOR("system overlay gone: confinement restored\n");
++            [self updateRawMouse];
+         }
+         else if (wasShown)
+             TRACE_CURSOR("system overlay gone: no window to confine to yet\n");
+@@ -1953,6 +2038,8 @@ - (void) handleWindowDrag:(WineWindow*)window begin:(BOOL)begin
+             event->window_drag_begin.no_activate = [NSEvent wine_commandKeyDown];
+         [window.queue postEvent:event];
+         macdrv_release_event(event);
++
++        [self updateRawMouse];
+     }
+ 
+     - (void) handleMouseMove:(NSEvent*)anEvent
+@@ -2007,7 +2094,21 @@ - (void) handleMouseMove:(NSEvent*)anEvent
+                 forceNextMouseMoveAbsolute = TRUE;
+             }
+ 
+-            if (forceNextMouseMoveAbsolute || targetWindow != lastTargetWindow)
++            if (rawMouseActive)
++            {
++                // The pointer is stopped, so its location says nothing. A
++                // mouse's motion already went to the game from GameController;
++                // other moves (the trackpad) go as relative moves with macOS's
++                // acceleration, as when the pointer is pinned at the clip's edge.
++                if (macdrv_raw_mouse_reported_within(250 * NSEC_PER_MSEC))
++                {
++                    lastTargetWindow = targetWindow;
++                    [self updateCursor:FALSE];
++                    return;
++                }
++                absolute = FALSE;
++            }
++            else if (forceNextMouseMoveAbsolute || targetWindow != lastTargetWindow)
+             {
+                 absolute = TRUE;
+                 forceNextMouseMoveAbsolute = FALSE;
+@@ -2213,6 +2314,7 @@ - (void) handleMouseButton:(NSEvent*)theEvent
+                 event = macdrv_create_event(MOUSE_BUTTON, window);
+                 event->mouse_button.button = [theEvent buttonNumber];
+                 event->mouse_button.pressed = pressed;
++                event->mouse_button.no_move = rawMouseActive;
+                 event->mouse_button.x = floor(pt.x);
+                 event->mouse_button.y = floor(pt.y);
+                 event->mouse_button.time_ms = [self ticksForEventTime:[theEvent timestamp]];
+@@ -2294,6 +2396,7 @@ - (void) handleScrollWheel:(NSEvent*)theEvent
+                 pt = cgpoint_win_from_mac(pt);
+ 
+                 event = macdrv_create_event(MOUSE_SCROLL, window);
++                event->mouse_scroll.no_move = rawMouseActive;
+                 event->mouse_scroll.x = floor(pt.x);
+                 event->mouse_scroll.y = floor(pt.y);
+                 event->mouse_scroll.time_ms = [self ticksForEventTime:[theEvent timestamp]];
+@@ -2499,6 +2602,7 @@ - (void) setupObservations
+             [keyWindows insertObject:window atIndex:0];
+             // CrossOver Hack 10912: Mac Edit menu
+             [self changeEditMenuKeyEquivalentsForWindow:window];
++            [self updateRawMouse];
+         }];
+ 
+         // CrossOver Hack 10912: Mac Edit menu
+@@ -2507,6 +2611,7 @@ - (void) setupObservations
+                          queue:nil
+                     usingBlock:^(NSNotification *note){
+             [self changeEditMenuKeyEquivalentsForWindow:nil];
++            [self updateRawMouse];
+         }];
+ 
+         [nc addObserverForName:NSWindowWillCloseNotification
+@@ -3005,6 +3110,7 @@ - (void)applicationDidBecomeActive:(NSNotification *)notification
+         });
+ 
+         [self updateSystemOverlayWatch:TRUE];
++        [self updateRawMouse];
+     }
+ 
+     - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
+@@ -3030,6 +3136,9 @@ - (void)applicationDidResignActive:(NSNotification *)notification
+         // activates us as it opens, and the read at activation settles it.
+         [self stopSystemOverlayWatch];
+ 
++        // The pointer is the next app's: raw mode ends before it takes input.
++        [self updateRawMouse];
++
+         if (!temporarilyIgnoreResignEventsForDialog)
+         {
+             event = macdrv_create_event(APP_DEACTIVATED, nil);
+diff --git a/dlls/winemac.drv/cocoa_rawmouse.m b/dlls/winemac.drv/cocoa_rawmouse.m
+new file mode 100644
+index 0000000..cca8fce
+--- /dev/null
++++ b/dlls/winemac.drv/cocoa_rawmouse.m
+@@ -0,0 +1,269 @@
++/*
++ * MACDRV raw mouse input
++ *
++ * mavrik, after Recall's wine-mouselook.patch (github.com/AsherJN/recall at
++ * 7aa7fb3, Josh Nelson; a change to Wine, LGPL-2.1-or-later): while a game
++ * hides the cursor and holds the pointer, the Mac driver stops the Mac
++ * pointer and sends the game a mouse's own counts from GameController's
++ * GCMouse (once per device report, with none of macOS's pointer
++ * acceleration) as relative moves, as Windows' raw input does. AppKit's
++ * mouse deltas, which carry macOS's acceleration and arrive about once per
++ * display frame, stay the path for the trackpad. cocoa_app.m decides when
++ * raw mode is on; this file holds the GCMouse side. The code was written for
++ * this tree.
++ *
++ * Copyright 2026 the mavrik-engine contributors
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#import <GameController/GameController.h>
++#include <os/lock.h>
++#include <time.h>
++
++#import "cocoa_app.h"
++#import "cocoa_event.h"
++#import "cocoa_window.h"
++
++
++/* At most one relative move a millisecond goes to the game (Recall's
++ * default); the rest is added up and the remainder kept. */
++#define RAW_MOUSE_INTERVAL_NS (1 * NSEC_PER_MSEC)
++
++/* Shared between the main thread (start, stop, AppKit's moves) and the
++ * handler queue, under raw_mouse_lock. */
++static os_unfair_lock raw_mouse_lock = OS_UNFAIR_LOCK_INIT;
++static WineWindow* raw_mouse_window;        /* retained; nil while raw mode is off */
++static WineEventQueue* raw_mouse_event_queue;   /* its queue, retained */
++static double raw_mouse_pending_x, raw_mouse_pending_y;
++static uint64_t raw_mouse_last_post;        /* CLOCK_UPTIME_RAW, ns */
++static uint64_t raw_mouse_last_report;      /* the last GCMouse report, CLOCK_UPTIME_RAW, ns */
++static BOOL raw_mouse_flush_pending;
++
++/* Main thread only. */
++static dispatch_queue_t raw_mouse_queue;
++static NSMutableArray* raw_mouse_devices;   /* the GCMouse objects whose handler is ours */
++static BOOL raw_mouse_observing;
++
++int macdrv_raw_mouse_on;                    /* read by mouse.c's GetCursorPos and SetCursorPos */
++
++
++/* Is this GameController mouse one whose counts the game gets?  The built-in
++ * and Magic Trackpad keep AppKit's accelerated path (the player's choice,
++ * mavrik S217); Recall tells them apart by the device's vendorName. Kept in
++ * one function, as the mouse probe may still change the test. */
++static BOOL raw_mouse_device_counts(GCMouse* mouse)
++{
++    NSString* name = mouse.vendorName;
++
++    return !(name && [name rangeOfString:@"Trackpad" options:NSCaseInsensitiveSearch].location != NSNotFound);
++}
++
++static void raw_mouse_flush(void);
++
++static void raw_mouse_schedule_flush(uint64_t delay_ns)
++{
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay_ns), raw_mouse_queue, ^{
++        os_unfair_lock_lock(&raw_mouse_lock);
++        raw_mouse_flush_pending = FALSE;
++        os_unfair_lock_unlock(&raw_mouse_lock);
++        raw_mouse_flush();
++    });
++}
++
++/* On the handler queue: sends the whole counts added up so far as one
++ * relative move, at most once per RAW_MOUSE_INTERVAL_NS; what arrives sooner
++ * waits for one flush. */
++static void raw_mouse_flush(void)
++{
++    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW), wait = 0;
++    WineEventQueue* queue = nil;
++    macdrv_event* event = NULL;
++
++    os_unfair_lock_lock(&raw_mouse_lock);
++    if (raw_mouse_window && ((int)raw_mouse_pending_x || (int)raw_mouse_pending_y))
++    {
++        if (now - raw_mouse_last_post >= RAW_MOUSE_INTERVAL_NS)
++        {
++            event = macdrv_create_event(MOUSE_MOVED_RELATIVE, raw_mouse_window);
++            event->mouse_moved.x = (int)raw_mouse_pending_x;
++            event->mouse_moved.y = (int)raw_mouse_pending_y;
++            raw_mouse_pending_x -= event->mouse_moved.x;
++            raw_mouse_pending_y -= event->mouse_moved.y;
++            raw_mouse_last_post = now;
++            queue = [raw_mouse_event_queue retain];
++        }
++        else if (!raw_mouse_flush_pending)
++        {
++            raw_mouse_flush_pending = TRUE;
++            wait = RAW_MOUSE_INTERVAL_NS - (now - raw_mouse_last_post);
++        }
++    }
++    os_unfair_lock_unlock(&raw_mouse_lock);
++
++    if (event)
++    {
++        /* The queue adds this to a move the Wine thread hasn't read yet. */
++        event->mouse_moved.drag = FALSE;
++        event->mouse_moved.time_ms = [[WineApplicationController sharedController] ticksForEventTime:now / (double)NSEC_PER_SEC];
++        [queue postEvent:event];
++        macdrv_release_event(event);
++        [queue release];
++    }
++    if (wait)
++        raw_mouse_schedule_flush(wait);
++}
++
++/* On the handler queue, once per device report. GameController's Y axis
++ * points up, Windows' down. */
++static void raw_mouse_moved(float dx, float dy)
++{
++    os_unfair_lock_lock(&raw_mouse_lock);
++    if (raw_mouse_window)
++    {
++        raw_mouse_pending_x += dx;
++        raw_mouse_pending_y -= dy;
++        raw_mouse_last_report = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
++    }
++    os_unfair_lock_unlock(&raw_mouse_lock);
++    raw_mouse_flush();
++}
++
++static void raw_mouse_attach(GCMouse* mouse)
++{
++    if (!raw_mouse_device_counts(mouse) || [raw_mouse_devices containsObject:mouse])
++        return;
++
++    [raw_mouse_devices addObject:mouse];
++    mouse.handlerQueue = raw_mouse_queue;
++    mouse.mouseInput.mouseMovedHandler = ^(GCMouseInput* input, float deltaX, float deltaY){
++        raw_mouse_moved(deltaX, deltaY);
++    };
++}
++
++static void raw_mouse_detach_all(void)
++{
++    for (GCMouse* mouse in raw_mouse_devices)
++    {
++        mouse.mouseInput.mouseMovedHandler = nil;
++        mouse.handlerQueue = dispatch_get_main_queue();
++    }
++    [raw_mouse_devices removeAllObjects];
++}
++
++/***********************************************************************
++ *              macdrv_raw_mouse_available
++ *
++ * Main thread. Is a mouse that counts connected?  The first call starts
++ * watching GameController's mice, so a mouse plugged in or taken away
++ * re-evaluates raw mode (changed is called on the main thread).
++ */
++BOOL macdrv_raw_mouse_available(void (^changed)(void))
++{
++    if (!raw_mouse_observing)
++    {
++        NSNotificationCenter* nc = [NSNotificationCenter defaultCenter];
++
++        raw_mouse_observing = TRUE;
++        raw_mouse_devices = [[NSMutableArray alloc] init];
++        raw_mouse_queue = dispatch_queue_create("org.winehq.wine.winemac.raw-mouse",
++                                                dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
++                                                                                        QOS_CLASS_USER_INTERACTIVE, 0));
++        [nc addObserverForName:GCMouseDidConnectNotification object:nil queue:[NSOperationQueue mainQueue]
++                    usingBlock:^(NSNotification* note){
++            if (macdrv_raw_mouse_on)
++                raw_mouse_attach(note.object);
++            changed();
++        }];
++        [nc addObserverForName:GCMouseDidDisconnectNotification object:nil queue:[NSOperationQueue mainQueue]
++                    usingBlock:^(NSNotification* note){
++            [raw_mouse_devices removeObject:note.object];
++            changed();
++        }];
++    }
++
++    for (GCMouse* mouse in [GCMouse mice])
++        if (raw_mouse_device_counts(mouse)) return TRUE;
++    return FALSE;
++}
++
++/***********************************************************************
++ *              macdrv_raw_mouse_start
++ *
++ * Main thread. Mouse counts from now on go to window as relative moves.
++ */
++void macdrv_raw_mouse_start(WineWindow* window)
++{
++    WineWindow* old_window;
++    WineEventQueue* old_queue;
++
++    os_unfair_lock_lock(&raw_mouse_lock);
++    old_window = raw_mouse_window;
++    old_queue = raw_mouse_event_queue;
++    raw_mouse_window = [window retain];
++    raw_mouse_event_queue = [window.queue retain];
++    raw_mouse_pending_x = raw_mouse_pending_y = 0;
++    os_unfair_lock_unlock(&raw_mouse_lock);
++    [old_window release];
++    [old_queue release];
++
++    if (!macdrv_raw_mouse_on)
++    {
++        macdrv_raw_mouse_on = TRUE;
++        for (GCMouse* mouse in [GCMouse mice])
++            raw_mouse_attach(mouse);
++    }
++}
++
++/***********************************************************************
++ *              macdrv_raw_mouse_stop
++ *
++ * Main thread. Ends raw mode's GCMouse side; counts not yet sent are dropped.
++ */
++void macdrv_raw_mouse_stop(void)
++{
++    WineWindow* window;
++    WineEventQueue* queue;
++
++    macdrv_raw_mouse_on = FALSE;
++    raw_mouse_detach_all();
++
++    os_unfair_lock_lock(&raw_mouse_lock);
++    window = raw_mouse_window;
++    queue = raw_mouse_event_queue;
++    raw_mouse_window = nil;
++    raw_mouse_event_queue = nil;
++    raw_mouse_pending_x = raw_mouse_pending_y = 0;
++    raw_mouse_last_report = 0;
++    os_unfair_lock_unlock(&raw_mouse_lock);
++    [window release];
++    [queue release];
++}
++
++/***********************************************************************
++ *              macdrv_raw_mouse_reported_within
++ *
++ * Did a mouse that counts report within the last ns nanoseconds?  AppKit's
++ * moves then describe the same motion and are dropped.
++ */
++BOOL macdrv_raw_mouse_reported_within(uint64_t ns)
++{
++    uint64_t last;
++
++    os_unfair_lock_lock(&raw_mouse_lock);
++    last = raw_mouse_last_report;
++    os_unfair_lock_unlock(&raw_mouse_lock);
++    return last && clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - last < ns;
++}
+diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+index c0b1b0a..c0ffa95 100644
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -151,6 +151,10 @@
+ /* mavrik: pad buttons bound to macOS system gestures go to the game, see cocoa_gamepad.m */
+ extern void macdrv_start_gamepad_gestures(void);
+ 
++/* mavrik: raw mouse input while the game holds the pointer, see cocoa_rawmouse.m */
++extern bool raw_mouse_input;
++extern int macdrv_raw_mouse_on;
++
+ static inline CGRect cgrect_mac_from_win(CGRect rect)
+ {
+     if (retina_on)
+@@ -389,6 +393,7 @@ static inline CGPoint cgpoint_win_from_mac(CGPoint point)
+         struct {
+             int             button;
+             bool            pressed;
++            bool            no_move;    /* mavrik: raw mode stopped the pointer; x and y say nothing */
+             int             x;
+             int             y;
+             unsigned long   time_ms;
+@@ -402,6 +407,7 @@ static inline CGPoint cgpoint_win_from_mac(CGPoint point)
+         struct {
+             int             x_scroll;
+             int             y_scroll;
++            bool            no_move;    /* mavrik: as mouse_button's */
+             int             x;
+             int             y;
+             unsigned long   time_ms;
+diff --git a/dlls/winemac.drv/macdrv_main.c b/dlls/winemac.drv/macdrv_main.c
+index 47897f1..f630cb5 100644
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -61,6 +61,7 @@ bool use_precise_scrolling = true;
+ int gl_surface_mode = GL_SURFACE_IN_FRONT_OPAQUE;
+ bool retina_enabled = false;
+ bool enable_app_nap = false;
++bool raw_mouse_input = true;
+ 
+ UINT64 app_icon_callback = 0;
+ UINT64 app_quit_request_callback = 0;
+@@ -390,6 +391,11 @@ static void setup_options(void)
+     if (!get_config_key(hkey, appkey, "EnableAppNap", buffer, sizeof(buffer)))
+         enable_app_nap = IS_OPTION_TRUE(buffer[0]);
+ 
++    /* mavrik: a mouse's own counts while the game holds the pointer (cocoa_rawmouse.m); not
++     * shown to players, for lab comparisons and the per-game fix list */
++    if (!get_config_key(hkey, appkey, "RawMouseInput", buffer, sizeof(buffer)))
++        raw_mouse_input = IS_OPTION_TRUE(buffer[0]);
++
+     /* Don't use appkey.  The DPI and monitor sizes should be consistent for all
+        processes in the prefix. */
+     if (!get_config_key(hkey, NULL, "RetinaMode", buffer, sizeof(buffer)))
+diff --git a/dlls/winemac.drv/mouse.c b/dlls/winemac.drv/mouse.c
+index c655f56..5118531 100644
+--- a/dlls/winemac.drv/mouse.c
++++ b/dlls/winemac.drv/mouse.c
+@@ -690,6 +690,10 @@ BOOL macdrv_GetCursorPos(LPPOINT pos)
+     CGPoint pt;
+     BOOL ret;
+ 
++    /* mavrik: raw mode (cocoa_rawmouse.m) stopped the Mac pointer, so Wine's own
++     * position, already in pos, stands. */
++    if (macdrv_raw_mouse_on) return TRUE;
++
+     ret = macdrv_get_cursor_position(&pt);
+     if (ret)
+     {
+@@ -890,7 +894,10 @@ void macdrv_mouse_button(HWND hwnd, const macdrv_event *event)
+         }
+     }
+ 
+-    send_mouse_input(hwnd, event->window, flags | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE,
++    /* mavrik: in raw mode the stopped pointer's location must not move Wine's cursor */
++    if (!event->mouse_button.no_move) flags |= MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
++
++    send_mouse_input(hwnd, event->window, flags,
+                      event->mouse_button.x, event->mouse_button.y,
+                      data, FALSE, event->mouse_button.time_ms);
+ }
+@@ -925,17 +932,20 @@ void macdrv_mouse_moved(HWND hwnd, const macdrv_event *event)
+  */
+ void macdrv_mouse_scroll(HWND hwnd, const macdrv_event *event)
+ {
++    /* mavrik: as macdrv_mouse_button's no_move */
++    UINT move = event->mouse_scroll.no_move ? 0 : MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
++
+     TRACE("win %p/%p scroll (%d,%d) at (%d,%d) time %lu (%lu ticks ago)\n", hwnd,
+           event->window, event->mouse_scroll.x_scroll, event->mouse_scroll.y_scroll,
+           event->mouse_scroll.x, event->mouse_scroll.y,
+           event->mouse_scroll.time_ms, (NtGetTickCount() - event->mouse_scroll.time_ms));
+ 
+     if (event->mouse_scroll.y_scroll)
+-        send_mouse_input(hwnd, event->window, MOUSEEVENTF_WHEEL | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE,
++        send_mouse_input(hwnd, event->window, MOUSEEVENTF_WHEEL | move,
+                          event->mouse_scroll.x, event->mouse_scroll.y,
+                          event->mouse_scroll.y_scroll, FALSE, event->mouse_scroll.time_ms);
+     if (event->mouse_scroll.x_scroll)
+-        send_mouse_input(hwnd, event->window, MOUSEEVENTF_HWHEEL | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE,
++        send_mouse_input(hwnd, event->window, MOUSEEVENTF_HWHEEL | move,
+                          event->mouse_scroll.x, event->mouse_scroll.y,
+                          event->mouse_scroll.x_scroll, FALSE, event->mouse_scroll.time_ms);
+ }
