@@ -1,0 +1,45 @@
+The Wine loader declares itself a game that supports Game Mode, so macOS can give a full-screen Windows game Game Mode.
+
+This repository's patch to the loader's Info.plist (version 1). It adds three keys to loader/wine_info.plist.in, the
+Info.plist the linker puts in the loader's __TEXT,__info_plist section (configure.ac's -sectcreate) and patch 0006
+rewrites per process for the game's name:
+- LSApplicationCategoryType public.app-category.games: the app is a game;
+- LSSupportsGameMode true (macOS 26 and later; Apple: "If you don't include this key in your Info.plist, Game Mode
+  might not turn on for your game");
+- GCSupportsGameMode true, its older name for macOS 14 to 25 (deprecated, still read there; Apple's developer
+  support names it with the category as the two steps).
+They sit after CFBundleVersion, outside the CFBundleName string and its padding that 0006 rewrites, so 0006's
+rewrite is unchanged. The preloader, where configure builds one, gets the same section.
+
+Why: macOS turns Game Mode on for a game in full screen only (Apple's developer support: it "is automatically
+disabled if the game isn't running full screen"), and it knows an app is a game that wants Game Mode from these
+Info.plist keys. Wine's loader declared none, so a Windows game never got Game Mode: the Metal HUD read "Game Mode
+Off" in a full-screen Wine game, and gamepolicyd logged nothing over a whole measured block (mavrik S192, S195,
+S210). Game Mode gives the game priority on the CPU and GPU and doubles the Bluetooth sampling rate for game
+controllers and AirPods, which matters for the pads that patches 0035 and 0036 bring in. A Windows program that
+isn't a game gets nothing from the keys unless it goes full screen; the player can still turn Game Mode off from
+the menu bar.
+
+Checked (mavrik S217 lab): applies after patches 0001 to 0036 with no fuzz; the loader builds with the engine's
+toolchain with no warning, and its __TEXT,__info_plist section, read back from the built and stripped loader,
+parses with the three keys and every other key as before. Whether macOS honours keys in an embedded Info.plist (the
+loader is not an .app) is checked live: the Metal HUD's Game Mode line and macOS's own log, in Wine's full screen
+and in a macOS full-screen Space.
+
+diff --git a/loader/wine_info.plist.in b/loader/wine_info.plist.in
+index 3b13093..b23d631 100644
+--- a/loader/wine_info.plist.in
++++ b/loader/wine_info.plist.in
+@@ -22,6 +22,12 @@
+     <string>????</string>
+     <key>CFBundleVersion</key>
+     <string>@PACKAGE_VERSION@</string>
++    <key>GCSupportsGameMode</key>
++    <true/>
++    <key>LSApplicationCategoryType</key>
++    <string>public.app-category.games</string>
++    <key>LSSupportsGameMode</key>
++    <true/>
+     <key>NSPrincipalClass</key>
+     <string>WineApplication</string>
+     <key>LSUIElement</key>
