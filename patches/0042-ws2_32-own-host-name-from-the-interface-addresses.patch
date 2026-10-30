@@ -1,0 +1,227 @@
+ws2_32 answers the machine's own name from its interface addresses, so a game that looks itself up never waits on the local network.
+
+This repository's patch to ws2_32. It extends to getaddrinfo what Wine's gethostbyname already does for the
+machine's own name (get_local_ips: the local addresses, with no lookup), and it is what Windows does: a Windows
+machine answers its own name from its own adapters. Wine bug 60322 (fixed in Wine 11.19, Hans Leidekker) and bug
+52133 (Wine 6.23, the same route for WPAD) are the same family of fault: a .local name on macOS goes to multicast
+DNS. No upstream or downstream code answers getaddrinfo's own name this way, so nothing is copied.
+
+The fault: Unreal's GetLocalHostAddr and other games call getaddrinfo or gethostbyname on gethostname()'s answer,
+which macOS makes "<LocalHostName>.local". Only multicast DNS answers a .local name, and since 0037 every Windows
+program runs from the engine's mavrik.app, so macOS holds that query behind its Local Network privacy prompt
+("Allow "mavrik" to find devices on local networks?"). While the prompt was unanswered the lookup waited 35 s and
+failed (WSAHOST_NOT_FOUND); 0041 removed the same lookup from wineboot.
+
+The own name is now matched in any case: gethostname()'s answer, its first label, that label in .local, or the
+NetBIOS computer name (the label's first 15 characters). getaddrinfo (and with it GetAddrInfoW and GetAddrInfoExW)
+answers it in the Unix library from getifaddrs: non-loopback IPv4 first, then non-loopback IPv6 (without the
+link-local addresses of tunnels), then loopback, each with the socket types, protocols and port that a lookup of no
+host gives, and the host name as the canonical name on every entry when asked (as the system's own answer has
+it). AI_NUMERICHOST is left to the system as before. gethostbyname uses the same match for its existing
+local-address answer instead of an exact one. Every other name is looked up as before, so a game that really looks
+for other machines on the local network still asks.
+
+Checked (mavrik S217 lab, display off, fresh prefixes, interleaved, twice each, the engine bundle's prompt
+unanswered): applies after patches 0001 to 0041 with no fuzz; ws2_32 builds with the engine's toolchain with no new
+warning. In the engine bundle every own-name call (getaddrinfo on the host name, its first label, the NetBIOS name and
+the name in capitals, GetAddrInfoW, gethostbyname) answered in 0.0 s with the Mac's addresses, where without this
+patch getaddrinfo and GetAddrInfoW on the host name each waited 35.0 s and failed. The control without the bundle
+answered the host name the same way through multicast DNS. A lookup of another machine's .local name still waits for
+the player's answer (35.0 s while it is unanswered), and fails at once after "Don't Allow".
+
+diff --git a/dlls/ws2_32/ws2_32_private.h b/dlls/ws2_32/ws2_32_private.h
+index 9a4d079..0d0c49c 100644
+--- a/dlls/ws2_32/ws2_32_private.h
++++ b/dlls/ws2_32/ws2_32_private.h
+@@ -76,6 +76,20 @@ static inline char *strdupWtoA( const WCHAR *str )
+ 
+ static const char magic_loopback_addr[] = {127, 12, 34, 56};
+ 
++/* Is NAME the machine's own host name HOST (gethostname()'s answer), in any case: HOST itself, its first label,
++ * that label in .local, or the NetBIOS computer name (the first label's first 15 characters)? */
++static inline BOOL is_own_host_name( const char *name, const char *host )
++{
++    const char *dot = strchr( host, '.' );
++    size_t len = dot ? dot - host : strlen( host );
++
++    if (!name || !name[0]) return FALSE;
++    if (!strcasecmp( name, host )) return TRUE;
++    if (len > 15 && strlen( name ) == 15) len = 15;
++    if (strncasecmp( name, host, len )) return FALSE;
++    return !name[len] || !strcasecmp( name + len, ".local" );
++}
++
+ const char *debugstr_sockaddr( const struct sockaddr *addr );
+ 
+ struct per_thread_data
+diff --git a/dlls/ws2_32/protocol.c b/dlls/ws2_32/protocol.c
+index c0add6b..12d0cbe 100644
+--- a/dlls/ws2_32/protocol.c
++++ b/dlls/ws2_32/protocol.c
+@@ -938,7 +938,7 @@ struct hostent * WINAPI gethostbyname( const char *name )
+ 
+     /* If the hostname of the local machine is requested then return the
+      * complete list of local IP addresses */
+-    if (!strcmp( name, hostname ))
++    if (is_own_host_name( name, hostname ))
+         host = get_local_ips( hostname );
+ 
+     /* If any other hostname was requested (or the routing table lookup failed)
+diff --git a/dlls/ws2_32/unixlib.c b/dlls/ws2_32/unixlib.c
+index e0e1263..6567868 100644
+--- a/dlls/ws2_32/unixlib.c
++++ b/dlls/ws2_32/unixlib.c
+@@ -673,6 +673,107 @@ static socklen_t sockaddr_to_unix( const struct WS_sockaddr *wsaddr, int wsaddrl
+     }
+ }
+ 
++#ifdef HAVE_GETADDRINFO
++static void free_own_host_addrinfo( struct addrinfo *info )
++{
++    struct addrinfo *next;
++
++    for (; info; info = next)
++    {
++        next = info->ai_next;
++        free( info->ai_canonname );
++        free( info );
++    }
++}
++#endif
++
++#if defined(HAVE_GETADDRINFO) && defined(HAVE_GETIFADDRS)
++/* The machine's own name is answered from its interface addresses, as Windows does, with no lookup: macOS answers
++ * a .local name only by multicast DNS, which it holds behind its Local Network privacy prompt for an app bundle.
++ * Non-loopback IPv4 addresses come first, then non-loopback IPv6, then loopback; the IPv6 link-local addresses of
++ * point-to-point interfaces (tunnels) are left out. Each address gets the socket types, protocols and port that a
++ * lookup of no host gives for its family. */
++static int own_host_addrinfo( const char *host, const char *service, const struct addrinfo *hints,
++                              struct addrinfo **info )
++{
++    struct addrinfo tmpl_hints = {0}, *tmpl, *t, *ai, **next = info;
++    struct ifaddrs *ifaddrs, *ifa;
++    int ret, pass;
++
++    *info = NULL;
++    if (hints) tmpl_hints = *hints;
++    tmpl_hints.ai_flags &= ~(AI_CANONNAME | AI_PASSIVE);
++    if ((ret = getaddrinfo( NULL, service ? service : "0", &tmpl_hints, &tmpl ))) return ret;
++    if (getifaddrs( &ifaddrs ))
++    {
++        freeaddrinfo( tmpl );
++        return EAI_FAIL;
++    }
++    for (pass = 0; pass < 3; pass++)
++    {
++        for (ifa = ifaddrs; ifa; ifa = ifa->ifa_next)
++        {
++            int family = ifa->ifa_addr ? ifa->ifa_addr->sa_family : AF_UNSPEC;
++
++            if (!(ifa->ifa_flags & IFF_UP) || (family != AF_INET && family != AF_INET6)) continue;
++            if (pass != ((ifa->ifa_flags & IFF_LOOPBACK) ? 2 : family == AF_INET6)) continue;
++            if (family == AF_INET6 && (ifa->ifa_flags & IFF_POINTOPOINT)
++                    && IN6_IS_ADDR_LINKLOCAL( &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr ))
++                continue;
++            for (t = tmpl; t; t = t->ai_next)
++            {
++                if (t->ai_family != family) continue;
++                if (!(ai = malloc( sizeof(*ai) + sizeof(struct sockaddr_in6) )))
++                {
++                    ret = EAI_MEMORY;
++                    goto done;
++                }
++                *ai = *t;
++                ai->ai_canonname = NULL;
++                ai->ai_next = NULL;
++                *next = ai;
++                next = &ai->ai_next;
++                /* on every entry, as the system's own answer has it */
++                if (hints && (hints->ai_flags & AI_CANONNAME) && !(ai->ai_canonname = strdup( host )))
++                {
++                    ret = EAI_MEMORY;
++                    goto done;
++                }
++                ai->ai_addr = (struct sockaddr *)(ai + 1);
++                memcpy( ai->ai_addr, t->ai_addr, t->ai_addrlen ); /* the family and the port */
++                if (family == AF_INET)
++                    ((struct sockaddr_in *)ai->ai_addr)->sin_addr = ((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
++                else
++                {
++                    struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ai->ai_addr;
++
++                    sin6->sin6_addr = ((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
++#ifdef HAVE_STRUCT_SOCKADDR_IN6_SIN6_SCOPE_ID
++                    sin6->sin6_scope_id = ((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_scope_id;
++                    if (IN6_IS_ADDR_LINKLOCAL( &sin6->sin6_addr ) && !sin6->sin6_scope_id)
++                    {
++                        /* BSD kernels keep a link-local address's scope in its third and fourth bytes */
++                        sin6->sin6_scope_id = (sin6->sin6_addr.s6_addr[2] << 8) | sin6->sin6_addr.s6_addr[3];
++                        sin6->sin6_addr.s6_addr[2] = sin6->sin6_addr.s6_addr[3] = 0;
++                    }
++#endif
++                }
++            }
++        }
++    }
++    if (!*info) ret = EAI_NONAME;
++done:
++    if (ret)
++    {
++        free_own_host_addrinfo( *info );
++        *info = NULL;
++    }
++    freeifaddrs( ifaddrs );
++    freeaddrinfo( tmpl );
++    return ret;
++}
++#endif
++
+ static BOOL addrinfo_in_list( const struct WS_addrinfo *list, const struct WS_addrinfo *ai )
+ {
+     const struct WS_addrinfo *cursor = list;
+@@ -704,6 +805,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     struct addrinfo *unix_info, *src;
+     struct WS_addrinfo *dst, *prev = NULL;
+     unsigned int needed_size = 0;
++    BOOL own = FALSE;
++    char host[256];
+     int ret;
+ 
+     /* servname tweak required by OSX and BSD kernels */
+@@ -751,6 +854,16 @@ static NTSTATUS unix_getaddrinfo( void *args )
+         }
+     }
+ 
++#ifdef HAVE_GETIFADDRS
++    if (params->node && !(unix_hints.ai_flags & AI_NUMERICHOST) && !gethostname( host, sizeof(host) ))
++    {
++        host[sizeof(host) - 1] = 0;
++        own = is_own_host_name( params->node, host );
++    }
++    if (own)
++        ret = own_host_addrinfo( host, service, hints ? &unix_hints : NULL, &unix_info );
++    else
++#endif
+     ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
+     if (ret)
+         return addrinfo_err_from_unix( ret );
+@@ -766,7 +879,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     if (*params->size < needed_size)
+     {
+         *params->size = needed_size;
+-        freeaddrinfo( unix_info );
++        if (own) free_own_host_addrinfo( unix_info );
++        else freeaddrinfo( unix_info );
+         return ERROR_INSUFFICIENT_BUFFER;
+     }
+ 
+@@ -814,7 +928,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+         }
+     }
+ 
+-    freeaddrinfo( unix_info );
++    if (own) free_own_host_addrinfo( unix_info );
++    else freeaddrinfo( unix_info );
+     return 0;
+ #else
+     FIXME( "getaddrinfo() not found during build time\n" );

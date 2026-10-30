@@ -117,7 +117,8 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   bundle is laid and signed when the engine is assembled; nothing is made at run time. Its folder name is the name
   macOS shows when a Windows program first uses the local network, with the bundle's `NSLocalNetworkUsageDescription`.
   Wine's start no longer looks up the Mac's `.local` host name (patch 0041), so starting a Windows program doesn't
-  touch the local network or wait on that prompt.
+  touch the local network or wait on that prompt. A game that looks up its own machine gets the Mac's own addresses
+  with no lookup (patch 0042), so a game that only looks itself up no longer waits on that prompt either.
 - **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
