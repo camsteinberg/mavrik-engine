@@ -67,8 +67,8 @@ The gates:
                 "wine", for a plain title, one with '&', '<' and '>', and one with accented, CJK and
                 emoji characters; a CJK title past 31 bytes is cut between whole characters, '/' shows
                 as U+2215 in the window server, and a title "Control" still starts the program, not
-                Wine's control panel; each program's executable (proc_pidpath) is the engine's own
-                loader, inside the engine; and a title no link can carry ("..") still reaches the Dock
+                Wine's control panel; each program's executable (proc_pidpath) is the loader inside the
+                engine's mavrik.app (patch 0037), so inside the engine too; and a title no link can carry ("..") still reaches the Dock
                 through patch 0006; and with no title and an argv[0] that is not UTF-8, the program still
                 starts (no link) and its 32-bit child keeps its own name. The executable path is checked
                 as proc_pidpath gives it, without resolving links. Gates run outside a login (Aqua)
@@ -80,6 +80,13 @@ The gates:
                 halves with the pad as an Xbox 360 pad (045e:028e), a DualShock 4 (054c:09cc), a DualSense
                 (054c:0ce6) and a Switch Pro Controller (057e:2009, by position); and with MAVRIK_PAD_HIDRAW=1
                 each PlayStation id is no XInput pad and no DirectInput controller (selftest absent)
+  gamemode      the loader bundle lib/wine/x86_64-unix/mavrik.app that patch 0037 starts every Windows program
+                from: its Info.plist has exactly assemble.py's keys (the games category, LSSupportsGameMode and
+                GCSupportsGameMode, LSUIElement, CFBundleExecutable wine, the Local Network usage text, no
+                document types), Contents/MacOS/wine is the engine's loader (the same file with the bundle's
+                signature taken off), and the bundle's ad hoc signature verifies (codesign --verify --strict),
+                so its Info.plist is sealed. That a Windows program's process runs from it is the dockname
+                gate's check
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 
@@ -111,7 +118,8 @@ import tempfile
 import time
 import unicodedata
 
-from assemble import NOT_CARRIED, OPENED_BY, sha256 as sha256_file
+from assemble import (LOADER_BUNDLE, LOADER_BUNDLE_EXE, NOT_CARRIED, OPENED_BY, loader_bundle_plist,
+                      sha256 as sha256_file)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -1442,10 +1450,15 @@ def dock_cases(exact=DOCK_NAMES, changed=DOCK_CUT_NAMES):
             + [DOCK_FALLBACK, DOCK_NO_TITLE])
 
 
-def link_folder(engine):
-    """Where patch 0007 (CW HACK 22144's folder) keeps the links to this engine's loader: the user's temp
-    folder, winetemp-<inode>-<size>-<mtime seconds>-<mtime nanoseconds> of the loader."""
-    st = os.stat(os.path.join(engine, LOADER))
+def link_folder(engine, loader=LOADER_BUNDLE_EXE):
+    """Where patch 0007 (CW HACK 22144's folder) keeps the links to one of this engine's loaders: the user's
+    temp folder, winetemp-<inode>-<size>-<mtime seconds>-<mtime nanoseconds> of the loader. Wine starts
+    programs from the one in mavrik.app (patch 0037); an ntdll without 0037 or an engine without the
+    bundle uses LOADER. None if that loader is not there."""
+    path = os.path.join(engine, loader)
+    if not os.path.isfile(path):
+        return None
+    st = os.stat(path)
     tmp = out(["getconf", "DARWIN_USER_TEMP_DIR"]).stdout.strip().rstrip("/")
     return f"{tmp}/winetemp-{st.st_ino}-{st.st_size}-{st.st_mtime_ns // 10**9}-{st.st_mtime_ns % 10**9}"
 
@@ -1496,8 +1509,8 @@ def dock_names_once(wine, probes, env, log, case, timeout, root, work):
     32-bit child, as a game's launcher starts the game), which shows its own. case is (title, the
     LaunchServices name, the window server's name). Once each is a Dock app, its LaunchServices name
     (what the Dock and the app switcher show) and the window server's owner name of its windows (what
-    the menu bar and Cmd-Tab show) must be the case's, and its executable must be inside root (the
-    engine). Wine's control panel must not start. Only processes that started after this run began
+    the menu bar and Cmd-Tab show) must be the case's, and its executable must be the loader in root's
+    mavrik.app (root is the engine, with a trailing slash). Wine's control panel must not start. Only processes that started after this run began
     count, so a probe left by another run is never read.
     Returns (problems, {program: (LaunchServices' name, the window server's name)})."""
     title, want_ls, want_ws = case[:3]
@@ -1546,6 +1559,8 @@ def dock_names_once(wine, probes, env, log, case, timeout, root, work):
         # The raw path, as mavrik's Stop and engine checks read it (no realpath on the process side).
         if not paths[program].startswith(root):
             problems.append(f"{program}: started from {paths[program]}, outside the engine")
+        elif paths[program] != root + LOADER_BUNDLE_EXE:
+            problems.append(f"{program}: started from {paths[program]}, not from the loader in {LOADER_BUNDLE}")
     return problems, names
 
 
@@ -1581,7 +1596,9 @@ def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
         if os.path.exists(log):
             shutil.copy(log, os.path.join(tempfile.gettempdir(), "mavrik-dock-last.log"))
         shutil.rmtree(home, ignore_errors=True)
-        remove_later(link_folder(engine))  # its links are programs Wine just ran (remove_deferred)
+        for loader in (LOADER_BUNDLE_EXE, LOADER):  # their links are programs Wine just ran (remove_deferred)
+            if link_folder(engine, loader):
+                remove_later(link_folder(engine, loader))
     return problems, seen
 
 
@@ -1600,7 +1617,45 @@ def gate_dockname(engine, ctx):
     names = "; ".join(f"'{t}': " + ", ".join(f"{p} '{ls}' / '{ws}'" for p, (ls, ws) in s.items())
                       for t, s in seen.items())
     return not problems, (f"the names (Dock / window server): {names}; every program's executable is the "
-                          "engine's loader"), problems
+                          "loader in the engine's mavrik.app"), problems
+
+
+# ---------------------------------------------------------------- the loader bundle (Game Mode)
+
+def loader_bundle_problems(engine):
+    """What is wrong with the engine's loader bundle (assemble.py step 8), or []."""
+    bundle = os.path.join(engine, LOADER_BUNDLE)
+    exe = os.path.join(engine, LOADER_BUNDLE_EXE)
+    plist = os.path.join(bundle, "Contents", "Info.plist")
+    if not os.path.isfile(exe) or not os.path.isfile(plist):
+        return [f"{LOADER_BUNDLE}: no Contents/MacOS/wine or no Contents/Info.plist"]
+    problems = []
+    try:
+        info = plistlib.load(open(plist, "rb"))
+    except Exception as e:
+        return [f"{LOADER_BUNDLE}: the Info.plist does not parse ({e})"]
+    want = loader_bundle_plist(info.get("CFBundleVersion", ""))
+    for key in sorted(set(want) | set(info)):
+        if info.get(key) != want.get(key):
+            problems.append(f"{LOADER_BUNDLE}: {key} is {info.get(key)!r}, not {want.get(key)!r}")
+    if not os.access(exe, os.X_OK):
+        problems.append(f"{LOADER_BUNDLE_EXE}: not executable")
+    with tempfile.TemporaryDirectory(prefix="gamemode-") as tmp:
+        bare = os.path.join(tmp, "wine")
+        shutil.copyfile(exe, bare)
+        out(["codesign", "--remove-signature", bare], timeout=60)
+        if open(bare, "rb").read() != open(os.path.join(engine, LOADER), "rb").read():
+            problems.append(f"{LOADER_BUNDLE_EXE}: not the engine's loader ({LOADER}) with a signature added")
+    r = out(["codesign", "--verify", "--strict", bundle], timeout=60)
+    if r.returncode:
+        problems.append(f"{LOADER_BUNDLE}: the signature does not verify: {((r.stderr or r.stdout).strip().splitlines() or [''])[0][-200:]}")
+    return problems
+
+
+def gate_gamemode(engine, ctx):
+    problems = loader_bundle_problems(engine)
+    return not problems, (f"{LOADER_BUNDLE}: the games category and Game Mode support, the engine's loader, "
+                          "signed with its Info.plist sealed"), problems
 
 
 # ---------------------------------------------------------------- controllers
@@ -1678,7 +1733,7 @@ GATES = [("relocatable", gate_relocatable), ("dlopen", gate_dlopen), ("pe32", ga
          ("media", gate_media), ("licences", gate_licences), ("nogpl", gate_nogpl),
          ("identity", gate_identity), ("buildpaths", gate_buildpaths), ("dxmt", gate_dxmt), ("d3d11", gate_d3d11),
          ("playback", gate_playback), ("steamredirect", gate_steamredirect), ("dockname", gate_dockname),
-         ("controllers", gate_controllers)]
+         ("controllers", gate_controllers), ("gamemode", gate_gamemode)]
 
 
 # ---------------------------------------------------------------- running

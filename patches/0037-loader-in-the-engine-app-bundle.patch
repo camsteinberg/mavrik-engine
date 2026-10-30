@@ -1,0 +1,95 @@
+Wine starts every Windows program from the loader inside the engine's mavrik.app, so macOS can give a full-screen game Game Mode.
+
+This repository's patch (version 2), after neutron's two hunks: fourlexboehm/neutron at 0ac2574d, wine patches 0003
+(ntdll execs the bundled loader) and 0006 (the loader finds ntdll.so from inside the bundle), by the neutron
+contributors, LGPL-2.1-or-later. neutron names its
+bundle Neutron.app and also takes a per-game bundle from NEUTRON_APP_BUNDLE and NEUTRON_NTDLL; this patch keeps only
+the one shared bundle, so nothing is made at run time.
+
+macOS gives Game Mode to a game in full screen, and it knows an app is a game that supports Game Mode from its
+bundle's Info.plist (LSApplicationCategoryType public.app-category.games and LSSupportsGameMode, with
+GCSupportsGameMode for macOS 14 to 25). A bundle's Info.plist applies to the executable at
+Contents/MacOS/<CFBundleExecutable>. Wine's loader is a bare executable, and version 1 of this patch put the keys in
+its embedded Info.plist (__TEXT,__info_plist): macOS ignored them (the Metal HUD read Game Mode Off and gamepolicyd
+logged nothing, in Wine's full screen and in a full-screen Space, mavrik S217). A lab bundle around the loader got
+Game Mode On in both (gamepolicyd: "Found game ... labelReason=LSSupportsGameMode (Info.plist)", then "Game mode
+enabled.").
+
+The engine's recipe (scripts/assemble.py) lays lib/wine/x86_64-unix/mavrik.app/Contents/{Info.plist, MacOS/wine},
+the second a copy of the loader, and signs it as a bundle. This patch:
+- dlls/ntdll/unix/loader.c, init_paths: wineloader, the file every Windows program is exec'd from, becomes
+  <ntdll_dir>/mavrik.app/Contents/MacOS/wine when that file is executable; otherwise it stays <ntdll_dir>/wine, as
+  before. Patch 0007's link named after the game is made to wineloader, so it now points into the bundle: the window
+  server keeps the link's name, and the kernel runs the bundle's file, whose bundle macOS reads.
+- dlls/ntdll/unix/loader.c, create_tempdir (CW HACK 22144): the folder's ntdll.so link points at ntdll.so, three
+  folders up from the bundle's loader, not at a file beside it that does not exist.
+- loader/main.c, try_dlopen: a loader running from mavrik.app/Contents/MacOS finds ntdll.so three folders up, as one
+  in loader/ finds it in the build tree.
+
+Version 1's three keys in loader/wine_info.plist.in are gone: they did nothing, and the bundle's Info.plist holds
+them now.
+
+Upstream status: mavrik's own layout (the bundle's name and place are this engine's), not offered. A WineHQ offer
+would need a configurable bundle; the Game Mode finding is offered as a note with the engine's other upstream offers.
+
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index e9efbb0..6d5378b 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -185,6 +185,10 @@ static void fatal_error( const char *err, ... ) __attribute__((noreturn, format(
+ static const char *bin_dir;
+ static const char *dll_dir;
+ static const char *ntdll_dir;
++#ifdef __APPLE__
++/* mavrik: the folder of the loader inside the engine's app bundle, below ntdll_dir */
++#define MAVRIK_LOADER_BUNDLE "mavrik.app/Contents/MacOS"
++#endif
+ static const char *alt_build_dir;
+ static SIZE_T dll_path_maxlen;
+ 
+@@ -500,6 +504,21 @@ static void init_paths(void)
+         bin_dir = build_relative_path( dll_dir, LIBDIR "/wine", BINDIR );
+         data_dir = build_relative_path( dll_dir, LIBDIR "/wine", DATADIR "/wine" );
+         wineloader = build_path( ntdll_dir, "wine" );
++#ifdef __APPLE__
++        /* mavrik, after neutron: start every Windows program from the loader inside
++         * the engine's mavrik.app bundle, so macOS reads that bundle's Info.plist
++         * (a game that supports Game Mode).  The loader there finds ntdll.so through
++         * its real path; without the bundle, the loader beside ntdll.so is used. */
++        {
++            char *bundled = build_path( ntdll_dir, MAVRIK_LOADER_BUNDLE "/wine" );
++            if (!access( bundled, X_OK ))
++            {
++                free( (char *)wineloader );
++                wineloader = bundled;
++            }
++            else free( bundled );
++        }
++#endif
+     }
+ 
+     set_dll_path();
+@@ -731,6 +750,8 @@ static char *create_tempdir(const char *wineloader_path)
+     ntdll = malloc( strlen(wineloader_path) + sizeof("/ntdll.so") );
+     strcpy( ntdll, wineloader_path );
+     if ((p = strrchr( ntdll, '/' ))) *p = 0;
++    /* mavrik: the loader inside mavrik.app has ntdll.so three folders up */
++    if ((p = remove_tail( ntdll, "/" MAVRIK_LOADER_BUNDLE ))) { strcpy( ntdll, p ); free( p ); }
+     strcat( ntdll, "/ntdll.so" );
+     asprintf( &str, "%s/ntdll.so", tempdir );
+     symlink( ntdll, str );
+diff --git a/loader/main.c b/loader/main.c
+index 6b21fe6..d88570b 100644
+--- a/loader/main.c
++++ b/loader/main.c
+@@ -166,6 +166,10 @@ static void *try_dlopen( const char *argv0 )
+ 
+     if ((p = remove_tail( dir, "/loader" )))
+         path = build_path( p, "dlls/ntdll/ntdll.so" );
++#ifdef __APPLE__
++    else if ((p = remove_tail( dir, "/mavrik.app/Contents/MacOS" )))
++        path = build_path( p, "ntdll.so" );  /* mavrik, after neutron: the loader inside the engine's app bundle */
++#endif
+     else
+         path = build_path( dir, "ntdll.so" );
+ 

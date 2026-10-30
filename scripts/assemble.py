@@ -27,11 +27,17 @@ What it does, in order:
   7. rewrites every load path that points outside the engine to @loader_path or @rpath, removes
      absolute run paths, gives Wine's Unix modules the run path @loader_path/../../ (lib/), and
      signs each changed file ad hoc;
-  8. records which component every file came from (WORK/contributions.json) for licences.py.
+  8. lays the loader bundle lib/wine/x86_64-unix/mavrik.app (LOADER_BUNDLE): Contents/Info.plist
+     (loader_bundle_plist: the games category, Game Mode support, no Dock icon until a window, no
+     document types, the Local Network usage text) and Contents/MacOS/wine, a copy of the stripped
+     loader, then signs it ad hoc as a bundle, so the Info.plist is sealed. Patch 0037 makes Wine start
+     every Windows program from that copy, and macOS reads this Info.plist for it (Game Mode);
+  9. records which component every file came from (WORK/contributions.json) for licences.py.
 """
 import hashlib
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -48,6 +54,34 @@ NOT_CARRIED = {"SONAME_LIBODBC"}
 OPENED_BY = {"libSDL2-2.0.0.dylib": [("libSDL3.0.dylib", "libSDL3.dylib")]}
 MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
                 b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce"}
+# The loader bundle (step 8). Its folder name is the name macOS shows in the Local Network prompt.
+LOADER_BUNDLE = "lib/wine/x86_64-unix/mavrik.app"
+LOADER_BUNDLE_EXE = LOADER_BUNDLE + "/Contents/MacOS/wine"
+LOADER_BUNDLE_ID = "org.mavrik.engine.wine"
+LOCAL_NETWORK_TEXT = "Games use the local network for multiplayer and to find devices."
+
+
+def loader_bundle_plist(version):
+    """The loader bundle's Info.plist: the loader's own built-in keys (loader/wine_info.plist.in), its
+    own identifier and name, and what macOS needs to give a full-screen game Game Mode."""
+    return {
+        "CFBundleAllowMixedLocalizations": True,
+        "CFBundleDevelopmentRegion": "English",
+        "CFBundleExecutable": "wine",
+        "CFBundleIdentifier": LOADER_BUNDLE_ID,
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundleName": "mavrik",
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": version,
+        "CFBundleVersion": version,
+        "NSPrincipalClass": "WineApplication",
+        # No Dock icon until the program shows a window (the Mac driver makes it a Dock app then).
+        "LSUIElement": True,
+        "LSApplicationCategoryType": "public.app-category.games",
+        "LSSupportsGameMode": True,   # macOS 26 and later
+        "GCSupportsGameMode": True,   # macOS 14 to 25
+        "NSLocalNetworkUsageDescription": LOCAL_NETWORK_TEXT,
+    }
 
 
 def run(cmd, **kw):
@@ -367,6 +401,25 @@ class Assembler:
                 changed += 1
         print(f"load paths rewritten in {changed} files")
 
+    # 8
+    def loader_bundle(self):
+        loader = os.path.join(self.engine, "lib", "wine", "x86_64-unix", "wine")
+        bundle = os.path.join(self.engine, LOADER_BUNDLE)
+        exe = os.path.join(self.engine, LOADER_BUNDLE_EXE)
+        if os.path.lexists(bundle):
+            sys.exit(f"{LOADER_BUNDLE} is already there")
+        version = open(os.path.join(self.work, "wine-src", "VERSION")).read().strip().replace("Wine version ", "")
+        os.makedirs(os.path.dirname(exe))
+        shutil.copyfile(loader, exe)
+        shutil.copymode(loader, exe)
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "wb") as f:
+            plistlib.dump(loader_bundle_plist(version), f)
+        run(["codesign", "-f", "-s", "-", bundle], capture_output=True)
+        run(["codesign", "--verify", "--strict", bundle], capture_output=True)
+        for p in walk_files(bundle):
+            self.mark(p, "wine" if p == exe else "mavrik-engine")
+        print(f"{LOADER_BUNDLE}: {LOADER_BUNDLE_ID}, the loader signed in it")
+
     def write(self):
         json.dump(self.contrib, open(os.path.join(self.work, "contributions.json"), "w"), indent=1, sort_keys=True)
         print(f"{len(self.contrib)} files recorded")
@@ -384,6 +437,7 @@ def main(argv):
     a.dxmt()
     a.fonts()
     a.fix_load_paths()
+    a.loader_bundle()
     a.write()
 
 
