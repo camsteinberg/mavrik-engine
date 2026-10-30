@@ -101,6 +101,9 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   always-on-top windows stay above the Dock, as in Wine. While a game's window covers a whole screen and
   the engine is the active app, the Dock and the menu bar are hidden (patch 0034), so the Dock doesn't
   wake at the screen's edge under the game.
+- **Game Mode**: the loader's built-in Info.plist declares a game that supports Game Mode
+  (`LSApplicationCategoryType` `public.app-category.games`, `LSSupportsGameMode` and its older name
+  `GCSupportsGameMode`), so macOS can give a full-screen game Game Mode (patch 0037).
 - **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
   another app was in front and whenever the pointer comes back from another app's window, so the Mac
   arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
