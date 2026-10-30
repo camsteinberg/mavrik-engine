@@ -1,0 +1,41 @@
+wineboot looks up no .local host name, so starting a Windows program never waits on the local network.
+
+This repository's patch to wineboot, after the route Ivo Ivanov proposed in Wine bug 60322 (skip the lookup for a
+.local name); upstream fixed that bug in Wine 11.19 another way (Hans Leidekker, 724d5ccdbb14, 0be34a3b8fe8 and
+4cf90548f2d0: a DNS-only lookup), which still sends a DNS query, to the router on most home networks.
+
+The fault: wineboot runs at every Wine start and, in create_computer_name_keys, asks getaddrinfo for the canonical
+name of the Mac's host name, which macOS makes "<LocalHostName>.local" unless a host name is set. A .local name is
+answered only by multicast DNS (RFC 6762), and since 0037 every Windows program runs from the engine's mavrik.app,
+so macOS puts that query behind its Local Network privacy prompt ("Allow "mavrik" to find devices on local
+networks?"). While the prompt was unanswered, each Wine start stalled about 35 s and ws2_32 logged "Failed to resolve
+your host name IP" (mavrik S217 lab: wineboot --init 81 s against 14 to 24 s, cmd /c echo 40 s against 5 s).
+
+A name ending in .local (any case) is now used as its own canonical name with no lookup; every other name is looked
+up as before. The result is what a failed lookup gave: the DNS host name is the part before the first dot, in the
+Mac's own capitals, and the DNS domain "local"; a lookup that answered gave the same name in small letters (DNS names
+ignore case). The NetBIOS name (COMPUTERNAME) comes from elsewhere and is unchanged. Games that browse the local
+network for multiplayer still ask, as they should.
+
+Checked (mavrik S217 lab, display off, the prompt unanswered, fresh prefixes, interleaved): applies after patches
+0001 to 0040 with no fuzz; wineboot builds with the engine's toolchain with no new warning; with the bundle,
+wineboot --init took 15.7 and 14.6 s and cmd /c echo 5.0 and 4.9 s with no host-name error, against 89.7 and 80.7 s
+and 40.0 and 40.1 s without this patch, and 24.1 and 14.6 s and 5.0 s without the bundle.
+
+diff --git a/programs/wineboot/wineboot.c b/programs/wineboot/wineboot.c
+index 5e702a5..fb868fe 100644
+--- a/programs/wineboot/wineboot.c
++++ b/programs/wineboot/wineboot.c
+@@ -834,7 +834,11 @@ static void create_computer_name_keys(void)
+ 
+     if (gethostname( buffer, sizeof(buffer) )) return;
+     hints.ai_flags = AI_CANONNAME;
+-    if (getaddrinfo( buffer, NULL, &hints, &res ) != 0)
++    /* A name in .local is answered only by multicast DNS (RFC 6762), which macOS puts behind its
++     * Local Network privacy prompt: while the prompt is unanswered this lookup stalls every Wine
++     * start. Such a name is its own canonical name, so it is used as it is. */
++    if (((dot = strrchr( buffer, '.' )) && !strcasecmp( dot, ".local" )) ||
++        getaddrinfo( buffer, NULL, &hints, &res ) != 0)
+         res = NULL;
+     else if (res->ai_canonname && strcasecmp( res->ai_canonname, "localhost" ) != 0)
+         name = res->ai_canonname;
