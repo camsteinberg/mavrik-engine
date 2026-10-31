@@ -397,9 +397,10 @@ def run(engine, work):
              expect)
 
     # dockname: an engine clone whose Mac driver cannot find LaunchServices' naming call (the name it looks
-    # up is changed in winemac.so, which is then signed again), with the title no link can carry, so the
-    # Dock keeps "wine" (patch 0007's link names the process for every other title; the call is its
-    # fallback). The probe's windows must still appear: the driver goes on quietly without the call.
+    # up is changed in winemac.so, which is then signed again), with a title whose link name differs from
+    # it ('/' is U+2215 in a file name), so the Dock shows the link's name. (With no link the call does
+    # not matter since patch 0037: the bundle names the process; lab S218.) The probe's windows must still
+    # appear: the driver goes on quietly without the call.
     if G.login_session() == "Aqua":
         bad = os.path.join(tmp, "no-naming-call-engine")
         clone(engine, bad)
@@ -411,8 +412,8 @@ def run(engine, work):
         open(winemac, "wb").write(data.replace(name, b"_LSSetApplicationInformationXxxx"))
         subprocess.run(["codesign", "-s", "-", "-f", winemac], check=True, capture_output=True)
         case(results, "dockname", "an engine clone whose winemac.so cannot find _LSSetApplicationInformationItem",
-             G.dockname_check(bad, ctx, cases=[G.DOCK_FALLBACK])[0],
-             r"dockprobe(32|64)\.exe: the Dock shows 'wine', not '\.\.'")
+             G.dockname_check(bad, ctx, cases=[("AC/DC Gate", "AC/DC Gate", G.window_server_name("AC/DC Gate"))])[0],
+             r"dockprobe(32|64)\.exe: the Dock shows " + re.escape("'AC\u2215DC Gate', not 'AC/DC Gate'"))
 
         # dockname, the executable: an engine clone without mavrik.app, so Wine starts every program from the
         # loader beside ntdll.so, as before patch 0037: inside the engine, but not from the bundle.
