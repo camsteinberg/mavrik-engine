@@ -45,8 +45,8 @@ USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { ret
 # patch 0007 reversed, the same configure line, stripped (strip -x -S). Name it in SELFTEST_OLD_NTDLL;
 # without it the dockname rows that need it are not run. Up to revision 6 this was revision 4's ntdll.so
 # (00a4da2f...), but patches 0018 to 0032 change ntdll's Unix side, and a revision 7 prefix boot with
-# revision 4's hangs (S213).
-OLD_NTDLL_SHA256 = "56e09af95401b4a979c9cb6aac685fc09552a76f16812b0e41361612c9cd15f6"
+# revision 4's hangs (S213). From revision 11 it is that revision's own, since 0037 changes ntdll's Unix side (S218).
+OLD_NTDLL_SHA256 = "e40f54cb7021fb0f090c4f1d3bca881a7068a26733ffca8caa4ee5352036130d"
 
 
 def cc(src_text, out_path, *args):
