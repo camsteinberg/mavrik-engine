@@ -68,9 +68,10 @@ The gates:
                 emoji characters; a CJK title past 31 bytes is cut between whole characters, '/' shows
                 as U+2215 in the window server, and a title "Control" still starts the program, not
                 Wine's control panel; each program's executable (proc_pidpath) is the loader inside the
-                engine's mavrik.app (patch 0037), so inside the engine too; and a title no link can carry ("..") still reaches the Dock
-                through patch 0006; and with no title and an argv[0] that is not UTF-8, the program still
-                starts (no link) and its 32-bit child keeps its own name. The executable path is checked
+                engine's mavrik.app (patch 0037), so inside the engine too; a program started with no link
+                (a title no link can carry, "..", or no title and an argv[0] that is not UTF-8) still
+                starts and shows the bundle's name, "mavrik", never "wine"; and with no title the 32-bit
+                child keeps its own name. The executable path is checked
                 as proc_pidpath gives it, without resolving links. Gates run outside a login (Aqua)
                 session report SKIP
   controllers   game controllers through patch 0035's virtual pad (MAVRIK_PAD_VIRTUAL), each case in its own
@@ -1393,15 +1394,19 @@ DOCK_NAMES = ["Gate Dock Name", "Gate & Dock <Name>", "Gâte Dock 名前 🎮"]
 # '/', which a file name cannot hold; and "Control", the name of one of Wine's own programs, which the
 # loader started through a link of that name must not run instead of the game.
 DOCK_CUT_NAMES = ["日本語のゲーム名前テスト", "AC/DC Gate", "Control"]
-# A title no link can be named after: the program starts from the loader itself, so the window server
-# keeps "wine", and LaunchServices shows the title only through patch 0006's call, the fallback.
-DOCK_FALLBACK = ("..", "..", "wine")
+# The name of a program started with no link: the loader in mavrik.app (patch 0037) then names it after
+# its bundle, in LaunchServices, the window server and the app menu alike ("mavrik"; never "wine").
+# Written out, not read from the bundle, so a renamed bundle fails here.
+BUNDLE_NAME = "mavrik"
+# A title no link can be named after: the program starts from the loader in mavrik.app, so every name is
+# the bundle's, for the 32-bit child too (it keeps the title, so it has no link either).
+DOCK_FALLBACK = ("..", BUNDLE_NAME, BUNDLE_NAME)
 # No title, and an argv[0] that is not UTF-8 (a lead byte and 40 continuation bytes), which the loader's
-# first process would name its link after: the bounded cut must refuse it (no link: the window server
-# keeps "wine") and the program must start. Its 32-bit child keeps its own file's name, since no title
-# is set and none is made up from a file name.
-DOCK_NO_TITLE = (None, {"dockprobe64.exe": "dockprobe64", "dockprobe32.exe": "dockprobe32"},
-                 {"dockprobe64.exe": "wine", "dockprobe32.exe": "dockprobe32"}, b"\xc3" + b"\x80" * 40)
+# first process would name its link after: the bounded cut must refuse it (no link: the bundle's name)
+# and the program must start. Its 32-bit child keeps its own file's name, since no title is set and its
+# link is named after its file.
+DOCK_NO_TITLE = (None, {"dockprobe64.exe": BUNDLE_NAME, "dockprobe32.exe": "dockprobe32"},
+                 {"dockprobe64.exe": BUNDLE_NAME, "dockprobe32.exe": "dockprobe32"}, b"\xc3" + b"\x80" * 40)
 
 
 def slot_name(title, slot=32):
