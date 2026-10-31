@@ -438,7 +438,9 @@ def run(engine, work):
 
         # dockname, the window server and the executable: an engine clone with the ntdll.so without patch 0007
         # (CW HACK 22144 as shipped, see OLD_NTDLL_SHA256). Without WINEDLLPATH no link is made, so the
-        # window server must show "wine" while LaunchServices (patch 0006) still shows the title. With
+        # program starts from the loader in mavrik.app and the Dock and the window server show the bundle's
+        # name instead of the title (this ntdll keeps patch 0037; before revision 11 the window server
+        # showed "wine" and LaunchServices the title, through patch 0006). With
         # WINEDLLPATH set, the hack starts each program through a hard link in the user's temp folder,
         # so the executable must be reported outside the engine: only those problems are kept, because
         # the hack also names each program after its file there.
@@ -451,12 +453,12 @@ def run(engine, work):
             ntdll = os.path.join(bad, "lib", "wine", "x86_64-unix", "ntdll.so")
             os.remove(ntdll)
             shutil.copy2(old, ntdll)
-            # Only the window server's problems are kept: an ntdll built without patch 0037 also starts the
-            # programs from the loader beside it, not from mavrik.app (the no-bundle row's check).
+            # Problems about the loader's place are dropped: an ntdll built without patch 0037 (as before
+            # revision 11) starts the programs from the loader beside it, which the no-bundle row checks.
             case(results, "dockname", "an engine clone with an ntdll that makes the link only with WINEDLLPATH set",
                  [p for p in G.dockname_check(bad, ctx, cases=["Gate Dock Name"])[0]
                   if not p.endswith(f"not from the loader in {G.LOADER_BUNDLE}")],
-                 r"dockprobe(32|64)\.exe: the window server shows 'wine', not 'Gate Dock Name'")
+                 r"dockprobe(32|64)\.exe: the (Dock|window server) shows " + re.escape(f"'{G.BUNDLE_NAME}', not 'Gate Dock Name'"))
             problems = G.dockname_check(bad, ctx, cases=["Gate Dock Name"],
                                         extra_env={"WINEDLLPATH": os.path.join(bad, "lib", "wine")})[0]
             case(results, "dockname", "the same clone with WINEDLLPATH set, so each program starts through a hard link",
