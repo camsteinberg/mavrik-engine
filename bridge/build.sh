@@ -94,6 +94,9 @@ echo "::endgroup::"
 echo "::group::configure (as scripts/build-wine.sh)"
 export PKG_CONFIG_PATH="$WORK/deps/lib/pkgconfig:$(cat "$WORK/gst-root.path")/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+# The engine's 32-bit flags (patch 0038's recipe line), read from build-wine.sh so the two never drift.
+I386_EXTRA="$(sed -n 's/^I386_EXTRA="\(.*\)"$/\1/p' "$REPO/scripts/build-wine.sh")"
+[ -n "$I386_EXTRA" ] || { echo "::error::no I386_EXTRA in scripts/build-wine.sh"; exit 1; }
 mkdir -p "$BUILD"
 cd "$BUILD"
 x86 "$SRC/configure" \
@@ -109,7 +112,8 @@ x86 "$SRC/configure" \
     --without-pulse --without-sane --without-udev --without-usb --without-v4l2 \
     --without-wayland --without-x \
     CC="ccache clang -arch x86_64" CXX="ccache clang++ -arch x86_64" \
-    CFLAGS="-O2 $MAP" CROSSCFLAGS="-O2 $MAP" LDFLAGS="-Wl,-headerpad_max_install_names" \
+    CFLAGS="-O2 $MAP" CROSSCFLAGS="-O2 $MAP" i386_CFLAGS="-O2 $MAP $I386_EXTRA" \
+    LDFLAGS="-Wl,-headerpad_max_install_names" \
     i386_CC="ccache i686-w64-mingw32-gcc" x86_64_CC="ccache x86_64-w64-mingw32-gcc" \
     ac_cv_lib_soname_vulkan= ac_cv_lib_soname_MoltenVK=libMoltenVK.dylib \
     > configure.log 2>&1 || { tail -200 config.log; exit 1; }
