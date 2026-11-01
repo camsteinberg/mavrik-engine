@@ -31,7 +31,10 @@ What it does, in order:
      (loader_bundle_plist: the games category, Game Mode support, no Dock icon until a window, no
      document types, the Local Network usage text) and Contents/MacOS/wine, a copy of the stripped
      loader, then signs it ad hoc as a bundle, so the Info.plist is sealed. Patch 0037 makes Wine start
-     every Windows program from that copy, and macOS reads this Info.plist for it (Game Mode);
+     every Windows program from that copy, and macOS reads this Info.plist for it (Game Mode). Beside it,
+     lib/wine/x86_64-unix/without-game-mode/mavrik.app (LOADER_BUNDLE_NO_GAME_MODE) is the same bundle
+     without the three Game Mode keys and with its own identifier; patch 0037 starts programs from it
+     when MAVRIK_GAME_MODE is "0" (a player's Game Mode off for a game);
   9. records which component every file came from (WORK/contributions.json) for licences.py.
 """
 import hashlib
@@ -58,13 +61,22 @@ MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b
 LOADER_BUNDLE = "lib/wine/x86_64-unix/mavrik.app"
 LOADER_BUNDLE_EXE = LOADER_BUNDLE + "/Contents/MacOS/wine"
 LOADER_BUNDLE_ID = "org.mavrik.engine.wine"
+# The same bundle without Game Mode (patch 0037 version 3, MAVRIK_GAME_MODE=0). The same folder name, so macOS's
+# Local Network prompt reads "mavrik" for it too; its own identifier, so nothing macOS keeps per identifier (the
+# game label, the player's own Game Mode choice in macOS) is shared with the Game Mode bundle.
+LOADER_BUNDLE_NO_GAME_MODE = "lib/wine/x86_64-unix/without-game-mode/mavrik.app"
+LOADER_BUNDLE_NO_GAME_MODE_EXE = LOADER_BUNDLE_NO_GAME_MODE + "/Contents/MacOS/wine"
+LOADER_BUNDLE_NO_GAME_MODE_ID = "org.mavrik.engine.wine.without-game-mode"
+# The keys that make macOS treat the program as a game that supports Game Mode.
+GAME_MODE_KEYS = ("LSApplicationCategoryType", "LSSupportsGameMode", "GCSupportsGameMode")
 LOCAL_NETWORK_TEXT = "Games use the local network for multiplayer and to find devices."
 
 
-def loader_bundle_plist(version):
+def loader_bundle_plist(version, game_mode=True):
     """The loader bundle's Info.plist: the loader's own built-in keys (loader/wine_info.plist.in), its
-    own identifier and name, and what macOS needs to give a full-screen game Game Mode."""
-    return {
+    own identifier and name, and what macOS needs to give a full-screen game Game Mode. With game_mode
+    False, the bundle without Game Mode: no GAME_MODE_KEYS and its own identifier, every other key the same."""
+    info = {
         "CFBundleAllowMixedLocalizations": True,
         "CFBundleDevelopmentRegion": "English",
         "CFBundleExecutable": "wine",
@@ -82,6 +94,11 @@ def loader_bundle_plist(version):
         "GCSupportsGameMode": True,   # macOS 14 to 25
         "NSLocalNetworkUsageDescription": LOCAL_NETWORK_TEXT,
     }
+    if not game_mode:
+        info["CFBundleIdentifier"] = LOADER_BUNDLE_NO_GAME_MODE_ID
+        for key in GAME_MODE_KEYS:
+            del info[key]
+    return info
 
 
 def run(cmd, **kw):
@@ -404,21 +421,24 @@ class Assembler:
     # 8
     def loader_bundle(self):
         loader = os.path.join(self.engine, "lib", "wine", "x86_64-unix", "wine")
-        bundle = os.path.join(self.engine, LOADER_BUNDLE)
-        exe = os.path.join(self.engine, LOADER_BUNDLE_EXE)
-        if os.path.lexists(bundle):
-            sys.exit(f"{LOADER_BUNDLE} is already there")
         version = open(os.path.join(self.work, "wine-src", "VERSION")).read().strip().replace("Wine version ", "")
-        os.makedirs(os.path.dirname(exe))
-        shutil.copyfile(loader, exe)
-        shutil.copymode(loader, exe)
-        with open(os.path.join(bundle, "Contents", "Info.plist"), "wb") as f:
-            plistlib.dump(loader_bundle_plist(version), f)
-        run(["codesign", "-f", "-s", "-", bundle], capture_output=True)
-        run(["codesign", "--verify", "--strict", bundle], capture_output=True)
-        for p in walk_files(bundle):
-            self.mark(p, "wine" if p == exe else "mavrik-engine")
-        print(f"{LOADER_BUNDLE}: {LOADER_BUNDLE_ID}, the loader signed in it")
+        for rel, rel_exe, game_mode in ((LOADER_BUNDLE, LOADER_BUNDLE_EXE, True),
+                                        (LOADER_BUNDLE_NO_GAME_MODE, LOADER_BUNDLE_NO_GAME_MODE_EXE, False)):
+            bundle = os.path.join(self.engine, rel)
+            exe = os.path.join(self.engine, rel_exe)
+            if os.path.lexists(bundle):
+                sys.exit(f"{rel} is already there")
+            os.makedirs(os.path.dirname(exe))
+            shutil.copyfile(loader, exe)
+            shutil.copymode(loader, exe)
+            info = loader_bundle_plist(version, game_mode)
+            with open(os.path.join(bundle, "Contents", "Info.plist"), "wb") as f:
+                plistlib.dump(info, f)
+            run(["codesign", "-f", "-s", "-", bundle], capture_output=True)
+            run(["codesign", "--verify", "--strict", bundle], capture_output=True)
+            for p in walk_files(bundle):
+                self.mark(p, "wine" if p == exe else "mavrik-engine")
+            print(f"{rel}: {info['CFBundleIdentifier']}, the loader signed in it")
 
     def write(self):
         json.dump(self.contrib, open(os.path.join(self.work, "contributions.json"), "w"), indent=1, sort_keys=True)

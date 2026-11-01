@@ -117,6 +117,12 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   Info.plist did nothing: macOS read them only from a bundle. The
   bundle is laid and signed when the engine is assembled; nothing is made at run time. Its folder name is the name
   macOS shows when a Windows program first uses the local network, with the bundle's `NSLocalNetworkUsageDescription`.
+  **Game Mode off**: with `MAVRIK_GAME_MODE=0` in the environment of the first process (exactly `0`; any other value
+  or none keeps Game Mode on), Wine starts the program from `lib/wine/x86_64-unix/without-game-mode/mavrik.app`
+  instead: the same bundle, with the same folder name and `CFBundleName`, without the three Game Mode keys and with
+  its own identifier, `org.mavrik.engine.wine.without-game-mode` (patch 0037 version 3, revision 12). Every process
+  the program starts keeps the variable, as it keeps `WINEPRELOADERAPPNAME`. The game's name in the menu bar, Cmd-Tab
+  and the Dock is the same in both states. A launcher sets the variable per game, for a player's own choice.
   Wine's start no longer looks up the Mac's `.local` host name (patch 0041), so starting a Windows program doesn't
   touch the local network or wait on that prompt. A game that looks up its own machine gets the Mac's own addresses
   with no lookup (patch 0042), so a game that only looks itself up no longer waits on that prompt either.
@@ -231,12 +237,14 @@ property the case breaks):
   decomposed form, as macOS keeps it). Three more titles show the rules: a Japanese title of 36 bytes
   is cut between whole characters (to 30 bytes in the Dock, to 27 in the window server, where its
   "ゲ" decomposes to 6), `AC/DC Gate` shows as `AC∕DC Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
-  program's executable (`proc_pidpath`) must be the loader in the engine's `mavrik.app` (patch 0037). A title no
-  link can carry (`..`) shows the bundle's name, `mavrik`, everywhere. With no title and an argv[0] that is not
-  UTF-8, the program must still start, and each program shows its own file's name in both sources (patch 0007
-  names the first link after the program, not after argv[0]). On an APFS clone of the engine with a plain file where
-  its loader's link folder goes, so no link can be made, a program with no title and its child show `mavrik`, never
-  `wine`. The executable path is checked as `proc_pidpath` gives it, without resolving links. Only probes started by the gate's own run are
+  program's executable (`proc_pidpath`) must be the loader in the engine's `mavrik.app` (patch 0037); with
+  `MAVRIK_GAME_MODE=0`, the plain title shows the same and the executable is the loader in
+  `without-game-mode/mavrik.app`. A title no link can carry (`..`) shows the bundle's name, `mavrik`, everywhere.
+  With no title and an argv[0] that is not UTF-8, the program must still start, and each program shows its own
+  file's name in both sources (patch 0007 names the first link after the program, not after argv[0]). On an APFS
+  clone of the engine with a plain file where its loader's link folder goes, so no link can be made, a program with
+  no title and its child show `mavrik`, never `wine`. The executable path is checked as `proc_pidpath` gives it,
+  without resolving links. Only probes started by the gate's own run are
   read, and the gate removes the links it caused. When the gates run outside a login session
   (`launchctl managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate
   reports SKIP; inside one, it runs and passes or fails. Two self-test rows need this revision's
@@ -252,11 +260,19 @@ property the case breaks):
   `MAVRIK_PAD_HIDRAW=1`, each PlayStation id must be no XInput pad and no DirectInput controller. The
   self-test breaks one property each: a DualShock 4 with `MAVRIK_PAD_HIDRAW=1` in the full selftest, the
   same id in the absent check without it, and a Switch Pro Controller with SDL's label mapping back on.
-- **gamemode**: the loader bundle `lib/wine/x86_64-unix/mavrik.app` (patch 0037) has exactly the Info.plist
-  `scripts/assemble.py` writes (the games category, `LSSupportsGameMode` and `GCSupportsGameMode`, `LSUIElement`,
-  `CFBundleExecutable` `wine`, the Local Network usage text, no document types); its `Contents/MacOS/wine` is the
-  engine's loader with a signature added; and its ad hoc signature verifies (`codesign --verify --strict`), so the
-  Info.plist is sealed. That a Windows program runs from it is the dockname gate's check.
+- **gamemode**: the two loader bundles (patch 0037), `lib/wine/x86_64-unix/mavrik.app` and
+  `lib/wine/x86_64-unix/without-game-mode/mavrik.app`, have exactly the Info.plists `scripts/assemble.py` writes (the
+  first the games category, `LSSupportsGameMode` and `GCSupportsGameMode`; the second none of them and its own
+  identifier; both `LSUIElement`, `CFBundleName` `mavrik`, `CFBundleExecutable` `wine`, the Local Network usage
+  text, no document types); each `Contents/MacOS/wine` is the engine's loader with a signature added; and each ad
+  hoc signature verifies (`codesign --verify --strict`), so the Info.plist is sealed. Then the switch, with no
+  display: a 64-bit program with no title, its 32-bit child and its 64-bit grandchild
+  ([`tools/chainprobe.c`](tools/chainprobe.c)), run once without `MAVRIK_GAME_MODE` and once with
+  `MAVRIK_GAME_MODE=0`, must each start through a link named after its file in the link folder of the loader in
+  `mavrik.app` the first time and of the one in `without-game-mode/mavrik.app` the second, and nowhere else. The
+  grandchild proves the variable passed through the Windows environment. Whether macOS then turns Game Mode on is
+  not a gate (it needs a full-screen game in front); the lab reads it from gamepolicyd. One self-test row needs
+  revision 11's `ntdll.so` (no switch), named in `SELFTEST_R11_NTDLL`.
 
 ## Build notes
 
