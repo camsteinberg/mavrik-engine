@@ -93,12 +93,14 @@ The gates:
                 with the bundle's signature taken off), and each bundle's ad hoc signature verifies (codesign
                 --verify --strict), so its Info.plist is sealed. Then the switch, with the display driver off: in
                 a fresh prefix, a 64-bit program with no title starts a 32-bit child that starts a 64-bit
-                grandchild (tools/chainprobe.c), once with no MAVRIK_GAME_MODE and once with
-                MAVRIK_GAME_MODE=0; each of the three starts through a link named after its own file in the link
-                folder of the loader in mavrik.app the first time and of the one in without-game-mode/mavrik.app
-                the second, each link pointing at that loader, and no such link in the other folder. The
-                grandchild's place shows that the variable passed through the Windows environment. What the
-                Dock and the window server show in each state is the dockname gate's check
+                grandchild (tools/chainprobe.c), with no MAVRIK_GAME_MODE, with MAVRIK_GAME_MODE=0 and with
+                MAVRIK_GAME_MODE=1 (only exactly "0" turns Game Mode off); each of the three starts through a link
+                named after its own file in the link folder of the loader in without-game-mode/mavrik.app with
+                "0" and of the one in mavrik.app otherwise, each link pointing at that loader, and no such link in
+                the other folder. Each child starts from the loader its parent chose and inherits the variable
+                with the rest of the Unix environment (spawn_process passes the parent's Unix environment, not the
+                Windows one), so the grandchild's place proves the variable passes through two generations. What
+                the Dock and the window server show in each state is the dockname gate's check
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 
@@ -1716,7 +1718,10 @@ def loader_bundles_problems(engine):
 
 
 # The switch's two states: (name, the environment added, the loader the programs must start from).
-GAME_MODE_STATES = [("on", {}, LOADER_BUNDLE_EXE), ("off", GAME_MODE_OFF, LOADER_BUNDLE_NO_GAME_MODE_EXE)]
+# The switch's states: (name, the environment added, the loader the programs must start from). Only exactly "0" turns
+# Game Mode off; "value1" pins that any other value keeps it on. The self-test uses the "off" entry, index 1.
+GAME_MODE_STATES = [("on", {}, LOADER_BUNDLE_EXE), ("off", GAME_MODE_OFF, LOADER_BUNDLE_NO_GAME_MODE_EXE),
+                    ("value1", {"MAVRIK_GAME_MODE": "1"}, LOADER_BUNDLE_EXE)]
 
 
 def gamemode_switch_check(engine, ctx, states=None, timeout=900):
