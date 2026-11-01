@@ -91,9 +91,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   keeps the name decomposed (NFD), at most 31 bytes of it, so the link's name is cut between whole
   characters where its decomposed form fits 31 bytes (an accent or a katakana voicing mark takes 3 more
   bytes, a Korean syllable 9), with `/` shown as `∕` (U+2215) and control characters dropped. The process's executable is still the loader inside the engine (`proc_pidpath`), so a
-  program can find the engine's processes by their path. When no link can be made, the Mac driver
-  still names the process in the Dock and the app switcher with a private LaunchServices call (patch
-  0006), looked up at run time; the menu bar then shows `wine`.
+  program can find the engine's processes by their path. With no `WINEPRELOADERAPPNAME`, the first program's
+  link is named after the program on the command line, not after `wine` (patch 0007, revision 12), and each
+  child's after its own file. When no link can be made, the program starts from the loader in `mavrik.app`
+  itself, and every surface shows the bundle's name, `mavrik` (patch 0037); never `wine`.
 - **Sound**: Wine sets the Mac output device's buffer frame size to its own period when a stream starts, and
   reports the device's real period (512 frames at 48 kHz, 10.67 ms) to games (patch 0009, upstream Wine's),
   counted in the device's frames when the stream's rate differs (patch 0038). The 32-bit Windows half is
@@ -230,14 +231,17 @@ property the case breaks):
   decomposed form, as macOS keeps it). Three more titles show the rules: a Japanese title of 36 bytes
   is cut between whole characters (to 30 bytes in the Dock, to 27 in the window server, where its
   "ゲ" decomposes to 6), `AC/DC Gate` shows as `AC∕DC Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
-  program's executable (`proc_pidpath`) must be the loader in the engine's `mavrik.app` (patch 0037). A title no link can carry
-  (`..`) must still reach the Dock through patch 0006. With no title and an argv[0] that is not UTF-8,
-  the program must still start (no link, so the window server keeps `wine`) and its 32-bit child keeps
-  its own name. The executable path is checked as `proc_pidpath` gives it, without resolving links. Only probes started by the gate's own run are
+  program's executable (`proc_pidpath`) must be the loader in the engine's `mavrik.app` (patch 0037). A title no
+  link can carry (`..`) shows the bundle's name, `mavrik`, everywhere. With no title and an argv[0] that is not
+  UTF-8, the program must still start, and each program shows its own file's name in both sources (patch 0007
+  names the first link after the program, not after argv[0]). On an APFS clone of the engine with a plain file where
+  its loader's link folder goes, so no link can be made, a program with no title and its child show `mavrik`, never
+  `wine`. The executable path is checked as `proc_pidpath` gives it, without resolving links. Only probes started by the gate's own run are
   read, and the gate removes the links it caused. When the gates run outside a login session
   (`launchctl managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate
-  reports SKIP; inside one, it runs and passes or fails. Two self-test rows need revision 4's
-  `ntdll.so` (CrossOver's hack as shipped), named in `SELFTEST_OLD_NTDLL`; without it they are not run.
+  reports SKIP; inside one, it runs and passes or fails. Two self-test rows need this revision's
+  `ntdll.so` without patch 0007 (CrossOver's hack as shipped), named in `SELFTEST_OLD_NTDLL`, and one needs
+  revision 11's `ntdll.so`, named in `SELFTEST_R11_NTDLL`; without them they are not run.
 - **controllers**: game controllers through patch 0035's scripted virtual pad, with no real pad.
   [`tools/gamepadprobe.c`](tools/gamepadprobe.c) (neutron's probe) runs its selftest in a fresh Windows
   folder, each case in its own Wine session (the pad's variables count when the session starts), with

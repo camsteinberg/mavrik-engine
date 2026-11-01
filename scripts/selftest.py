@@ -47,6 +47,10 @@ USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { ret
 # (00a4da2f...), but patches 0018 to 0032 change ntdll's Unix side, and a revision 7 prefix boot with
 # revision 4's hangs (S213). From revision 11 it is that revision's own, since 0037 changes ntdll's Unix side (S218).
 OLD_NTDLL_SHA256 = "e40f54cb7021fb0f090c4f1d3bca881a7068a26733ffca8caa4ee5352036130d"
+# Engine revision 11's own ntdll.so, from the published 11.0-cx26.3.0-r11: it lacks patch 0007's link name for a
+# first program with no title (revision 12). Revision 12 changes only ntdll.so and the loader in Wine's tree, so it
+# runs in a revision 12 clone. Name it in SELFTEST_R11_NTDLL; without it the rows that need it are not run.
+R11_NTDLL_SHA256 = "6212ed6a34a66af7454be7c566643b7f690b62611edca08eed894d8daa66d5aa"
 
 
 def cc(src_text, out_path, *args):
@@ -417,12 +421,36 @@ def run(engine, work):
 
         # dockname, the executable: an engine clone without mavrik.app, so Wine starts every program from the
         # loader beside ntdll.so, as before patch 0037: inside the engine, but not from the bundle.
-        bad = os.path.join(tmp, "no-bundle-engine")
+        no_bundle = bad = os.path.join(tmp, "no-bundle-engine")
         clone(engine, bad)
         shutil.rmtree(os.path.join(bad, G.LOADER_BUNDLE))
         case(results, "dockname", "an engine clone without lib/wine/x86_64-unix/mavrik.app",
              G.dockname_check(bad, ctx, cases=["Gate Dock Name"])[0],
              r"dockprobe(32|64)\.exe: started from \S*/x86_64-unix/wine, not from the loader in")
+
+        # dockname, no link at all: the clone without mavrik.app (above) under dockname_no_link_check, so its
+        # programs start from the bare loader with no link, and the window server shows "wine".
+        case(results, "dockname", "an engine clone without mavrik.app, where no link can be made",
+             G.dockname_no_link_check(no_bundle, ctx)[0],
+             r"dockprobe(32|64)\.exe: (the (Dock|window server) shows '[^']*', not 'mavrik'|started from "
+             r"\S*/x86_64-unix/wine, not from the loader in \S*mavrik\.app)")
+
+        # dockname, no title: revision 11's ntdll names the first program's link after argv[0] (here not UTF-8,
+        # so no link, and the bundle's name; normally "wine"), not after the program.
+        r11 = os.environ.get("SELFTEST_R11_NTDLL")
+        if r11:
+            if G.out(["shasum", "-a", "256", r11]).stdout.split()[:1] != [R11_NTDLL_SHA256]:
+                raise SystemExit(f"selftest setup: SELFTEST_R11_NTDLL {r11} is not revision 11's ntdll.so")
+            r11_engine = os.path.join(tmp, "r11-ntdll-engine")
+            clone(engine, r11_engine)
+            ntdll = os.path.join(r11_engine, "lib", "wine", "x86_64-unix", "ntdll.so")
+            os.remove(ntdll)
+            shutil.copy2(r11, ntdll)
+            case(results, "dockname", "an engine clone with revision 11's ntdll.so, no title",
+                 G.dockname_check(r11_engine, ctx, cases=[G.DOCK_NO_TITLE])[0],
+                 r"dockprobe64\.exe: the (Dock|window server) shows '(wine|mavrik)', not 'dockprobe64'")
+        else:
+            skipped(results, "dockname", "an engine clone with revision 11's ntdll.so, no title", "SELFTEST_R11_NTDLL is not set")
 
         # dockname: titles past the loader's 32-byte name slot once escaped, one of '&' (5 bytes each
         # escaped) and one of CJK characters (3 bytes each). The Dock must show each cut between whole

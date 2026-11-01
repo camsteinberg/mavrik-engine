@@ -68,10 +68,12 @@ The gates:
                 emoji characters; a CJK title past 31 bytes is cut between whole characters, '/' shows
                 as U+2215 in the window server, and a title "Control" still starts the program, not
                 Wine's control panel; each program's executable (proc_pidpath) is the loader inside the
-                engine's mavrik.app (patch 0037), so inside the engine too; a program started with no link
-                (a title no link can carry, "..", or no title and an argv[0] that is not UTF-8) still
-                starts and shows the bundle's name, "mavrik", never "wine"; and with no title the 32-bit
-                child keeps its own name. The executable path is checked
+                engine's mavrik.app (patch 0037), so inside the engine too; with no title, each program shows
+                its own file's name in both, never "wine", the first one too (patch 0007 names its link after
+                the program, not after argv[0], which here is not UTF-8); and a program started with no link
+                (a title no link can carry, "..", or, on an APFS clone of the engine, no title with a plain
+                file where the loader's link folder goes) still starts and shows the bundle's name, "mavrik",
+                never "wine". The executable path is checked
                 as proc_pidpath gives it, without resolving links. Gates run outside a login (Aqua)
                 session report SKIP
   controllers   game controllers through patch 0035's virtual pad (MAVRIK_PAD_VIRTUAL), each case in its own
@@ -1401,12 +1403,15 @@ BUNDLE_NAME = "mavrik"
 # A title no link can be named after: the program starts from the loader in mavrik.app, so every name is
 # the bundle's, for the 32-bit child too (it keeps the title, so it has no link either).
 DOCK_FALLBACK = ("..", BUNDLE_NAME, BUNDLE_NAME)
-# No title, and an argv[0] that is not UTF-8 (a lead byte and 40 continuation bytes), which the loader's
-# first process would name its link after: the bounded cut must refuse it (no link: the bundle's name)
-# and the program must start. Its 32-bit child keeps its own file's name, since no title is set and its
-# link is named after its file.
-DOCK_NO_TITLE = (None, {"dockprobe64.exe": BUNDLE_NAME, "dockprobe32.exe": "dockprobe32"},
-                 {"dockprobe64.exe": BUNDLE_NAME, "dockprobe32.exe": "dockprobe32"}, b"\xc3" + b"\x80" * 40)
+# No title, and an argv[0] that is not UTF-8 (a lead byte and 40 continuation bytes). The program must start,
+# and each program shows its own file's name in both sources: patch 0007 names the first program's link after
+# the program on the command line, not after argv[0] (before revision 12 the link was named after argv[0],
+# normally "wine"), and its 32-bit child's link after the child's file.
+DOCK_NO_TITLE = (None, {"dockprobe64.exe": "dockprobe64", "dockprobe32.exe": "dockprobe32"},
+                 {"dockprobe64.exe": "dockprobe64", "dockprobe32.exe": "dockprobe32"}, b"\xc3" + b"\x80" * 40)
+# No title and no link at all (dockname_no_link_check: a plain file where the link folder goes, so no link can
+# be made): both programs start from the loader in mavrik.app itself and show the bundle's name.
+DOCK_NO_LINK = (None, BUNDLE_NAME, BUNDLE_NAME)
 
 
 def slot_name(title, slot=32):
@@ -1591,7 +1596,7 @@ def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
         no_crash_dialog(wine, env, log)
         problems += settle(engine, env, "wineboot --init")
         for case in cases if not problems else []:
-            label = case[0] if case[0] is not None else "(no title, argv[0] not UTF-8)"
+            label = case[0] if case[0] is not None else "(no title, argv[0] not UTF-8)" if len(case) > 3 else "(no title)"
             # The probes' windows are what this gate reads, so they run with the Mac display driver.
             found, seen[label] = dock_names_once(wine, probes, with_display(env), log, case, timeout, root, ctx["work"])
             problems += [f"'{label}': {p}" for p in found]
@@ -1606,6 +1611,28 @@ def dockname_check(engine, ctx, cases=None, timeout=60, extra_env=None):
                 remove_later(link_folder(engine, loader))
     return problems, seen
 
+def dockname_no_link_check(engine, ctx, timeout=60):
+    """DOCK_NO_LINK, where Wine can make no link at all: on an APFS clone of the engine in WORK (its loaders are
+    new files, so their link folders are new names), with a plain file where the link folder of the loader Wine
+    starts programs from goes (create_tempdir's mkdir then fails, so no link can be made in it). Patch 0007 then
+    execs that loader itself. Returns dockname_check's (problems, seen). The plain file goes at the end; the clone
+    goes with the gates' other leftovers (remove_deferred), since Wine just ran its programs."""
+    holder = tempfile.mkdtemp(prefix="dockname-nolink-", dir=ctx["work"])
+    clone = os.path.join(holder, os.path.basename(os.path.realpath(engine).rstrip("/")))
+    blocker = None
+    try:
+        subprocess.run(["cp", "-c", "-R", engine, clone], check=True, capture_output=True)
+        blocker = link_folder(clone) or link_folder(clone, LOADER)
+        if blocker is None or os.path.lexists(blocker):
+            return [f"the clone's link folder {blocker} cannot be blocked (no loader, or it is already there)"], {}
+        open(blocker, "w").close()
+        return dockname_check(clone, ctx, cases=[DOCK_NO_LINK], timeout=timeout)
+    finally:
+        if blocker and os.path.isfile(blocker) and not os.path.islink(blocker):
+            os.remove(blocker)
+        remove_later(holder)
+
+
 
 def login_session():
     """The launchd session this process runs in ("Aqua" is a user's login session, where a window can
@@ -1619,6 +1646,9 @@ def gate_dockname(engine, ctx):
         return None, (f"SKIP: the gates run in launchd's '{session or 'unknown'}' session, not a login (Aqua) "
                       "session, so no window can become a Dock app"), []
     problems, seen = dockname_check(engine, ctx)
+    more, seen_no_link = dockname_no_link_check(engine, ctx)
+    problems += [f"(on a clone, no link can be made) {p}" for p in more]
+    seen.update({f"{t}, no link": s for t, s in seen_no_link.items()})
     names = "; ".join(f"'{t}': " + ", ".join(f"{p} '{ls}' / '{ws}'" for p, (ls, ws) in s.items())
                       for t, s in seen.items())
     return not problems, (f"the names (Dock / window server): {names}; every program's executable is the "
