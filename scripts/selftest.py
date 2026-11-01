@@ -47,9 +47,10 @@ USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { ret
 # (00a4da2f...), but patches 0018 to 0032 change ntdll's Unix side, and a revision 7 prefix boot with
 # revision 4's hangs (S213). From revision 11 it is that revision's own, since 0037 changes ntdll's Unix side (S218).
 OLD_NTDLL_SHA256 = "e40f54cb7021fb0f090c4f1d3bca881a7068a26733ffca8caa4ee5352036130d"
-# Engine revision 11's own ntdll.so, from the published 11.0-cx26.3.0-r11: it lacks patch 0007's link name for a
-# first program with no title (revision 12). Revision 12 changes only ntdll.so and the loader in Wine's tree, so it
-# runs in a revision 12 clone. Name it in SELFTEST_R11_NTDLL; without it the rows that need it are not run.
+# Engine revision 11's own ntdll.so, from the published 11.0-cx26.3.0-r11: it has neither patch 0037 version 3's
+# Game Mode switch (MAVRIK_GAME_MODE) nor patch 0007's link name for a first program with no title (revision 12).
+# Revision 12 changes only ntdll.so and the loader in Wine's tree, so it runs in a revision 12 clone. Name it in
+# SELFTEST_R11_NTDLL; without it the rows that need it are not run.
 R11_NTDLL_SHA256 = "6212ed6a34a66af7454be7c566643b7f690b62611edca08eed894d8daa66d5aa"
 
 
@@ -278,6 +279,8 @@ def run(engine, work):
         os.makedirs(os.path.dirname(os.path.join(root, G.LOADER)))
         clone(os.path.join(engine, G.LOADER), os.path.join(root, G.LOADER))
         clone(os.path.join(engine, G.LOADER_BUNDLE), os.path.join(root, G.LOADER_BUNDLE))
+        os.makedirs(os.path.dirname(os.path.join(root, G.LOADER_BUNDLE_NO_GAME_MODE)), exist_ok=True)
+        clone(os.path.join(engine, G.LOADER_BUNDLE_NO_GAME_MODE), os.path.join(root, G.LOADER_BUNDLE_NO_GAME_MODE))
         return root, os.path.join(root, G.LOADER_BUNDLE), os.path.join(root, G.LOADER_BUNDLE, "Contents", "Info.plist")
 
     root, bundle, _ = gamemode_engine("gamemode-none")
@@ -305,6 +308,57 @@ def run(engine, work):
     subprocess.run(["codesign", "-f", "-s", "-", bundle], check=True, capture_output=True)
     case(results, "gamemode", "the engine's wineserver signed into the bundle", G.loader_bundle_problems(root),
          r"Contents/MacOS/wine: not the engine's loader")
+
+    # gamemode, the bundle without Game Mode (patch 0037 version 3): one that declares LSSupportsGameMode after
+    # all (signed again, so only the key is wrong); and none at all.
+    root, _, _ = gamemode_engine("gamemode-twin-key")
+    twin = os.path.join(root, G.LOADER_BUNDLE_NO_GAME_MODE)
+    twin_plist = os.path.join(twin, "Contents", "Info.plist")
+    info = G.plistlib.load(open(twin_plist, "rb"))
+    info["LSSupportsGameMode"] = True
+    os.remove(twin_plist)
+    G.plistlib.dump(info, open(twin_plist, "wb"))
+    subprocess.run(["codesign", "-f", "-s", "-", twin], check=True, capture_output=True)
+    case(results, "gamemode", "the bundle without Game Mode declaring LSSupportsGameMode, signed again",
+         G.loader_bundle_problems(root, G.LOADER_BUNDLE_NO_GAME_MODE, G.LOADER_BUNDLE_NO_GAME_MODE_EXE, False),
+         r"without-game-mode/mavrik\.app: LSSupportsGameMode is True, not None")
+    root, _, _ = gamemode_engine("gamemode-twin-none")
+    shutil.rmtree(os.path.join(root, G.LOADER_BUNDLE_NO_GAME_MODE))
+    case(results, "gamemode", "no without-game-mode/mavrik.app", G.loader_bundles_problems(root),
+         r"without-game-mode/mavrik\.app: no Contents/MacOS/wine")
+
+    # gamemode, the switch: an engine clone without the bundle without Game Mode, so with MAVRIK_GAME_MODE=0 Wine
+    # starts the programs from the loader beside ntdll.so (no Game Mode either, but not the bundle the gate wants).
+    bad_twin = bad = os.path.join(tmp, "no-twin-engine")
+    clone(engine, bad)
+    shutil.rmtree(os.path.join(bad, G.LOADER_BUNDLE_NO_GAME_MODE))
+    case(results, "gamemode", "an engine clone without without-game-mode/mavrik.app, with MAVRIK_GAME_MODE=0",
+         G.gamemode_switch_check(bad, ctx, states=[G.GAME_MODE_STATES[1]])[0],
+         r"Game Mode off: gate-gm-off-\d-[0-9a-f]+: started through the link folder of lib/wine/x86_64-unix/wine, "
+         r"not only of lib/wine/x86_64-unix/without-game-mode/")
+
+    # gamemode, the switch ignored: an engine clone with revision 11's ntdll.so (R11_NTDLL_SHA256), which reads no
+    # MAVRIK_GAME_MODE, so with it every program still starts from the loader in mavrik.app. That ntdll also names
+    # the first program's link after argv[0] ("wine"), so the first program has no link of its own name; both
+    # are what revision 12 changed.
+    r11 = os.environ.get("SELFTEST_R11_NTDLL")
+    if r11:
+        if G.out(["shasum", "-a", "256", r11]).stdout.split()[:1] != [R11_NTDLL_SHA256]:
+            raise SystemExit(f"selftest setup: SELFTEST_R11_NTDLL {r11} is not revision 11's ntdll.so")
+        r11_engine = os.path.join(tmp, "r11-ntdll-engine")
+        clone(engine, r11_engine)
+        ntdll = os.path.join(r11_engine, "lib", "wine", "x86_64-unix", "ntdll.so")
+        os.remove(ntdll)
+        shutil.copy2(r11, ntdll)
+        case(results, "gamemode", "an engine clone with revision 11's ntdll.so (no switch), with MAVRIK_GAME_MODE=0",
+             G.gamemode_switch_check(r11_engine, ctx, states=[G.GAME_MODE_STATES[1]])[0],
+             r"Game Mode off: gate-gm-off-\d-[0-9a-f]+: (started through the link folder of "
+             r"lib/wine/x86_64-unix/mavrik\.app/Contents/MacOS/wine, not only of \S+without-game-mode\S+|"
+             r"no link in any loader's link folder .*)")
+    else:
+        r11_engine = None
+        skipped(results, "gamemode", "an engine clone with revision 11's ntdll.so (no switch)",
+                "SELFTEST_R11_NTDLL is not set")
 
     # buildpaths: a library with the work folder's path compiled in.
     bp = os.path.join(tmp, "buildpaths", "lib", "libpath.dylib")
@@ -428,6 +482,12 @@ def run(engine, work):
              G.dockname_check(bad, ctx, cases=["Gate Dock Name"])[0],
              r"dockprobe(32|64)\.exe: started from \S*/x86_64-unix/wine, not from the loader in")
 
+        # dockname, Game Mode off: the same engine clone without the bundle without Game Mode, so with
+        # MAVRIK_GAME_MODE=0 the probes start from the loader beside ntdll.so (the title still shows, through the link).
+        case(results, "dockname", "an engine clone without without-game-mode/mavrik.app, with MAVRIK_GAME_MODE=0",
+             G.dockname_check(bad_twin, ctx, cases=[G.DOCK_NO_GAME_MODE])[0],
+             r"dockprobe(32|64)\.exe: started from \S*/x86_64-unix/wine, not from the loader in \S*without-game-mode/mavrik\.app")
+
         # dockname, no link at all: the clone without mavrik.app (above) under dockname_no_link_check, so its
         # programs start from the bare loader with no link, and the window server shows "wine".
         case(results, "dockname", "an engine clone without mavrik.app, where no link can be made",
@@ -437,15 +497,7 @@ def run(engine, work):
 
         # dockname, no title: revision 11's ntdll names the first program's link after argv[0] (here not UTF-8,
         # so no link, and the bundle's name; normally "wine"), not after the program.
-        r11 = os.environ.get("SELFTEST_R11_NTDLL")
-        if r11:
-            if G.out(["shasum", "-a", "256", r11]).stdout.split()[:1] != [R11_NTDLL_SHA256]:
-                raise SystemExit(f"selftest setup: SELFTEST_R11_NTDLL {r11} is not revision 11's ntdll.so")
-            r11_engine = os.path.join(tmp, "r11-ntdll-engine")
-            clone(engine, r11_engine)
-            ntdll = os.path.join(r11_engine, "lib", "wine", "x86_64-unix", "ntdll.so")
-            os.remove(ntdll)
-            shutil.copy2(r11, ntdll)
+        if r11_engine:
             case(results, "dockname", "an engine clone with revision 11's ntdll.so, no title",
                  G.dockname_check(r11_engine, ctx, cases=[G.DOCK_NO_TITLE])[0],
                  r"dockprobe64\.exe: the (Dock|window server) shows '(wine|mavrik)', not 'dockprobe64'")
