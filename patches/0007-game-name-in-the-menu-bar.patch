@@ -24,6 +24,11 @@ patch adapts that hack and keeps its structure, so CodeWeavers' later changes st
   the program's children), and it is never overwritten. Only when it is unset is the name the
   program's file name, and then the variable is not set from it, so a launcher's own name does not
   pass to the game it starts.
+- The first program Wine starts with no title takes its link name from the program on the command line
+  (argv[1]), not from the file that was run (argv[0], Wine's "wine"), unless argv[0] itself names a
+  builtin program (wine's extra argument). Before, such a program (a store's setup program with a
+  window) showed its own name in the Dock but "wine" in the menu bar and Cmd-Tab. Its children were
+  already named after their own files. (Engine revision 12; mavrik S218, dockname-r11.md.)
 - The name is made safe for a file name and for the window server: "/" becomes U+2215 (division
   slash), control characters (C0, DEL and C1) are dropped, and it is cut between whole characters
   where its decomposed (NFD) UTF-8 form still fits in 31 bytes. The window server keeps a process's
@@ -351,7 +356,18 @@ hack.
  #endif
  
      execv( argv[1], argv + 1 );
-@@ -2719,6 +2910,10 @@
+@@ -2646,7 +2837,9 @@
+     /* default to 32-bit loader to support 32-bit prefixes */
+     if (machine == IMAGE_FILE_MACHINE_AMD64) machine = IMAGE_FILE_MACHINE_I386;
+ 
+-    loader_exec( new_argv, machine, argv[0] );
++    /* CW HACK 22144 (mavrik): with no title, the link is named after the program that runs: the one on
++     * the command line, not the loader that was run ("wine"), unless argv[0] names a builtin program. */
++    loader_exec( new_argv, machine, (!extra_arg && argc > 1) ? argv[1] : argv[0] );
+     fatal_error( "could not exec the wine loader\n" );
+ }
+ 
+@@ -2719,6 +2912,10 @@
      main_argv = argv;
  
      init_paths();
