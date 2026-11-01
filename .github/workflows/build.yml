@@ -42,7 +42,7 @@ jobs:
     outputs:
       name: ${{ steps.pack.outputs.name }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Release builds need every input and release source pinned
         if: ${{ inputs.publish_release }}
@@ -67,7 +67,7 @@ jobs:
       - name: Restore downloads
         id: dl-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/downloads
           key: ${{ steps.keys.outputs.downloads }}
@@ -75,7 +75,7 @@ jobs:
       - name: Restore DXMT's LLVM
         id: llvm-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/dxmt-llvm
           key: ${{ steps.keys.outputs['dxmt-llvm'] }}
@@ -83,7 +83,7 @@ jobs:
       - name: Restore the DXMT build
         id: dxmt-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/dxmt-install
           key: ${{ steps.keys.outputs.dxmt }}
@@ -91,7 +91,7 @@ jobs:
       - name: Restore our Unix libraries
         id: deps-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/deps
           key: ${{ steps.keys.outputs.deps }}
@@ -99,14 +99,14 @@ jobs:
       - name: Restore the Wine build
         id: wine-cache
         if: ${{ !inputs.fresh }}
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/wine-install
           key: ${{ steps.keys.outputs.wine }}
 
       - name: Restore the compiler cache
         if: ${{ steps.wine-cache.outputs.cache-hit != 'true' && !inputs.fresh }}
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/ccache
           key: ccache-${{ github.run_id }}
@@ -117,42 +117,42 @@ jobs:
 
       - name: Save downloads
         if: ${{ always() && steps.dl-cache.outputs.cache-hit != 'true' && hashFiles('work/downloads/.stamp') != '' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/downloads
           key: ${{ steps.keys.outputs.downloads }}
 
       - name: Save DXMT's LLVM
         if: ${{ always() && steps.llvm-cache.outputs.cache-hit != 'true' && hashFiles('work/dxmt-llvm/.stamp') != '' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/dxmt-llvm
           key: ${{ steps.keys.outputs['dxmt-llvm'] }}
 
       - name: Save the DXMT build
         if: ${{ always() && steps.dxmt-cache.outputs.cache-hit != 'true' && hashFiles('work/dxmt-install/.stamp') != '' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/dxmt-install
           key: ${{ steps.keys.outputs.dxmt }}
 
       - name: Save our Unix libraries
         if: ${{ always() && steps.deps-cache.outputs.cache-hit != 'true' && hashFiles('work/deps/.stamp') != '' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/deps
           key: ${{ steps.keys.outputs.deps }}
 
       - name: Save the compiler cache
         if: ${{ always() && steps.wine-cache.outputs.cache-hit != 'true' && hashFiles('work/ccache/**') != '' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/ccache
           key: ccache-${{ github.run_id }}
 
       - name: Save the Wine build
         if: ${{ always() && steps.wine-cache.outputs.cache-hit != 'true' && hashFiles('work/wine-install/.stamp') != '' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: work/wine-install
           key: ${{ steps.keys.outputs.wine }}
@@ -167,7 +167,7 @@ jobs:
         id: pack
         run: bash scripts/pack.sh "$WORK"
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: ${{ steps.pack.outputs.name }}
           path: |
@@ -181,7 +181,7 @@ jobs:
         if: ${{ inputs.publish_release }}
         run: python3 scripts/release.py collect inputs.json "$WORK" "$WORK/release-sources"
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: ${{ inputs.publish_release }}
         with:
           name: sources
@@ -196,8 +196,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           path: dist
       - name: Publish the prerelease
