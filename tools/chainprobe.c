@@ -5,8 +5,9 @@
  *
  * The gate copies the 64- and 32-bit builds under names of its own and runs three in a row, so a program,
  * its child and its grandchild each start through a link (patch 0007) named after its own file, in the
- * link folder of the loader Wine started it from. The grandchild shows the choice the child made from the
- * environment it was given, so MAVRIK_GAME_MODE must have passed through the Windows environment.
+ * link folder of the loader Wine started it from. Each child starts from the loader its parent chose, and inherits
+ * MAVRIK_GAME_MODE with the rest of the Unix environment (Wine's spawn_process passes the parent's Unix environment,
+ * not the Windows one), so the grandchild proves the variable passes through two generations.
  */
 #include <windows.h>
 #include <stdio.h>
