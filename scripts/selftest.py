@@ -46,7 +46,7 @@ USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { ret
 # without it the dockname rows that need it are not run. Up to revision 6 this was revision 4's ntdll.so
 # (00a4da2f...), but patches 0018 to 0032 change ntdll's Unix side, and a revision 7 prefix boot with
 # revision 4's hangs (S213). From revision 11 it is that revision's own, since 0037 changes ntdll's Unix side (S218).
-OLD_NTDLL_SHA256 = "e40f54cb7021fb0f090c4f1d3bca881a7068a26733ffca8caa4ee5352036130d"
+OLD_NTDLL_SHA256 = "45f579bc4816731123f3ec7f613084d7a51715aa423f7d85ea363a745818de48"
 # Engine revision 11's own ntdll.so, from the published 11.0-cx26.3.0-r11: it has neither patch 0037 version 3's
 # Game Mode switch (MAVRIK_GAME_MODE) nor patch 0007's link name for a first program with no title (revision 12).
 # Revision 12 changes only ntdll.so and the loader in Wine's tree, so it runs in a revision 12 clone. Name it in
