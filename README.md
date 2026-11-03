@@ -99,7 +99,9 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   reports the device's real period (512 frames at 48 kHz, 10.67 ms) to games (patch 0009, upstream Wine's),
   counted in the device's frames when the stream's rate differs (patch 0038). The 32-bit Windows half is
   built with Proton's i386 flags (`-mstackrealign -march=nocona -mfpmath=sse`), so its float math, such as
-  DirectSound's resampler, is SSE, not the x87 code Rosetta runs slowly.
+  DirectSound's resampler, is SSE, not the x87 code Rosetta runs slowly. The default sound device a game sees, "System Default Output", follows
+  the Mac's default output while the game plays (AirPods connecting, or a device going away), and a stream a game opens
+  on a named device stays there, as on Windows (patch 0043).
 - **Full screen**: a game's always-on-top full-screen window drops to the normal window level while
   the engine is not the active app (patch 0008), so Cmd-Tab can leave a full-screen game. Other
   always-on-top windows stay above the Dock, as in Wine. While a game's window covers a whole screen and
