@@ -111,6 +111,10 @@ folder and macOS is used, and no file names the machine or the folders it was bu
   screen with a camera housing without the strip beside it (1512x945 on a 14-inch MacBook Pro), its
   smaller modes scaled into that area, and a full-screen game gets a black strip beside the housing, as
   VLC and QuickTime Player do (patch 0040).
+- **Display mode changes**: when the Mac's display mode changes while a game plays (System Settings' "Larger
+  Text", another app), the game's windows refit the new screen: a full-screen game fills it and a windowed one scales
+  with the screen, as a graphics card's scaler shows a mode on another panel. The game keeps its own mode and is told
+  nothing, so it resets nothing; on the way back every window returns to its frame (patch 0044).
 - **Game Mode**: every Windows program starts from a copy of Wine's loader inside the engine's own app bundle,
   `lib/wine/x86_64-unix/mavrik.app`, whose Info.plist declares a game that supports Game Mode
   (`LSApplicationCategoryType` `public.app-category.games`, `LSSupportsGameMode` and its older name
