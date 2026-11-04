@@ -1,6 +1,6 @@
 A game's sound follows the Mac's default output (AirPods, headphones, a display's speakers) while it plays.
 
-This repository's patch to winecoreaudio (version 1), on top of 0009 and 0038, to be offered to WineHQ. It is
+This repository's patch to winecoreaudio (version 2), on top of 0009 and 0038, to be offered to WineHQ. It is
 mavrik's own; nothing is copied. Its shape is upstream Wine's own on Linux, and its mechanism is OpenAL Soft's on the
 Mac:
 - winepulse.drv lists a first endpoint with an empty device name ("PulseAudio Output") as the default; a stream on
@@ -18,25 +18,32 @@ endpoint when the process started. Connecting AirPods left the game on the speak
 (AirPods put back in the case) left the game silent until it was restarted.
 
 Now winecoreaudio lists "System Default Output" (and "System Default Input") first, as the default endpoint, with
-an empty device string, followed by every device as before. A render stream on it uses
+an empty device string, followed by every device as before. A render stream on it (shared or exclusive) uses
 kAudioUnitSubType_DefaultOutput with no device set, so macOS moves it to each new default output, including the one
 macOS picks when the default device disappears. A stream on a named device stays on that device, as on Windows.
 The empty device string resolves to the current default device for the mix format, the format check and the
-device period, and a following stream reads its unit's current device for its latency and volume. A capture stream
-on the default endpoint opens on the default input of the moment and stays there. mmdevapi is unchanged.
+device period, and a following stream reads its unit's current device for its latency and volume. A listener on the
+unit's current device gives each new device the I/O buffer the first one got (0009's period, counted in the
+device's frames as in 0038), so a game with little queued keeps its smooth sound after the move; the listener runs
+on CoreAudio's notification thread and takes no stream lock. "System Default Input" does not follow: a capture
+stream on it opens on the default input of the moment and stays there. mmdevapi is unchanged.
 
 Windows: high-level APIs (DirectSound, XAudio2, winmm, Media Foundation) move a stream to the new default since
 Windows 7, and WASAPI streams activated on the default interface since Windows 10 1607 ("Automatic stream routing",
 learn.microsoft.com). In Wine all of these open the default endpoint through mmdevapi, so all of them follow. A raw
-WASAPI stream opened on GetDefaultAudioEndpoint's device follows here too, as it does under winepulse;
-IMMNotificationClient::OnDefaultDeviceChanged is not sent, since Wine's default endpoint never changes.
+WASAPI stream opened on GetDefaultAudioEndpoint's device follows here too, as it does under winepulse, and so does
+an exclusive stream on the default endpoint (Windows never moves those; Wine's exclusive mode is emulated on a shared
+Mac output); IMMNotificationClient::OnDefaultDeviceChanged is not sent, since Wine's default endpoint never changes.
 
 Checked (mavrik S222 lab): applies after patches 0001 to 0042 with no fuzz; winecoreaudio.so builds with the
 engine's toolchain and configure line with no warning (the same tree without this patch rebuilt revision 12's
-winecoreaudio.so byte for byte). Its live check (a WASAPI program while the default output changes and while it
-disappears, against revision 12) is the lab's next step.
+winecoreaudio.so byte for byte). Version 1, live, with a shared-mode WASAPI program while the default output moved to
+a second output and back: revision 12 stayed on the speakers; with this patch the stream followed in 0.15 s and came
+back, and a stream opened on the speakers by name stayed. A device disappearing could not be told apart on this Mac
+(revision 12 also kept playing when a lab aggregate device was removed); it is checked with real AirPods.
+
 diff --git a/dlls/winecoreaudio.drv/coreaudio.c b/dlls/winecoreaudio.drv/coreaudio.c
-index fbf438d..76f1c6b 100644
+index fbf438d..6153cd0 100644
 --- a/dlls/winecoreaudio.drv/coreaudio.c
 +++ b/dlls/winecoreaudio.drv/coreaudio.c
 @@ -85,6 +85,7 @@ struct coreaudio_stream
@@ -56,7 +63,15 @@ index fbf438d..76f1c6b 100644
      AudioObjectPropertyAddress addr;
      struct endpoint *endpoint;
      UInt32 devsize, size;
-@@ -240,22 +241,13 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
+@@ -232,7 +233,6 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
+     {
+         CFStringRef name;
+         CFStringRef uid;
+-        AudioDeviceID id;
+     } *info;
+     OSStatus sc;
+     UniChar *ptr;
+@@ -240,22 +240,13 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
      params->num = 0;
      params->default_idx = 0;
  
@@ -82,7 +97,7 @@ index fbf438d..76f1c6b 100644
      addr.mSelector = kAudioHardwarePropertyDevices;
      sc = AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr, 0, NULL, &devsize);
      if(sc != noErr){
-@@ -266,7 +258,7 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
+@@ -266,7 +257,7 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
  
      num_devices = devsize / sizeof(AudioDeviceID);
      devices = malloc(devsize);
@@ -91,22 +106,28 @@ index fbf438d..76f1c6b 100644
      if(!devices || !info){
          free(info);
          free(devices);
-@@ -286,6 +278,14 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
+@@ -286,6 +277,15 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
      addr.mScope = get_scope(params->flow);
      addr.mElement = 0;
  
 +    /* The first endpoint, the default one, stands for the system's default device and has an
-+     * empty device string, like winepulse's "PulseAudio Output": a render stream on it follows
-+     * the default as it changes. Each device is listed after it, and a stream on one stays there. */
++     * empty device string, like winepulse's "PulseAudio Output": a render stream on it (shared
++     * or exclusive) follows the default as it changes; a capture stream opens on the default
++     * input of the moment and stays there. Each device is listed after it, and a stream on one
++     * stays there. */
 +    info[0].name = (params->flow == eRender) ? CFSTR("System Default Output") : CFSTR("System Default Input");
 +    info[0].uid = CFSTR("");
-+    info[0].id = kAudioObjectUnknown;
 +    params->num = 1;
 +
      for(i = 0; i < num_devices; i++){
          if(!device_has_channels(devices[i], params->flow)) continue;
  
-@@ -311,6 +311,9 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
+@@ -307,10 +307,13 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
+             continue;
+         }
+ 
+-        info[params->num++].id = devices[i];
++        params->num++;
      }
      free(devices);
  
@@ -188,7 +209,7 @@ index fbf438d..76f1c6b 100644
      uid = CFStringCreateWithCStringNoCopy(NULL, device, kCFStringEncodingUTF8, kCFAllocatorNull);
  
      size = sizeof(id);
-@@ -808,6 +833,21 @@ static HRESULT get_device_sample_rate(AudioDeviceID dev_id, EDataFlow flow,
+@@ -808,6 +833,41 @@ static HRESULT get_device_sample_rate(AudioDeviceID dev_id, EDataFlow flow,
      return S_OK;
  }
  
@@ -207,10 +228,30 @@ index fbf438d..76f1c6b 100644
 +    return stream->dev_id;
 +}
 +
++/* A stream that follows the default gives each new device the I/O buffer that unix_create_stream
++ * gave the first one: one period, counted in the device's frames. Runs on CoreAudio's notification
++ * thread and reads only what is fixed once the stream is made, so it takes no stream lock. */
++static void ca_device_changed_cb(void *user, AudioUnit unit, AudioUnitPropertyID id,
++                                 AudioUnitScope scope, AudioUnitElement element)
++{
++    struct coreaudio_stream *stream = user;
++    const AudioDeviceID dev_id = stream_dev_id(stream);
++    unsigned int min_frames, max_frames, rate, frames;
++
++    if (FAILED(get_device_period_frame_range(dev_id, stream->flow, &min_frames, &max_frames)))
++        return;
++    if (FAILED(get_device_sample_rate(dev_id, stream->flow, &rate)) || !rate)
++        rate = stream->fmt->nSamplesPerSec;
++    frames = muldiv(stream->period_frames, rate, stream->fmt->nSamplesPerSec);
++    frames = max(min_frames, min(frames, max_frames));
++    TRACE("stream %p now on device %u, buffer %u frames\n", stream, (unsigned int)dev_id, frames);
++    set_device_period_frame_size(dev_id, stream->flow, frames);
++}
++
  static NTSTATUS unix_create_stream(void *args)
  {
      struct create_stream_params *params = args;
-@@ -837,7 +877,8 @@ static NTSTATUS unix_create_stream(void *args)
+@@ -837,7 +897,8 @@ static NTSTATUS unix_create_stream(void *args)
          goto end;
      }
  
@@ -220,7 +261,7 @@ index fbf438d..76f1c6b 100644
      stream->flow = params->flow;
      stream->flags = params->flags;
      stream->share = params->share;
-@@ -865,7 +906,7 @@ static NTSTATUS unix_create_stream(void *args)
+@@ -865,7 +926,7 @@ static NTSTATUS unix_create_stream(void *args)
      if(params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
          stream->bufsize_frames -= stream->bufsize_frames % stream->period_frames;
  
@@ -229,7 +270,31 @@ index fbf438d..76f1c6b 100644
          params->result = AUDCLNT_E_DEVICE_INVALIDATED;
          goto end;
      }
-@@ -1139,7 +1180,7 @@ static NTSTATUS unix_get_mix_format(void *args)
+@@ -889,6 +950,13 @@ static NTSTATUS unix_create_stream(void *args)
+         goto end;
+     }
+ 
++    if(stream->follow_default){
++        sc = AudioUnitAddPropertyListener(stream->unit, kAudioOutputUnitProperty_CurrentDevice,
++                                          ca_device_changed_cb, stream);
++        if(sc != noErr)
++            WARN("Couldn't listen for device changes: %x\n", (int)sc);
++    }
++
+     if (stream->flow == eCapture) {
+         /* On 10.14 and later:
+          * Check the audio capture/microphone authorization status, and explicitly
+@@ -962,6 +1030,9 @@ static NTSTATUS unix_release_stream( void *args )
+     }
+ 
+     if(stream->unit){
++        if(stream->follow_default)
++            AudioUnitRemovePropertyListenerWithUserData(stream->unit, kAudioOutputUnitProperty_CurrentDevice,
++                                                        ca_device_changed_cb, stream);
+         AudioOutputUnitStop(stream->unit);
+         AudioComponentInstanceDispose(stream->unit);
+     }
+@@ -1139,7 +1210,7 @@ static NTSTATUS unix_get_mix_format(void *args)
      UInt32 size;
      OSStatus sc;
      int i;
@@ -238,7 +303,7 @@ index fbf438d..76f1c6b 100644
  
      params->fmt->Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
  
-@@ -1231,9 +1272,9 @@ static NTSTATUS unix_is_format_supported(void *args)
+@@ -1231,9 +1302,9 @@ static NTSTATUS unix_is_format_supported(void *args)
      AudioStreamBasicDescription dev_desc;
      AudioConverterRef converter;
      AudioComponentInstance unit;
@@ -250,7 +315,7 @@ index fbf438d..76f1c6b 100644
  
      converter = NULL;
      params->result = ca_setup_audiounit(params->flow, unit, params->fmt_in, &dev_desc, &converter);
-@@ -1249,7 +1290,7 @@ static NTSTATUS unix_get_device_period(void *args)
+@@ -1249,7 +1320,7 @@ static NTSTATUS unix_get_device_period(void *args)
      unsigned int n_samples_per_sec;
      AudioDeviceID dev_id;
  
@@ -259,7 +324,7 @@ index fbf438d..76f1c6b 100644
      if (FAILED(params->result = get_device_sample_rate(dev_id, params->flow, &n_samples_per_sec)))
          return STATUS_SUCCESS;
  
-@@ -1391,7 +1432,7 @@ static NTSTATUS unix_get_buffer_size(void *args)
+@@ -1391,7 +1462,7 @@ static NTSTATUS unix_get_buffer_size(void *args)
      return STATUS_SUCCESS;
  }
  
@@ -268,7 +333,7 @@ index fbf438d..76f1c6b 100644
  {
      AudioObjectPropertyAddress addr;
      AudioStreamID *ids;
-@@ -1403,7 +1444,7 @@ static HRESULT ca_get_max_stream_latency(struct coreaudio_stream *stream, UInt32
+@@ -1403,7 +1474,7 @@ static HRESULT ca_get_max_stream_latency(struct coreaudio_stream *stream, UInt32
      addr.mElement = 0;
      addr.mSelector = kAudioDevicePropertyStreams;
  
@@ -277,7 +342,7 @@ index fbf438d..76f1c6b 100644
      if(sc != noErr){
          WARN("Unable to get size for _Streams property: %x\n", (int)sc);
          return osstatus_to_hresult(sc);
-@@ -1413,7 +1454,7 @@ static HRESULT ca_get_max_stream_latency(struct coreaudio_stream *stream, UInt32
+@@ -1413,7 +1484,7 @@ static HRESULT ca_get_max_stream_latency(struct coreaudio_stream *stream, UInt32
      if(!ids)
          return E_OUTOFMEMORY;
  
@@ -286,7 +351,7 @@ index fbf438d..76f1c6b 100644
      if(sc != noErr){
          WARN("Unable to get _Streams property: %x\n", (int)sc);
          free(ids);
-@@ -1447,6 +1488,7 @@ static NTSTATUS unix_get_latency(void *args)
+@@ -1447,6 +1518,7 @@ static NTSTATUS unix_get_latency(void *args)
  {
      struct get_latency_params *params = args;
      struct coreaudio_stream *stream = handle_get_stream(params->stream);
@@ -294,7 +359,7 @@ index fbf438d..76f1c6b 100644
      UInt32 latency, stream_latency, size;
      AudioObjectPropertyAddress addr;
      OSStatus sc;
-@@ -1458,7 +1500,7 @@ static NTSTATUS unix_get_latency(void *args)
+@@ -1458,7 +1530,7 @@ static NTSTATUS unix_get_latency(void *args)
      addr.mElement = 0;
  
      size = sizeof(latency);
@@ -303,7 +368,7 @@ index fbf438d..76f1c6b 100644
      if(sc != noErr){
          WARN("Couldn't get _Latency property: %x\n", (int)sc);
          os_unfair_lock_unlock(&stream->lock);
-@@ -1466,7 +1508,7 @@ static NTSTATUS unix_get_latency(void *args)
+@@ -1466,7 +1538,7 @@ static NTSTATUS unix_get_latency(void *args)
          return STATUS_SUCCESS;
      }
  
@@ -312,7 +377,7 @@ index fbf438d..76f1c6b 100644
      if(FAILED(params->result)){
          os_unfair_lock_unlock(&stream->lock);
          return STATUS_SUCCESS;
-@@ -1872,6 +1914,7 @@ static NTSTATUS unix_set_volumes(void *args)
+@@ -1872,6 +1944,7 @@ static NTSTATUS unix_set_volumes(void *args)
  {
      struct set_volumes_params *params = args;
      struct coreaudio_stream *stream = handle_get_stream(params->stream);
@@ -320,7 +385,7 @@ index fbf438d..76f1c6b 100644
      Float32 level = params->master_volume;
      OSStatus sc;
      UINT32 i;
-@@ -1881,7 +1924,7 @@ static NTSTATUS unix_set_volumes(void *args)
+@@ -1881,7 +1954,7 @@ static NTSTATUS unix_set_volumes(void *args)
          kAudioObjectPropertyElementMain
      };
  
@@ -329,7 +394,7 @@ index fbf438d..76f1c6b 100644
      if (sc == noErr)
          level = 1.0f;
      else
-@@ -1892,7 +1935,7 @@ static NTSTATUS unix_set_volumes(void *args)
+@@ -1892,7 +1965,7 @@ static NTSTATUS unix_set_volumes(void *args)
  
          prop_addr.mElement = i;
  
