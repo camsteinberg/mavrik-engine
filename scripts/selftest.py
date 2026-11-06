@@ -49,7 +49,8 @@ USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { ret
 OLD_NTDLL_SHA256 = "45f579bc4816731123f3ec7f613084d7a51715aa423f7d85ea363a745818de48"
 # Engine revision 11's own ntdll.so, from the published 11.0-cx26.3.0-r11: it has neither patch 0037 version 3's
 # Game Mode switch (MAVRIK_GAME_MODE) nor patch 0007's link name for a first program with no title (revision 12).
-# Revision 12 changes only ntdll.so and the loader in Wine's tree, so it runs in a revision 12 clone. Name it in
+# Revision 12 changes only ntdll.so and the loader in Wine's tree, and revision 13 changes winecoreaudio, win32u and
+# winemac, so it runs in a clone of either. Name it in
 # SELFTEST_R11_NTDLL; without it the rows that need it are not run.
 R11_NTDLL_SHA256 = "6212ed6a34a66af7454be7c566643b7f690b62611edca08eed894d8daa66d5aa"
 
