@@ -1,10 +1,11 @@
 A game's window refits the screen when the Mac's display mode changes while it plays.
 
-This repository's patch to win32u and winemac (version 1), to be offered to WineHQ. It is mavrik's own; nothing is
-copied. It uses upstream Wine's own machinery for emulated display modes (win32u's virtual and raw monitor rects,
-map_window_rects_virt_to_raw and update_window_state, Wine 9 and later) and changes only when it runs. Upstream
-Wine master (checked 2026-11-03: dlls/win32u/defwnd.c, dlls/winemac.drv/display.c and gdi.c, and Proton's
-bleeding-edge and proton_10.0 defwnd.c) has the same code, so the fault is upstream's too, on X11 as on the Mac.
+This repository's patch to win32u and winemac (version 2, after the S222 review), to be offered to WineHQ. It is
+mavrik's own; nothing is copied. It uses upstream Wine's own machinery for emulated display modes (win32u's virtual and
+raw monitor rects, map_window_rects_virt_to_raw and update_window_state, Wine 9 and later) and changes only when it
+runs. Upstream Wine master (checked 2026-11-03: dlls/win32u/defwnd.c, dlls/winemac.drv/display.c and gdi.c, and
+Proton's bleeding-edge and proton_10.0 defwnd.c) has the same code, so the fault is upstream's too, on X11 as on the
+Mac.
 
 The fault: with EmulateModeset=y, which mavrik sets in every prefix, a mode change made outside Wine (System
 Settings' "Larger Text", another app, a display that changes its mode) keeps the game's virtual mode and changes
@@ -15,26 +16,36 @@ ABZU (DXMT) and Civ VI (D3DMetal) full screen at 0,0 1512x982 and Rogue Legacy (
 so the picture was cut off at the right and bottom until the mode came back.
 
 Now:
-- win32u: the desktop also compares the raw virtual screen rect and, when only that changed, updates its children's
-  window state (no SetWindowPos on itself, since its virtual rect is the same). Each window is mapped onto the new
-  raw screen the way upstream maps a game's own emulated mode: a full-screen window covers the new screen, and the
-  rest of the desktop scales with it, centred, as a graphics card's scaler shows a mode on a panel of another size.
-  The game sees no change: its mode, its window rect and its client size stay the same, no WM_DISPLAYCHANGE or
-  WM_SIZE reaches it, so it resets nothing; its swapchain draws as before and the presenter scales into the view.
-- winemac: each GUI thread that gets a DISPLAYS_CHANGED event resets the process's cached desktop rect and checks
-  the Retina state again, as macdrv_ChangeDisplaySettings already does after its own change, so with RetinaMode=y
-  the monitors the desktop reads and the frames the game's process sets agree on the new mode (Retina mode is on
-  only in the mode Wine started in; Wine bug 42973). The cache is marked valid again once recomputed, so it is not
-  recomputed on every window move afterwards.
-On Windows the system sends WM_DISPLAYCHANGE to every top-level window and the program decides; under an emulated
-mode the program's display did not change, so the scaler's behaviour is the faithful one.
+- win32u: the desktop also compares the raw virtual screen rect and, when it changed, updates its children's window
+  state. Each window is mapped onto the new raw screen the way upstream maps a game's own emulated mode: a
+  full-screen window gets the whole new raw monitor (stretched if the aspect ratio differs), and other windows scale
+  with the screen around its centre, as a graphics card's scaler shows a mode on a panel of another size. The game
+  sees no change: its mode, window rect and client size stay the same and no WM_DISPLAYCHANGE, WM_SIZE or
+  WM_WINDOWPOSCHANGED reaches it, so it resets nothing. When only the raw screen changed, the cursor clip (kept in raw
+  coordinates) is reset and the foreground window clipped again, as display_mode_changed does after a program's own
+  mode change; otherwise a game holding the pointer would stay confined to the old raw rect. A clip the game set
+  itself is dropped until the game sets it again, as upstream already does for its own mode changes.
+- winemac: each GUI thread that gets a DISPLAYS_CHANGED event resets the process's device data (desktop rect, Retina
+  state, the main display's size in millimetres) and reads it again through device_init, as
+  macdrv_ChangeDisplaySettings already resets it after its own change, so with RetinaMode=y the monitors the desktop
+  reads and the frames the game's process sets agree on the new mode (Retina mode is on only in the mode Wine started
+  in; Wine bug 42973). macdrv_get_desktop_rect now calls device_init too, so the data is read once per change and
+  marked valid.
+Why scale rather than make the outside mode the game's new virtual mode: under an emulated mode the program's display
+did not change, and telling a running game its display changed (WM_DISPLAYCHANGE, a new monitor size) makes many
+games reset their device or leave full screen; the scaler keeps the game as it was and only its picture moves. On
+Windows the system sends WM_DISPLAYCHANGE to every top-level window and the program decides.
+
+Not covered: a Vulkan swapchain decides on present scaling when it is made (win32u vulkan.c), so after the refit the
+game gets VK_SUBOPTIMAL_KHR; DXVK and most engines then make a new swapchain, and one that ignores it shows an
+unscaled picture. Whether Wine's OpenGL drawable follows the smaller view is what the lab's Rogue Legacy row shows.
 
 Checked (mavrik S222 lab): applies after patches 0001 to 0043 with no fuzz; win32u.so and winemac.so build with the
 engine's toolchain and configure with no new warning, and without this patch both rebuild byte-identical to
 revision 12's. The live resolution rows are run by the main session (lab-s222/res-patch/design.md).
 
 diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
-index 4d55ed53..67c7d92f 100644
+index 4d55ed53..d81db061 100644
 --- a/dlls/win32u/defwnd.c
 +++ b/dlls/win32u/defwnd.c
 @@ -3039,15 +3039,20 @@ LRESULT desktop_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
@@ -61,26 +72,21 @@ index 4d55ed53..67c7d92f 100644
  
          if (new_rect.right - new_rect.left == old_rect.right - old_rect.left &&
              new_rect.bottom - new_rect.top == old_rect.bottom - old_rect.top)
-@@ -3055,11 +3060,14 @@ LRESULT desktop_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
-         if (new_rect.left == old_rect.left && new_rect.top == old_rect.top)
-             flags |= SWP_NOMOVE;
- 
--        context = NtUserSetThreadDpiAwarenessContext( NTUSER_DPI_PER_MONITOR_AWARE );
--        NtUserSetWindowPos( hwnd, 0, new_rect.left, new_rect.top,
--                            new_rect.right - new_rect.left, new_rect.bottom - new_rect.top,
--                            flags | SWP_NOZORDER | SWP_NOACTIVATE | SWP_DEFERERASE );
--        NtUserSetThreadDpiAwarenessContext( context );
-+        if (flags != (SWP_NOSIZE | SWP_NOMOVE))
-+        {
-+            context = NtUserSetThreadDpiAwarenessContext( NTUSER_DPI_PER_MONITOR_AWARE );
-+            NtUserSetWindowPos( hwnd, 0, new_rect.left, new_rect.top,
-+                                new_rect.right - new_rect.left, new_rect.bottom - new_rect.top,
-+                                flags | SWP_NOZORDER | SWP_NOACTIVATE | SWP_DEFERERASE );
-+            NtUserSetThreadDpiAwarenessContext( context );
-+        }
+@@ -3063,6 +3068,14 @@ LRESULT desktop_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
  
          update_children_window_state( hwnd );
  
++        /* The cursor clip is kept in raw coordinates: reset it and clip the foreground
++         * window again, as a program's own mode change does (display_mode_changed). */
++        if (EqualRect( &new_rect, &old_rect ))
++        {
++            NtUserClipCursor( NULL );
++            NtUserPostMessage( NtUserGetForegroundWindow(), WM_WINE_CLIPCURSOR, SET_CURSOR_FSCLIP, 0 );
++        }
++
+         return 0;
+     }
+     default:
 diff --git a/dlls/winemac.drv/display.c b/dlls/winemac.drv/display.c
 index ba95f6ec..41566829 100644
 --- a/dlls/winemac.drv/display.c
@@ -99,14 +105,28 @@ index ba95f6ec..41566829 100644
         so the desktop-window-owning thread will get it and all others should
         ignore it.  A synthesized display change event due to activation
 diff --git a/dlls/winemac.drv/gdi.c b/dlls/winemac.drv/gdi.c
-index 9cf415b5..999551ec 100644
+index 9cf415b5..a875ae0c 100644
 --- a/dlls/winemac.drv/gdi.c
 +++ b/dlls/winemac.drv/gdi.c
-@@ -98,6 +98,7 @@ CGRect macdrv_get_desktop_rect(void)
-     {
-         check_retina_status();
-         compute_desktop_rect();
-+        device_data_valid = true;
-     }
+@@ -54,6 +54,8 @@ static pthread_mutex_t device_data_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+ static const struct user_driver_funcs macdrv_funcs;
+ 
++static void device_init(void);
++
+ /***********************************************************************
+  *              compute_desktop_rect
+  */
+@@ -94,11 +96,7 @@ CGRect macdrv_get_desktop_rect(void)
+ 
+     pthread_mutex_lock(&device_data_mutex);
+ 
+-    if (!device_data_valid)
+-    {
+-        check_retina_status();
+-        compute_desktop_rect();
+-    }
++    if (!device_data_valid) device_init();
      ret = desktop_rect;
  
+     pthread_mutex_unlock(&device_data_mutex);
