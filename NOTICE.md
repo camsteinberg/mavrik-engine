@@ -18,7 +18,7 @@ licence texts and copyright notices, `licences/COMPONENTS.tsv` lists the parts, 
 | Nettle 4.0 | ftp.gnu.org, built here | LGPL-3.0-or-later or GPL-2.0-or-later (its DES code's notice: `descore.README`) | `lib/libnettle.*`, `lib/libhogweed.*` |
 | GMP 6.3.0 | ftp.gnu.org, built here | LGPL-3.0-or-later or GPL-2.0-or-later | `lib/libgmp.*` |
 | FreeType 2.15.0 | freetype.org, built here | FreeType License (FTL); its BDF and PCF drivers carry their own X11-style notices | `lib/libfreetype.6.dylib` |
-| SDL3 3.4.18 | github.com/libsdl-org/SDL, built here | Zlib; includes HIDAPI (BSD terms) and yuv2rgb (BSD-3-Clause) | `lib/libSDL3.dylib` |
+| SDL3 3.4.20 | github.com/libsdl-org/SDL, built here | Zlib; includes HIDAPI (BSD terms) and yuv2rgb (BSD-3-Clause) | `lib/libSDL3.dylib` |
 | sdl2-compat 2.32.74 (the SDL2 interface, on SDL3) | github.com/libsdl-org/sdl2-compat, built here | Zlib | `lib/libSDL2-2.0.0.dylib` |
 | Liberation fonts 2.1.5 (Liberation Sans, Serif and Mono; metric-compatible with Arial, Times New Roman and Courier New) | github.com/liberationfonts/liberation-fonts (its TTF archive, mirrored on this repository's releases), unchanged | SIL Open Font License 1.1 (its LICENSE, in `licences/liberation-fonts/`) | `share/wine/fonts/Liberation*.ttf`; wine.inf copies them into each prefix's `C:\windows\Fonts` as arial.ttf, arialbd.ttf, cour.ttf, courbd.ttf, georgia.ttf and times.ttf |
 | GStreamer 1.28.8 (core, base, good, bad, ugly, libav: the plugins Wine uses) | GStreamer's official macOS packages | LGPL-2.1-or-later (the MPEG-PS demuxer: MPL-1.1 or LGPL-2.1-or-later) | `lib/libgst*`, `lib/gstreamer-1.0/` |
