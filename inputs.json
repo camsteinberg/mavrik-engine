@@ -121,12 +121,12 @@
     "dxmt-source": {
       "role": "source",
       "component": "dxmt",
-      "version": "main-3b252590cb",
-      "commit": "3b252590cb0290e36fca6f088b5255b871d2d95a",
-      "root": "dxmt-3b252590cb0290e36fca6f088b5255b871d2d95a",
-      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-3b252590cb/dxmt-3b252590cb-source-with-submodules.tar.gz",
-      "size": 8129614,
-      "sha256": "b2bbd615612ba8e83f189aebe1d6b15a8bae565b1e105e433091632393ebc21a",
+      "version": "main-647b0020ba",
+      "commit": "647b0020ba5764e5593b12407afd76964fa11e20",
+      "root": "dxmt-647b0020ba5764e5593b12407afd76964fa11e20",
+      "url": "https://github.com/camsteinberg/mavrik-engine/releases/download/inputs-dxmt-647b0020ba/dxmt-647b0020ba-source-with-submodules.tar.gz",
+      "size": 8133670,
+      "sha256": "05dc7db828b615521a5c615171a1c45ebfd642b1ef1344c2cb9448c9abdf583b",
       "licence": "LGPL-2.1-or-later",
       "submodules": {
         "external/nvapi": "d08488fcc82eef313b0464db37d2955709691e94",
@@ -152,7 +152,7 @@
         "x86_64-unix/winemetal.so"
       ],
       "winemetal_exports": 146,
-      "note": "DXMT's main at 3b252590cb (2026-10-27), built from source by scripts/build-dxmt.sh with this repository's patches in dxmt/patches, as DXMT's own CI job build-gcc-release-x86_64-windows-cross builds it (meson 1.10.0, LLVM 15.0.7, 3Shain's Wine 8.16, mingw-w64 gcc), with the Xcode in toolchain and the CI's macOS 15.0 target (deployment_target). The archive is git archive of the commit with its two submodules filled at the commits it records (submodules), one folder named after the commit, gzip -n (dxmt/make-source.sh gives the same bytes); GitHub's tarball of a commit leaves the submodules empty. Its unpatched file winemetal_unix.c is what the winemac gate reads. winemetal_exports: the names the built winemetal.dll exports (145 upstream at this commit, plus MetalDrawable_signalEventWhenPresented from patch 0002). The engine's own macos_deployment_target is 14.0, while winemetal.so needs macOS 15.0 (deployment_target), as r7's CI package did; mavrik needs macOS 26, so nothing breaks."
+      "note": "DXMT's main at 647b0020ba (2026-11-02), built from source by scripts/build-dxmt.sh with this repository's patches in dxmt/patches, as DXMT's own CI job build-gcc-release-x86_64-windows-cross builds it (meson 1.10.0, LLVM 15.0.7, 3Shain's Wine 8.16, mingw-w64 gcc), with the Xcode in toolchain and the CI's macOS 15.0 target (deployment_target). The archive is git archive of the commit with its two submodules filled at the commits it records (submodules), one folder named after the commit, gzip -n (dxmt/make-source.sh gives the same bytes); GitHub's tarball of a commit leaves the submodules empty. Its unpatched file winemetal_unix.c is what the winemac gate reads. winemetal_exports: the names the built winemetal.dll exports (145 upstream at this commit, plus MetalDrawable_signalEventWhenPresented from patch 0002). The engine's own macos_deployment_target is 14.0, while winemetal.so needs macOS 15.0 (deployment_target), as r7's CI package did; mavrik needs macOS 26, so nothing breaks."
     },
     "dxmt-llvm-source": {
       "role": "build",
@@ -337,25 +337,25 @@
   "licence_texts": {
     "dxmt-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/LICENSE",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/647b0020ba5764e5593b12407afd76964fa11e20/LICENSE",
       "size": 782,
       "sha256": "b87c35aef7b2cf14de854118ca55ce5c4b284c85b5f002421fb8d46d868c2d17"
     },
     "dxmt-copying-lib": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/COPYING.LIB",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/647b0020ba5764e5593b12407afd76964fa11e20/COPYING.LIB",
       "size": 26434,
       "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
     },
     "dxmt-license-old": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/LICENSE.OLD",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/647b0020ba5764e5593b12407afd76964fa11e20/LICENSE.OLD",
       "size": 1272,
       "sha256": "3422f02eb18f1e598731b586832afab8b322badd61d45a4b95674ceec4b6108d"
     },
     "dxmt-dxvk-license": {
       "for": "dxmt",
-      "url": "https://raw.githubusercontent.com/3Shain/dxmt/3b252590cb0290e36fca6f088b5255b871d2d95a/src/util/dxvk.LICENSE",
+      "url": "https://raw.githubusercontent.com/3Shain/dxmt/647b0020ba5764e5593b12407afd76964fa11e20/src/util/dxvk.LICENSE",
       "size": 970,
       "sha256": "03ca4af84f5cd28cef3ed3f1ef4d17996992d35ccdbe82b29cc020ca02c16f3d"
     },

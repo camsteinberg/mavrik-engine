@@ -2,7 +2,7 @@ DXMT: count the frame latency limit to presentation when vsync or a frame cap ho
 
 This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written or
 co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull request; the
-finding and the numbers go to DXMT as an issue. Against DXMT 3b252590cb with 0001.
+finding and the numbers go to DXMT as an issue. Made against DXMT 3b252590cb with 0001; applies unchanged at 647b0020ba, which changes none of its files.
 
 DXMT's frame latency limit (3 frames by default) counts a frame as done when its GPU work finishes. Under vsync or a
 frame cap, finished frames then wait in Core Animation's three drawables for their turn on screen, and that wait was
