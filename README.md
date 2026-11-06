@@ -34,10 +34,10 @@ build refuses any input without a pinned hash.
   unpacked into `share/wine`, so a new Windows folder never asks to download them. Wine Mono's
   source archive is an input too: the notices of every project inside Wine Mono come from it.
 - **MoltenVK**: Vulkan on Metal, from Khronos' own release.
-- **DXMT** (main at 3b252590cb, 2026-10-27; no release has followed v0.80): Direct3D 10 and 11 on
+- **DXMT** (main at 647b0020ba, 2026-11-02; no release has followed v0.80): Direct3D 10 and 11 on
   Metal, built here from its source with this repository's patches in [`dxmt/patches/`](dxmt/README.md)
   (`scripts/build-dxmt.sh`, as DXMT's own CI job builds it: LLVM 15.0.7, 3Shain's Wine 8.16, meson and
-  mingw-w64, every input pinned and mirrored on this repository's releases). Patch 0001 counts DXMT's
+  mingw-w64, every input pinned and mirrored on this repository's releases). Patch 0002 counts DXMT's
   frame latency to presentation under vsync, as DXVK and Windows do. Its 64-bit files go into Wine's
   own folders, the way mavrik has tested them.
 - **Media**: GStreamer and FFmpeg from GStreamer's official macOS packages, LGPL parts only, with no

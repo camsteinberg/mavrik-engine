@@ -3,7 +3,7 @@ application's value from GetMaximumFrameLatency, and add DXVK's dxgi.maxFrameLat
 
 This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written or
 co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull request; the
-finding goes to DXMT as an issue. Against DXMT 3b252590cb.
+finding goes to DXMT as an issue. Made against DXMT 3b252590cb; applies unchanged at 647b0020ba, which changes none of its files.
 
 DXMT stored SetMaximumFrameLatency's value as it came, and its PresentBoundary waits for the GPU work of frame
 N - L. A game that passes 0, which DXGI defines as "back to the default", so got L = 0: every Present waited for the
