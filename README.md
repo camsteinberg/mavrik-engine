@@ -396,6 +396,8 @@ checks them against their pins and prints the values still to pin.
   imports and Alex Henrie's FAudio fix).
 - Elvin Hayatov, whose Wine merge request 11880 patch 0013 carries (the transparent hidden cursor).
 - Ivo Ivanov, whose route in Wine bug 60322 (no lookup of a `.local` host name) patch 0041 follows.
+- OpenAL Soft, whose use of Apple's default output unit patch 0043 follows, and winepulse and winealsa, whose first,
+  default endpoint it follows. Nothing is copied.
 - [neutron](https://github.com/fourlexboehm/neutron) (LGPL-2.1-or-later), a Proton-style Steam tool for
   macOS: patches 0035 and 0036 adapt its game controller patch (`0017-winebus-sdl-gamepads.patch`), and
   `tools/gamepadprobe.c` is its `tests/gamepad_list.c` with mavrik's variable names.
