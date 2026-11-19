@@ -1,332 +1,96 @@
 # mavrik-engine
 
-The Wine engine for mavrik, a Mac launcher for Windows games. This repository
-is the recipe: pinned inputs, a small patch series, and a GitHub workflow that builds the engine,
-checks it, and packs it as one archive.
+The Wine build that [Mavrik](https://getmavrik.app) downloads to run Windows games on Apple silicon
+Macs.
 
-## What it is
+Mavrik is a free Mac launcher for Steam, Epic and GOG games. The app is closed source. Everything it
+changes in Wine, DXMT and Valve's Steam bridge is here, under the LGPL apart from two bridge patches
+that keep Valve's licences. If you only want to play, get Mavrik; this repository is for people who
+want to see or change what runs underneath.
 
-This is a build of Wine from CodeWeavers' published CrossOver sources. It is not CrossOver.
-"CrossOver" is a trademark of CodeWeavers. CodeWeavers publishes the Wine sources inside each
-CrossOver release under the LGPL, and this build uses them as they are, plus the patches in
-[`patches/`](patches/).
+This is not CrossOver. It is built from the Wine sources CodeWeavers publishes
+([more below](#relation-to-crossover)).
 
-The engine never presents itself as CrossOver. Patch 0003 gives the Wine loader its own identity
-(`org.mavrik.engine`, with each game's own name in its app menu), points Wine's crash dialog at this
-repository's issues, and removes CrossOver's names from the places a player could see them. The
-`identity` gate checks this on every build.
+## Status
+
+- Current revision: [r13](https://github.com/camsteinberg/mavrik-engine/releases/tag/11.0-cx26.3.0-r13),
+  used by Mavrik 0.1.10. Both are in beta.
+- Wine 11.0 (CrossOver 26.3.0 sources) with the 44 patches in [`patches/`](patches/README.md). DXMT
+  built from source with two patches, for Direct3D 10 and 11. Direct3D 12 games use Apple's D3DMetal
+  ([below](#d3dmetal)).
+- Built for Intel (x86_64); on Apple silicon it runs under Rosetta 2. 32-bit Windows games run too.
+  DXMT needs macOS 15 or later.
+- I build releases on my Mac with the scripts in [`scripts/`](scripts/). The GitHub workflow here is
+  untested: it has never built the engine ([#6](https://github.com/camsteinberg/mavrik-engine/issues/6)).
+
+## Known problems
+
+- Figment hangs on a black window, and I have not found the cause ([#1](https://github.com/camsteinberg/mavrik-engine/issues/1)).
+- After the Mac's display mode changes to a smaller mode and back, Civilization VI's window sits 37
+  points low ([#2](https://github.com/camsteinberg/mavrik-engine/issues/2)).
+- Star Wars Battlefront II (2005) did not fill the screen until Mavrik's Picture setting for it was
+  changed to Quality. Cause not known ([#5](https://github.com/camsteinberg/mavrik-engine/issues/5)).
+- One long frame about 30 s after a game starts, when Wine saves its registry ([#3](https://github.com/camsteinberg/mavrik-engine/issues/3)).
+- Hitches at scene loads come back on every launch, because DXMT creates its pipelines again. Last
+  measured on r5 ([#4](https://github.com/camsteinberg/mavrik-engine/issues/4)).
+- No native arm64 build yet, so everything depends on Rosetta 2 ([#7](https://github.com/camsteinberg/mavrik-engine/issues/7)).
+
+The [issues](https://github.com/camsteinberg/mavrik-engine/issues) have the rest.
 
 ## Bugs
 
-A game that misbehaves on this engine is a bug for this repository. Please open an issue here.
-Never report it to CodeWeavers or to WineHQ: this is a patched build, and their bug trackers are
-for their own releases.
+A game that misbehaves on this engine is a bug for this repository: open an
+[issue](https://github.com/camsteinberg/mavrik-engine/issues/new/choose). Wine's crash dialog links
+here too. Please don't report it to CodeWeavers, WineHQ, DXMT or Valve. This is a patched build, and
+their trackers are for their own releases.
 
-## What it builds from
+Problems with the Mavrik app itself (the library, downloads, sign-in) go to
+[getmavrik.app/support](https://getmavrik.app/support).
 
-Every input is pinned by its address, size and SHA-256 in [`inputs.json`](inputs.json). A release
-build refuses any input without a pinned hash.
+## D3DMetal
 
-- **Wine**: CodeWeavers' CrossOver 26.3.0 sources (Wine 11.0), `sources/wine` in the archive.
-- **Patches**: [`patches/`](patches/), applied in order. [`patches/README.md`](patches/README.md)
-  says why each one is there.
-- **Wine Mono and Wine Gecko**: the versions the Wine tree asks for (`dlls/appwiz.cpl/addons.c`),
-  unpacked into `share/wine`, so a new Windows folder never asks to download them. Wine Mono's
-  source archive is an input too: the notices of every project inside Wine Mono come from it.
-- **MoltenVK**: Vulkan on Metal, from Khronos' own release.
-- **DXMT** (main at 647b0020ba, 2026-11-02; no release has followed v0.80): Direct3D 10 and 11 on
-  Metal, built here from its source with this repository's patches in [`dxmt/patches/`](dxmt/README.md)
-  (`scripts/build-dxmt.sh`, as DXMT's own CI job builds it: LLVM 15.0.7, 3Shain's Wine 8.16, meson and
-  mingw-w64, every input pinned and mirrored on this repository's releases). Patch 0002 counts DXMT's
-  frame latency to presentation under vsync, as DXVK and Windows do. Its 64-bit files go into Wine's
-  own folders, the way mavrik has tested them.
-- **Media**: GStreamer and FFmpeg from GStreamer's official macOS packages, LGPL parts only, with no
-  GPL file. They sit inside the engine, so the engine never uses a GStreamer.framework installed on
-  the Mac.
-- **Unix libraries**: GnuTLS (with Nettle and GMP), FreeType, SDL3 and sdl2-compat, built here from
-  their source releases. Wine's game controller support (winebus) calls SDL2's interface; sdl2-compat
-  gives it on SDL3, SDL's live line (SDL2 stopped at 2.32.10). sdl2-compat opens SDL3 at run time, so
-  the engine carries SDL3 as `lib/libSDL3.dylib`, the first name sdl2-compat tries.
-- **Fonts**: the Liberation fonts 2.1.5 (Sans, Serif and Mono, metric-compatible with Arial, Times New
-  Roman and Courier New), unchanged in `share/wine/fonts`, from their TTF archive mirrored on this
-  repository's releases. wine.inf copies them into each Windows folder's `C:\windows\Fonts` under the
-  file names Proton uses, never over a file already there (patches 0016 and 0017).
+D3DMetal is Apple's, not part of this engine. The build never uses it and no engine archive contains
+it.
 
-D3DMetal (Apple's Game Porting Toolkit) is never part of this build or downloaded by it. The
-CrossOver tree can host it; a player's copy is installed separately under Apple's licence.
+For Direct3D 12 games, Mavrik shows Apple's licence and, only after the player accepts it, downloads
+Apple's unmodified image from this repository's
+[`d3dmetal-4.0b3`](https://github.com/camsteinberg/mavrik-engine/releases/tag/d3dmetal-4.0b3) release.
+That file is under Apple's Game Porting Toolkit licence, not the LGPL. It is hosted here only so
+Mavrik can fetch it; Mavrik is free, and Apple's licence allows non-commercial distribution (section
+2A(iii) of `License.rtf` inside the image).
 
-## The engine archive
+## What it is built from
 
-`mavrik-engine-<wine version>-cx<CrossOver sources version>-r<revision>.tar.xz` holds one folder:
+- Wine 11.0, from CodeWeavers' CrossOver 26.3.0 sources, with the patches in [`patches/`](patches/).
+  [`patches/README.md`](patches/README.md) says where each one comes from and why it is there.
+- [DXMT](https://github.com/3Shain/dxmt) at main 647b0020ba, built from source with the two patches
+  in [`dxmt/patches/`](dxmt/README.md): Direct3D 10 and 11 on Metal.
+- MoltenVK 1.4.2, for games that use Vulkan.
+- GStreamer 1.28.8 and FFmpeg 7.1 from GStreamer's macOS packages, LGPL parts only.
+- Wine Mono 11.3.0 and Wine Gecko 2.47.4, unpacked, so a new Wine prefix never downloads them.
+- GnuTLS, FreeType, and SDL3 with sdl2-compat, built here from their source releases.
+- The Liberation fonts 2.1.5.
 
-| Path | What it holds |
-|---|---|
-| `bin/` | `wine` and `wineserver` |
-| `lib/wine/` | Wine's Windows side (`i386-windows`, `x86_64-windows`) and Unix side (`x86_64-unix`) |
-| `lib/` | the Unix libraries Wine opens, MoltenVK and the media libraries, flat |
-| `lib/gstreamer-1.0/` | the GStreamer plugins |
-| `share/wine/` | Wine's data, Wine Mono and Wine Gecko |
-| `licences/` | every part's licence and notices; `FILES.tsv` names the part every file belongs to |
-| `build-info.json` | what went in: inputs, patches, the toolchain, the recipe commit and the build run, and the folder layout (`layout`) |
+Every input is pinned by URL, size and SHA-256 in [`inputs.json`](inputs.json), and a release build
+refuses an input without a pinned hash. [NOTICE.md](NOTICE.md) lists every part with its licence.
 
-The folder can live anywhere. Every library path inside it is relative, so nothing outside the
-folder and macOS is used, and no file names the machine or the folders it was built in.
+Valve's Steam bridge (lsteamclient, which lets a Windows game bought on Steam talk to the Mac Steam
+app) is not in the engine. It is built from Proton's source as its own archive
+([`bridge/`](bridge/README.md)).
 
-## For a program that starts the engine
+## Releases
 
-- **GStreamer**: set `GST_REGISTRY_1_0` to a file of the program's own, so GStreamer's plugin list
-  is never shared with another GStreamer on the Mac. The plugins are in `lib/gstreamer-1.0`
-  (`layout.gstreamer_plugins` in `build-info.json`). GStreamer also finds them there with no
-  settings, because they sit beside `libgstreamer`.
-- **The game's name**: every Windows program runs as `lib/wine/x86_64-unix/wine`, and each Wine
-  process takes its program's name as its bundle name (`ABZU.exe` becomes "ABZU"), so the app menu
-  says "Hide ABZU" and "Quit ABZU". `WINEPRELOADERAPPNAME`, set in the environment of the first
-  process, replaces that name, and every process it starts keeps it, so a game whose launcher starts
-  the real game keeps its name. The name has 32 bytes: the loader writes it into its Info.plist with
-  `&`, `<` and `>` escaped (an escaped `&` takes 5 bytes, an accented or CJK character 2 or 3, an
-  emoji 4) and cuts it only between whole characters. The menu bar, Cmd-Tab, the Dock and the app
-  switcher show the same name (patch 0007): each program starts through a symbolic link to the loader
-  named after it, in `winetemp-<loader's inode, size and time>/` in the user's temp folder (macOS's
-  window server takes a program's name only from the file it was started through). The window server
-  keeps the name decomposed (NFD), at most 31 bytes of it, so the link's name is cut between whole
-  characters where its decomposed form fits 31 bytes (an accent or a katakana voicing mark takes 3 more
-  bytes, a Korean syllable 9), with `/` shown as `∕` (U+2215) and control characters dropped. The process's executable is still the loader inside the engine (`proc_pidpath`), so a
-  program can find the engine's processes by their path. With no `WINEPRELOADERAPPNAME`, the first program's
-  link is named after the program on the command line, not after `wine` (patch 0007, revision 12), and each
-  child's after its own file. When no link can be made, the program starts from the loader in `mavrik.app`
-  itself, and every surface shows the bundle's name, `mavrik` (patch 0037); never `wine`.
-- **Sound**: Wine sets the Mac output device's buffer frame size to its own period when a stream starts, and
-  reports the device's real period (512 frames at 48 kHz, 10.67 ms) to games (patch 0009, upstream Wine's),
-  counted in the device's frames when the stream's rate differs (patch 0038). The 32-bit Windows half is
-  built with Proton's i386 flags (`-mstackrealign -march=nocona -mfpmath=sse`), so its float math, such as
-  DirectSound's resampler, is SSE, not the x87 code Rosetta runs slowly. The default sound device a game sees, "System Default Output", follows
-  the Mac's default output while the game plays (AirPods connecting, or a device going away), and a stream a game opens
-  on a named device stays there, as on Windows (patch 0043).
-- **Full screen**: a game's always-on-top full-screen window drops to the normal window level while
-  the engine is not the active app (patch 0008), so Cmd-Tab can leave a full-screen game. Other
-  always-on-top windows stay above the Dock, as in Wine. While a game's window covers a whole screen and
-  the engine is the active app, the Dock and the menu bar are hidden (patch 0034), so the Dock doesn't
-  wake at the screen's edge under the game.
-- **Fit below the notch**: with the Mac driver option `FitBelowNotch=y` (off by default), a game sees each
-  screen with a camera housing without the strip beside it (1512x945 on a 14-inch MacBook Pro), its
-  smaller modes scaled into that area, and a full-screen game gets a black strip beside the housing, as
-  VLC and QuickTime Player do (patch 0040).
-- **Display mode changes**: when the Mac's display mode changes while a game plays (System Settings' "Larger
-  Text", another app), the game's windows refit the new screen: a full-screen game fills it and a windowed one scales
-  with the screen, as a graphics card's scaler shows a mode on another panel. The game keeps its own mode and is told
-  nothing, so it resets nothing; on the way back every window returns to its frame (patch 0044).
-- **Game Mode**: every Windows program starts from a copy of Wine's loader inside the engine's own app bundle,
-  `lib/wine/x86_64-unix/mavrik.app`, whose Info.plist declares a game that supports Game Mode
-  (`LSApplicationCategoryType` `public.app-category.games`, `LSSupportsGameMode` and its older name
-  `GCSupportsGameMode`), so macOS can give a full-screen game Game Mode (patch 0037, after neutron; a lab bundle got
-  it in Wine's own full screen and in a full-screen Space, mavrik S217). The same keys in the loader's built-in
-  Info.plist did nothing: macOS read them only from a bundle. The
-  bundle is laid and signed when the engine is assembled; nothing is made at run time. Its folder name is the name
-  macOS shows when a Windows program first uses the local network, with the bundle's `NSLocalNetworkUsageDescription`.
-  **Game Mode off**: with `MAVRIK_GAME_MODE=0` in the environment of the first process (exactly `0`; any other value
-  or none keeps Game Mode on), Wine starts the program from `lib/wine/x86_64-unix/without-game-mode/mavrik.app`
-  instead: the same bundle, with the same folder name and `CFBundleName`, without the three Game Mode keys and with
-  its own identifier, `org.mavrik.engine.wine.without-game-mode` (patch 0037 version 3, revision 12). Every process
-  the program starts inherits the variable with the rest of the Unix environment (Wine's `spawn_process` passes the
-  parent's Unix environment, not the Windows one) and starts from the loader its parent chose, so a launcher's game
-  follows it, and a Windows program can't change it for its children. The game's name in the menu bar, Cmd-Tab and
-  the Dock is the same in both states. A launcher sets the variable per game, for a player's own choice. Processes a
-  launcher started in the prefix before the game without the variable (Wine's `services.exe`, `explorer.exe` and
-  `winedevice.exe` from its setup steps) keep running from the Game Mode bundle, and so does anything they start (a
-  Windows service, an out-of-process COM server); Game Mode goes only to the frontmost full-screen app, the game.
-  Wine's start no longer looks up the Mac's `.local` host name (patch 0041), so starting a Windows program doesn't
-  touch the local network or wait on that prompt. A game that looks up its own machine gets the Mac's own addresses
-  with no lookup (patch 0042), so a game that only looks itself up no longer waits on that prompt either.
-- **The mouse cursor**: a cursor a Windows program hides is a transparent Mac cursor, set again after
-  another app was in front and whenever the pointer comes back from another app's window, so the Mac
-  arrow doesn't come back over a full-screen game after Cmd-Tab, at the Dock edge or on shake to locate
-  (patches 0013, Wine merge request 11880, and 0014, this repository's follow-up to it). In Mission
-  Control, App Exposé and Show Desktop, which leave the game the active app, a cursor clip lets the pointer
-  go: while a game clips, the Mac driver reads the window list every 100 ms for WindowManager's full-display
-  window at layer 19 (Mission Control and App Exposé on macOS 27) or 18 (Show Desktop), lifts the clip while
-  it shows, and puts the clip and the hidden cursor back when it goes (patch 0015).
-- **Raw mouse input**: while a game hides the cursor, holds the pointer with a cursor clip and is in front,
-  the Mac pointer stops and a mouse's own counts (GameController's GCMouse, once per device report, up to
-  1,000 moves a second, with none of macOS's acceleration) reach the game as relative moves, as Windows'
-  raw input does; the game's own warps lose no motion. The trackpad keeps macOS's accelerated path, and
-  Mission Control, App Exposé, Show Desktop and Cmd-Tab give the pointer back (patch 0039, after Recall's).
-  The Mac driver option `RawMouseInput=n` turns it off.
-- **Game controllers**: PlayStation pads reach games as XInput pads through SDL, like Xbox and Nintendo
-  pads (`MAVRIK_PAD_HIDRAW=1` keeps them raw HID for one game); Nintendo pads are mapped by position, so the
-  Pro Controller's right face button is XInput's B, where an Xbox pad has it; XInput rumble lasts until the
-  game changes it; XInput's battery call answers as for a wired pad (patch 0035, from neutron). A pad's Home and Share
-  buttons go to the game, not to macOS's Game Overlay and screenshots (patch 0036, from neutron).
-  `MAVRIK_PAD_VIRTUAL=1` or `=<vid>:<pid>` attaches a scripted virtual pad, which `tools/gamepadprobe.c`
-  (neutron's probe) checks in XInput, DirectInput, raw input and Windows.Gaming.Input.
-- **A per-launch DLL folder**: `WINEDLLPATH_PREPEND` names folders searched before the engine's own
-  builtins (patch 0018, MacPorts' and Highball's), so a launcher can put another graphics layer, such
-  as Apple's D3DMetal, in front of DXMT for one game.
-- **Fixes from Highball's engine** (patches 0019 to 0033, each with its own header): the fiber and
-  error-code slots macOS shares with Windows code (fiber games, Unity's error codes), Unity and
-  Unreal videos under DXMT, old modules no longer turning data execution prevention off for a whole
-  process under Rosetta, missing GetIntegratedDisplaySize, a process's memory figures, Keychain
-  credentials, Retina screen sizes, OpenGL ES 2 calls, spatial audio channel order, app packages,
-  UTC+3 time zone names, and DLLs kept in a program's `<program>.exe.local` folder.
-- **32-bit programs**: the program that starts the engine sets `WINEARCH=wow64`. Wine's own loader
-  then runs a 32-bit program in the process it starts, like a 64-bit one, in new WoW64 mode; the
-  engine has no 32-bit Unix side. With `WINEARCH` unset or `win64`, Wine relaunches each 32-bit
-  program through `start.exe`, a second process.
-- **Steam bridge**: when a game loads Valve's `steamclient.dll` or `steamclient64.dll`, the loader
-  makes its calls go to `lsteamclient.dll` (patch 0004), which talks to the Mac Steam app. lsteamclient
-  is not in this engine; it is built from Valve's Proton source as its own archive
-  ([`bridge/`](bridge/README.md)), and a program that starts the engine adds its `lib/wine` files to
-  the engine's `lib/wine`. The redirect is on unless
-  `PROTON_DISABLE_LSTEAMCLIENT=1` is set, as in Proton, which always ships lsteamclient. Without
-  lsteamclient a 32-bit `steamclient.dll` loads as it is, but `steamclient64.dll` and
-  `gameoverlayrenderer64.dll` still have their `tier0_s64.dll` and `vstdlib_s64.dll` imports sent to
-  ntdll, which has none of those functions: each becomes a stub that fails when called. So a program
-  that runs Valve's own Windows Steam client in this engine, with no lsteamclient, sets
-  `PROTON_DISABLE_LSTEAMCLIENT=1`, the switch Proton's players use as a launch option.
-- **Identity**: every Wine process reports the bundle identifier `org.mavrik.engine`, so its
-  preferences and saved window state are its own, never CrossOver's or another Wine's. The loader is
-  not code-signed.
-- **Crash dialog**: when a Windows program crashes, Wine shows its crash dialog, which links to this
-  repository's issues. A program that does not want players to see it sets the registry value
-  `HKCU\Software\Wine\WineDbg\ShowCrashDialog` to 0 in each Windows folder.
+- `11.0-cx26.3.0-rN` is engine revision N: the archive, its SHA-256, the gate results, the build
+  record, and the source of every LGPL and MPL part in it.
+- `steam-bridge-r1-engine-rN` is the Steam bridge built against that revision.
+- `inputs-…` releases mirror build inputs whose own addresses are not stable.
+- `d3dmetal-4.0b3` is Apple's file ([above](#d3dmetal)).
 
-## Checks
-
-The build fails unless every gate passes, and a self-test step shows each gate failing on a bad
-input, for that gate's own reason (every problem the gate reports on a bad input must be about the
-property the case breaks):
-
-- **relocatable**: every Mach-O file is swept with `otool`; no path outside `/usr/lib` and `/System`
-  may be absolute.
-- **dlopen**: every bundled library loads on the build machine with the build's own folders moved
-  away, and nothing loads from outside the engine and macOS.
-- **pe32**: the 32-bit Windows half is there (`i386-windows/ntdll.dll` is a 32-bit PE).
-- **winemac**: `winemac.so` exports `macdrv_functions` with the layout DXMT reads.
-- **addons**: Wine Mono and Gecko are present at exactly the versions the tree asks for; the build
-  stops early if the tree asks for a version that is not pinned.
-- **wine**: `wine --version` prints the expected version; `wineboot --init` in a new Windows
-  folder finishes with no Mono or Gecko download prompt and finds the engine's Mono; and Wine Gecko
-  loads from the engine in both the 64-bit and the 32-bit half. Then a small Windows program
-  ([`tools/winelibs.c`](tools/winelibs.c)), run in both halves, makes Wine's own code use GnuTLS
-  (bcrypt and schannel), MoltenVK and FreeType, and load its GStreamer and FFmpeg modules. dyld
-  lists what every Wine process loads: each library Wine opens by name must come from the engine,
-  and nothing may come from outside the engine and macOS. This matters on GitHub's Intel runner,
-  where Homebrew's libraries sit in a folder dyld searches by default.
-- **media**: GStreamer and FFmpeg load from inside the engine, never from
-  `/Library/Frameworks/GStreamer.framework`, and create the elements Wine uses. On a Mac that has
-  that framework, the gate leaves it in place and checks that nothing is loaded from it.
-- **licences**: every file in the engine is covered by a line in `licences/FILES.tsv`.
-- **nogpl**: no GPL-only file in the media component, and FFmpeg reports itself as LGPL.
-- **identity**: the loader's built-in Info.plist has the engine's own identifier, and no text in
-  Wine's files names CrossOver or CodeWeavers, except a reviewed list of names no player sees
-  (copyright lines, log lines, internal registry keys), each with its reason, in `gates.py`.
-- **buildpaths**: no file in the engine contains the build's work folder or the recipe's folder.
-- **dxmt**: DXMT's seven files are the ones `build-dxmt.sh` made from the pinned source and this
-  repository's DXMT patches (the build record, file by file); `d3d11.dll` carries the version string
-  `<commit>-mavrik.<patches>`; `winemetal.dll` exports the pinned number of names, with patch 0002's
-  `MetalDrawable_signalEventWhenPresented`, which `d3d11.dll` imports; `winemetal.so` needs macOS 15.0;
-  none of the seven names the work folder, the recipe or the home folder.
-- **d3d11**: a small Windows program ([`tools/d3d11probe.c`](tools/d3d11probe.c)) draws through
-  Direct3D 11 on a visible window, as a game does: DXMT's device, 60 frames presented into its Metal
-  view, 120 more under vsync at 50 or more a second with no presentation wait given up (DXMT patch
-  0001), and a texture read back from the GPU. DXMT's `winemetal.so` and the Mac driver load from the
-  engine. A machine with no Metal device cannot run DXMT, and the gate reports SKIP there, never
-  PASS. GitHub's Intel runners are virtual machines that may have none.
-- **playback**: a small Windows program ([`tools/mediaprobe.c`](tools/mediaprobe.c)) decodes a
-  one-second movie ([`tools/media/sample.mp4`](tools/media/), H.264 and AAC) in both halves, through
-  Media Foundation and through the Windows Media reader, the two ways games play video. GStreamer's
-  plugins load from the engine's `lib/gstreamer-1.0`, and nothing from outside the engine and macOS.
-- **steamredirect**: Valve's Steam bridge in the loader (patch 0004). A small Windows program
-  ([`tools/steamprobe.c`](tools/steamprobe.c)), in both halves, loads a DLL named `steamclient64.dll`
-  or `steamclient.dll` with a stand-in `lsteamclient.dll` beside it, and calls an export: the call
-  must land in lsteamclient's export of the same name. No Steam is needed.
-- **dockname**: a small Windows program ([`tools/dockprobe.c`](tools/dockprobe.c)) started with
-  `WINEPRELOADERAPPNAME` shows a window and starts a 32-bit copy of itself that shows its own. For
-  both, the Dock and the app switcher (LaunchServices, read with `lsappinfo`) and the menu bar and
-  Cmd-Tab (the window server's owner name, read with [`tools/procnames.c`](tools/procnames.c), no
-  screen capture) must show that name exactly, for three titles: a plain one, one with `&`, `<` and
-  `>`, and one with accented, CJK and emoji characters (the window server's name compared in its
-  decomposed form, as macOS keeps it). Three more titles show the rules: a Japanese title of 36 bytes
-  is cut between whole characters (to 30 bytes in the Dock, to 27 in the window server, where its
-  "ゲ" decomposes to 6), `AC/DC Gate` shows as `AC∕DC Gate` in the window server, and `Control` still starts the probe, not Wine's control panel. Each
-  program's executable (`proc_pidpath`) must be the loader in the engine's `mavrik.app` (patch 0037); with
-  `MAVRIK_GAME_MODE=0`, the plain title shows the same and the executable is the loader in
-  `without-game-mode/mavrik.app`. A title no link can carry (`..`) shows the bundle's name, `mavrik`, everywhere.
-  With no title and an argv[0] that is not UTF-8, the program must still start, and each program shows its own
-  file's name in both sources (patch 0007 names the first link after the program, not after argv[0]). On an APFS
-  clone of the engine with a plain file where its loader's link folder goes, so no link can be made, a program with
-  no title and its child show `mavrik`, never `wine`. The executable path is checked as `proc_pidpath` gives it,
-  without resolving links. Only probes started by the gate's own run are
-  read, and the gate removes the links it caused. When the gates run outside a login session
-  (`launchctl managername` is not `Aqua`, as over ssh) no window can become a Dock app, and the gate
-  reports SKIP; inside one, it runs and passes or fails. Two self-test rows need this revision's
-  `ntdll.so` without patch 0007 (CrossOver's hack as shipped), named in `SELFTEST_OLD_NTDLL`, and one needs
-  revision 11's `ntdll.so`, named in `SELFTEST_R11_NTDLL`; without them they are not run.
-- **controllers**: game controllers through patch 0035's scripted virtual pad, with no real pad.
-  [`tools/gamepadprobe.c`](tools/gamepadprobe.c) (neutron's probe) runs its selftest in a fresh Windows
-  folder, each case in its own Wine session (the pad's variables count when the session starts), with
-  the virtual pad as an Xbox 360 pad (045e:028e), a DualShock 4 (054c:09cc), a DualSense (054c:0ce6)
-  and a Switch Pro Controller (057e:2009, by position), in both halves: all 18 checks must pass
-  (XInput buttons and axes, rumble echoed, still held after 1.5 s and stopped, the wired battery,
-  DirectInput, raw input, Windows.Gaming.Input, unplug, replug and input after it). With
-  `MAVRIK_PAD_HIDRAW=1`, each PlayStation id must be no XInput pad and no DirectInput controller. The
-  self-test breaks one property each: a DualShock 4 with `MAVRIK_PAD_HIDRAW=1` in the full selftest, the
-  same id in the absent check without it, and a Switch Pro Controller with SDL's label mapping back on.
-- **gamemode**: the two loader bundles (patch 0037), `lib/wine/x86_64-unix/mavrik.app` and
-  `lib/wine/x86_64-unix/without-game-mode/mavrik.app`, have exactly the Info.plists `scripts/assemble.py` writes (the
-  first the games category, `LSSupportsGameMode` and `GCSupportsGameMode`; the second none of them and its own
-  identifier; both `LSUIElement`, `CFBundleName` `mavrik`, `CFBundleExecutable` `wine`, the Local Network usage
-  text, no document types); each `Contents/MacOS/wine` is the engine's loader with a signature added; and each ad
-  hoc signature verifies (`codesign --verify --strict`), so the Info.plist is sealed. Then the switch, with no
-  display: a 64-bit program with no title, its 32-bit child and its 64-bit grandchild
-  ([`tools/chainprobe.c`](tools/chainprobe.c)), run once without `MAVRIK_GAME_MODE` and once with
-  `MAVRIK_GAME_MODE=0`, and once with `MAVRIK_GAME_MODE=1` (only exactly `0` turns Game Mode off), must each start
-  through a link named after its file in the link folder of the loader in `without-game-mode/mavrik.app` with `0`
-  and of the one in `mavrik.app` otherwise, and nowhere else. Each child starts from the loader its parent chose and
-  inherits the variable with the rest of the Unix environment, so the grandchild proves it passes through two
-  generations. Whether macOS then turns Game Mode on is
-  not a gate (it needs a full-screen game in front); the lab reads it from gamepolicyd. One self-test row needs
-  revision 11's `ntdll.so` (no switch), named in `SELFTEST_R11_NTDLL`.
-
-## Build notes
-
-- Releases are built on GitHub's `macos-15-intel` runner. The Unix side is x86_64 only: the tree's
-  Metal layer is built only for x86_64, as in CrossOver's own builds. It runs under Rosetta on
-  Apple silicon. On an Apple silicon Mac, every `configure` and `make` runs as x86_64 through
-  Rosetta, and the compilers are told `-arch x86_64`, so the build matches an Intel Mac's. The SDL3
-  and sdl2-compat CMake builds are the exception: CMake runs natively and compiles for x86_64.
-- The toolchain is part of the recipe. Every step uses the Xcode `inputs.json` pins (26.2, build
-  17C52; `scripts/toolchain.sh` selects it, and GitHub's runner has it at `/Applications/Xcode_26.2.app`),
-  because the loader's SDK decides which AppKit behaviours a game's windows get. mingw-w64 gcc,
-  bison, flex and CMake come from Homebrew; their versions are part of the cache keys and recorded
-  in `build-info.json`, so engines built with different tools can be told apart.
-- Every compiler gets `-ffile-prefix-map`, our own libraries are stripped like Wine's Unix side, and
-  GnuTLS's system-wide priority file is turned off, so no file names the build machine's folders
-  and GnuTLS reads no configuration from outside the engine.
-- Each library built here keeps the notices of the third-party code inside it (for example
-  CRYPTOGAMS and inih in GnuTLS, the BDF and PCF drivers in FreeType, HIDAPI in SDL3). The build
-  stops on any licence file in a source tree it has not been told about.
-- The Windows side is built for i386 and x86_64 with mingw-w64 gcc. llvm-mingw is known to break
-  Steam's sign-in.
-- `--with-opengl` is not passed: configure would then fail on the missing EGL headers. Left alone,
-  the Mac driver uses OpenGL.framework.
-- Wine opens MoltenVK, FreeType, GnuTLS and SDL2 (sdl2-compat) by file name. Each Unix module gets
-  the run path `@loader_path/../../`, which is the engine's `lib/`, so those names are found there.
-  The `wine` gate checks that they are, and that sdl2-compat's SDL3 loads from the engine too.
-- The Windows side is stripped of debug data; gcc leaves it in, and it makes the files five times
-  larger.
-- Caches (downloads, the Unix libraries, the Wine build and ccache) make repeat builds fast. Each
-  finished step leaves a stamp with its cache key (inputs, scripts, patches and toolchain), and a
-  later build with the same key skips it.
-  The workflow's `fresh` option (or `FRESH=1` on a Mac) ignores them for a clean build. A step's
-  scratch folders (the library sources, the Wine build tree and its objects) are removed when the
-  step succeeds; ccache keeps the next build fast.
-- `MACOSX_DEPLOYMENT_TARGET` is 14.0 for everything built here. DXMT's own files need
-  macOS 15.
+An engine archive is a self-contained Wine folder and runs without Mavrik;
+[docs/launchers.md](docs/launchers.md) says what is in it. Old revisions stay up because installed
+copies of Mavrik download them by URL and check each against a hash they carry.
 
 ## Building
-
-The build is four scripts in [`scripts/`](scripts/). The GitHub workflow prepares its runner and
-calls them, and a Mac runs the very same scripts:
 
 ```sh
 bash scripts/build.sh WORK      # inputs, toolchain check, sources and patches, Unix libraries, Wine
@@ -335,50 +99,37 @@ bash scripts/gates.sh WORK      # every gate, then the self-test
 bash scripts/pack.sh WORK       # the .tar.xz and its .sha256
 ```
 
-- **On GitHub**: start the `build` workflow by hand (Actions, build, Run workflow). The engine, its
-  checksum and the gate results are uploaded as the run's artifact.
-- **On a Mac**: install Xcode 26.2, and with Homebrew bison, mingw-w64, cmake and pkg-config. Apple
-  silicon also needs Rosetta. `JOBS` sets make's parallel jobs. Without curl, set
-  `FETCH_ARGS="--via gh --from DIR"`: files on GitHub then come through the GitHub CLI, and the rest
-  from `DIR`, a folder of files downloaded by hand from the addresses in `inputs.json`. Every file is
-  checked against its pin either way.
+It needs Xcode 26.2 and, from Homebrew, bison, mingw-w64, cmake and pkg-config; on Apple silicon,
+Rosetta too. [docs/building.md](docs/building.md) has the rest.
 
-Releases are meant to come from the GitHub workflow, which has not built one yet. Until it does,
-prereleases are built on a Mac by these same scripts and checked by the same gates and self-test:
-revisions 3 to 6 were, and their release notes say so. Any other engine built on a Mac is for testing
-only.
+## More
 
-## Releases
+- [docs/launchers.md](docs/launchers.md): what is in an engine archive, and the variables and options
+  a launcher can set (the game's name in the Dock, Game Mode, raw mouse input, controllers, the notch).
+- [docs/gates.md](docs/gates.md): the gates, the checks every build has to pass, and how each is
+  shown to fail on a bad input.
+- [docs/building.md](docs/building.md): the toolchain, build notes, and what a release carries.
+- [patches/README.md](patches/README.md), [dxmt/README.md](dxmt/README.md) and
+  [bridge/README.md](bridge/README.md): each patch, where it comes from and why.
 
-A run started with `publish_release` publishes a prerelease after every gate and the self-test
-pass. A dockname SKIP is not a pass for a release: if the runner reports SKIP, the prerelease is not
-published until the same recipe commit has passed dockname on a Mac in a login session, and that
-run's `gates/results.json` goes with the release's gate results. The workflow does not enforce this
-yet; whoever starts the release checks it. A release carries the engine, its `.sha256`, the gate
-results and the source of every LGPL and MPL part:
+## Relation to CrossOver
 
-- Wine (the CrossOver source archive, with this repository's patches in the recipe), GnuTLS,
-  Nettle and GMP, Wine Mono and Wine Gecko;
-- DXMT, complete with its submodules (GitHub's tarball of a commit leaves them empty), with this
-  repository's DXMT patches in the recipe, and the source
-  of Wine's start-up code its `winemetal.dll` carries (winecrt0 and its headers, from 3Shain's Wine 8.16;
-  `dxmt/README.md`);
-- for the media component, the exact tarballs GStreamer's build recipes (cerbero 1.28.8) built it
-  from (GStreamer and its plugin sets, GLib, FFmpeg, proxy-libintl and mpg123), with the sha256
-  values cerbero pins, and cerbero itself, which holds the patches it applied.
+This is a build of Wine from CodeWeavers' published CrossOver sources. It is not CrossOver.
+"CrossOver" is a trademark of CodeWeavers. CodeWeavers publishes the Wine sources inside each
+CrossOver release under the LGPL, and this build uses them unchanged apart from the patches in
+[`patches/`](patches/).
 
-Those sources are in `release_sources` in `inputs.json` (or are inputs with the role `source`). A
-release refuses to start while any of them has no pinned size and sha256. A test build downloads
-the ones it can and prints the values to pin. On a Mac whose build takes files from a folder
-(`--from DIR`), `scripts/fetch-release-sources.sh DIR` downloads the ones that are not on GitHub,
-checks them against their pins and prints the values still to pin.
+The engine never presents itself as CrossOver. Patch 0003 gives the Wine loader its own identity
+(`org.mavrik.engine`, with each game's own name in its app menu), points Wine's crash dialog at this
+repository's issues, and removes CrossOver's names from the places a player could see them. The
+`identity` gate checks this on every build.
 
 ## Credits
 
 - CodeWeavers, for CrossOver and for publishing its Wine sources, and the Wine project.
 - [highball-engine](https://github.com/gauthierpiarrette/highball-engine) (LGPL-2.1-or-later): the
   closest recipe to this one. Patches 0001, 0002, 0010 (its MSync fix) and 0018 to 0032 come from it unchanged, with
-  the authors each one's header names (Gauthier Piarrette, athei, Tx, Paul Gofman and Proton's developers, and
+  the authors named in each one's header (Gauthier Piarrette, athei, Tx, Paul Gofman and Proton's developers, and
   MacPorts' game-porting-toolkit port for 0018), and the build follows
   its shape (pinned CrossOver sources, an Intel runner, mingw-w64 gcc, Mono and Gecko unpacked).
 - [winecx-gptk](https://github.com/frankea/winecx-gptk), whose list of build gates showed which
@@ -400,7 +151,7 @@ checks them against their pins and prints the values still to pin.
   default endpoint it follows. Nothing is copied.
 - [neutron](https://github.com/fourlexboehm/neutron) (LGPL-2.1-or-later), a Proton-style Steam tool for
   macOS: patches 0035 and 0036 adapt its game controller patch (`0017-winebus-sdl-gamepads.patch`), and
-  `tools/gamepadprobe.c` is its `tests/gamepad_list.c` with mavrik's variable names.
+  `tools/gamepadprobe.c` is its `tests/gamepad_list.c` with Mavrik's variable names.
 - [Recall](https://github.com/AsherJN/recall) (Josh Nelson): patch 0039 follows its `wine-mouselook.patch`
   (a mouse's raw counts from GameController while a game holds the pointer), written for this tree.
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
@@ -408,7 +159,7 @@ checks them against their pins and prints the values still to pin.
 - The DXMT, MoltenVK, GStreamer, FFmpeg, GnuTLS, FreeType and SDL authors, and the Liberation fonts'
   designers (Ascender, Steve Matteson, Red Hat). Proton, whose Windows font names 0017 follows and
   whose 32-bit compiler flags (`i386_CFLAGS`) `build-wine.sh` uses.
-- The media component's script started as mavrik's own `make-media-component.sh`.
+- The media component's script started as Mavrik's own `make-media-component.sh`.
 
 ## Licence
 
