@@ -31,7 +31,10 @@ licence texts and copyright notices, `licences/COMPONENTS.tsv` lists the parts, 
 Not in the media component on purpose: x264, x265, a52dec, libdvdread, libdvdnav, OpenH264,
 mpeg2dec and dtsdec (GPL or patent-encumbered).
 
-Never bundled or downloaded: D3DMetal (Apple's Game Porting Toolkit, under Apple's licence).
+Not in the engine: D3DMetal. It is Apple's, under Apple's Game Porting Toolkit licence, not the LGPL.
+The build never uses it and no engine archive contains it. This repository hosts Apple's unmodified
+image on its `d3dmetal-4.0b3` release only so Mavrik can fetch it, after a player accepts Apple's
+licence ([README](README.md#d3dmetal)).
 
 Not in the engine: Valve's Steam bridge (lsteamclient and the steam.exe stub). It is built from
 [`bridge/`](bridge/) as its own archive, with its own licence folder: lsteamclient under Valve's
@@ -40,8 +43,8 @@ lsteamclient also compiles in Proton's `lsteamclient/cxx.h` (CodeWeavers, LGPL-2
 source is in Proton's tarball. The engine's licence step refuses those files, so they are never listed
 as Wine's.
 
-A release also carries the corresponding source of every LGPL and MPL part (see "Releases" in the
-README); for the media component that is the tarballs GStreamer's build recipes (cerbero 1.28.8)
+A release also carries the corresponding source of every LGPL and MPL part (see
+[docs/building.md](docs/building.md#releases)); for the media component that is the tarballs GStreamer's build recipes (cerbero 1.28.8)
 built it from, and cerbero with its patches.
 
 Build tools that are not shipped: mingw-w64 gcc, bison and ccache (GPL), Xcode's clang.
