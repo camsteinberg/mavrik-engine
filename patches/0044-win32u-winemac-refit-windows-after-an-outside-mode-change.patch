@@ -38,7 +38,7 @@ Windows the system sends WM_DISPLAYCHANGE to every top-level window and the prog
 
 Not covered: a Vulkan swapchain decides on present scaling when it is made (win32u vulkan.c), so after the refit the
 game gets VK_SUBOPTIMAL_KHR; DXVK and most engines then make a new swapchain, and one that ignores it shows an
-unscaled picture. Whether Wine's OpenGL drawable follows the smaller view is what the Rogue Legacy test shows.
+unscaled picture.
 
 Checked: applies after patches 0001 to 0043 with no fuzz; win32u.so and winemac.so build with the
 engine's toolchain and configure with no new warning, and without this patch both rebuild byte-identical to
