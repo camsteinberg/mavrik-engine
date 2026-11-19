@@ -20,6 +20,9 @@ property the case breaks):
   lists what every Wine process loads: each library Wine opens by name must come from the engine,
   and nothing may come from outside the engine and macOS. This matters on GitHub's Intel runner,
   where Homebrew's libraries sit in a folder dyld searches by default.
+- **fonts**: `wineboot --init` in a new Windows folder copies every font wine.inf names (patch 0017)
+  into `C:\windows\Fonts`, each the same bytes as its source in `share/wine/fonts`, and a file
+  already there is kept through `wineboot --update` (patch 0016).
 - **media**: GStreamer and FFmpeg load from inside the engine, never from
   `/Library/Frameworks/GStreamer.framework`, and create the elements Wine uses. On a Mac that has
   that framework, the gate leaves it in place and checks that nothing is loaded from it.
