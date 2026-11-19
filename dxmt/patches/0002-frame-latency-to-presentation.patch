@@ -5,9 +5,9 @@ as an issue. Made against DXMT 3b252590cb with 0001; applies unchanged at 647b00
 
 DXMT's frame latency limit (3 frames by default) counts a frame as done when its GPU work finishes. Under vsync or a
 frame cap, finished frames then wait in Core Animation's three drawables for their turn on screen, and that wait was
-not counted: Mavrik's latency meter measured about 2.4 frames of extra input latency on a light vsync-held game (H3 5.87
-frames against G3 3.36, H1 3.89 against G1 1.52). DXVK and Windows count a frame against the limit until it is
-presented. The same meter: 2.44 frames less with this change against the same build without it, frame rate held.
+not counted: about 2.4 frames of extra input latency, measured on a light vsync-held game (5.87 frames against 3.36,
+and 3.89 against 1.52). DXVK and Windows count a frame against the limit until it is
+presented. Measured: 2.44 frames less with this change against the same build without it, frame rate held.
 
 - winemetal: MetalDrawable_signalEventWhenPresented (unix call 146, in both call tables) registers a
   presented handler that sets a shared event to the frame's number. The handler runs on a Core
