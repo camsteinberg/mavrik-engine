@@ -1,14 +1,13 @@
 DXMT: count the frame latency limit to presentation when vsync or a frame cap holds the game.
 
-This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written or
-co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull request; the
-finding and the numbers go to DXMT as an issue. Made against DXMT 3b252590cb with 0001; applies unchanged at 647b0020ba, which changes none of its files.
+This repository's change. It is not offered to DXMT as a pull request; the finding and the numbers go to DXMT
+as an issue. Made against DXMT 3b252590cb with 0001; applies unchanged at 647b0020ba, which changes none of its files.
 
 DXMT's frame latency limit (3 frames by default) counts a frame as done when its GPU work finishes. Under vsync or a
 frame cap, finished frames then wait in Core Animation's three drawables for their turn on screen, and that wait was
-not counted: mavrik's S214 meter measured about 2.4 frames of extra input latency on a light vsync-held game (H3 5.87
+not counted: Mavrik's latency meter measured about 2.4 frames of extra input latency on a light vsync-held game (H3 5.87
 frames against G3 3.36, H1 3.89 against G1 1.52). DXVK and Windows count a frame against the limit until it is
-presented. mavrik's S215 meter: 2.44 frames less with this change against the same build without it, frame rate held.
+presented. The same meter: 2.44 frames less with this change against the same build without it, frame rate held.
 
 - winemetal: MetalDrawable_signalEventWhenPresented (unix call 146, in both call tables) registers a
   presented handler that sets a shared event to the frame's number. The handler runs on a Core
@@ -22,7 +21,6 @@ presented. mavrik's S215 meter: 2.44 frames less with this change against the sa
   holds the game.
 
 Not here: releasing the waitable swapchain's object at presentation (it needs a helper thread) and a latency sleep.
-.factory/design-passes/2026-10-27-s214/dxmt-latency-plan.md in the mavrik repository has the analysis.
 
 diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
 index 86cf466..ba3911c 100644

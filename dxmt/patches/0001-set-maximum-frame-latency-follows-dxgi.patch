@@ -1,14 +1,13 @@
 DXMT: follow DXGI's rules for SetMaximumFrameLatency (0 means the default of 3, above 16 is refused), return the
 application's value from GetMaximumFrameLatency, and add DXVK's dxgi.maxFrameLatency.
 
-This repository's change, written by an AI agent for mavrik (S215). DXMT does not accept code written or
-co-written by AI (its CONTRIBUTING.md and AGENTS.md, 2026-07-27), so it is not offered as a pull request; the
-finding goes to DXMT as an issue. Made against DXMT 3b252590cb; applies unchanged at 647b0020ba, which changes none of its files.
+This repository's change. It is not offered to DXMT as a pull request; the finding goes to DXMT as an issue.
+Made against DXMT 3b252590cb; applies unchanged at 647b0020ba, which changes none of its files.
 
 DXMT stored SetMaximumFrameLatency's value as it came, and its PresentBoundary waits for the GPU work of frame
 N - L. A game that passes 0, which DXGI defines as "back to the default", so got L = 0: every Present waited for the
 frame just submitted to finish on the GPU, with no overlap between the CPU and the GPU. Civilization VI's DX11 program
-passes 0 (mavrik S215 logged it): its built-in benchmark ran 38 to 39 fps on DXMT at 3b252590cb without this change
+passes 0 (logged here): its built-in benchmark ran 38 to 39 fps on DXMT at 3b252590cb without this change
 and 95.5 to 97.7 fps with it, interleaved, on an M1 Pro, the player's own settings.
 
 - SetMaximumFrameLatency(0) resets to 3, values above 16 return E_INVALIDARG (Microsoft's documentation);
