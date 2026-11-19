@@ -1,6 +1,6 @@
 # The Steam bridge
 
-Valve's Steam bridge for mavrik's engine, built as its own archive beside it. A Windows game bought on
+Valve's Steam bridge for Mavrik's engine, built as its own archive beside it. A Windows game bought on
 Steam talks to Steam through Valve's `steamclient.dll` or `steamclient64.dll`. The engine's loader
 (patch 0004, Valve's) hands those calls to `lsteamclient.dll`, and lsteamclient passes them to the
 Steam app on the Mac. This folder builds lsteamclient and Valve's `steam.exe` stub. Nothing in it is
@@ -17,7 +17,7 @@ can be changed or withdrawn alone.
   commit's tarball when asked, and its compression can change, so the tree digest is what pins the
   code (NotProton pins its Proton source the same way). A changed tarball fails the fetch on its
   sha256; it is re-pinned once `proton.py` confirms it unpacks to the same tree digest.
-- **mavrik's patches** ([`patches/`](patches/)), applied in order, no fuzz:
+- **Mavrik's patches** ([`patches/`](patches/)), applied in order, no fuzz:
   - `0001-register-components.patch`: adds `dlls/lsteamclient` and `programs/steam` to configure,
     so Wine's own make builds them.
   - `0002-lsteamclient-macos.patch`: what lsteamclient needs on a Mac. The Mac Steam app's

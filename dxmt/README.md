@@ -21,7 +21,7 @@ pinned in `inputs.json` by URL, size and SHA-256 and mirrored on this repository
 Each patch applies in order with no fuzz and no offset, or the build stops. DXMT's version string comes
 from `git describe`, which the source archive cannot answer, so a stand-in answers
 `<commit, 10 characters>-mavrik.<number of patches>`: DXMT's log and HUD then name the commit and say the
-build is mavrik's. Every compiler gets `-ffile-prefix-map`, so no build path lands in the files. The
+build is Mavrik's. Every compiler gets `-ffile-prefix-map`, so no build path lands in the files. The
 engine's `build-info.json` records the commit, the version string, each patch and each file's SHA-256, and
 the `dxmt` gate checks the engine against that record.
 
@@ -30,12 +30,12 @@ games off Wine's own d3d11, a change to be measured on its own.
 
 ## Patches
 
-mavrik's changes to DXMT, applied in order to DXMT's source at the pinned commit.
+Mavrik's changes to DXMT, applied in order to DXMT's source at the pinned commit.
 
-| Patch | Why mavrik needs it |
+| Patch | Why Mavrik needs it |
 |---|---|
-| `0001-set-maximum-frame-latency-follows-dxgi.patch` | DXMT stored SetMaximumFrameLatency's value as it came, so a game that passes 0 (DXGI's "back to the default of 3") had every Present wait for the frame just submitted to finish on the GPU: no CPU and GPU overlap. Civilization VI's DX11 program passes 0: 38 to 39 fps without this, 95.5 to 97.7 with it (mavrik S215, interleaved). Now 0 means 3 and values above 16 are refused, as Microsoft documents; GetMaximumFrameLatency returns the application's value; DXVK's `dxgi.maxFrameLatency` can cap it. Written by an AI agent, so offered to DXMT as an issue, not a pull request. |
-| `0002-frame-latency-to-presentation.patch` | Under vsync or a frame cap, DXMT counted a frame as done at GPU completion, so finished frames waiting in Core Animation's drawables added about 2.4 frames of input latency (mavrik's S214 meter). The frame latency limit now counts to presentation, as in DXVK and on Windows; vsync off is unchanged. A presentation wait over 100 ms is given up and logged each time (at most once a second), then waits stop until a frame is presented again. Measured in mavrik's S215 lab against the same build without it: 2.44 frames less latency under vsync, frame rate held. Written by an AI agent, so the finding goes to DXMT as an issue. |
+| `0001-set-maximum-frame-latency-follows-dxgi.patch` | DXMT stored SetMaximumFrameLatency's value as it came, so a game that passes 0 (DXGI's "back to the default of 3") had every Present wait for the frame just submitted to finish on the GPU: no CPU and GPU overlap. Civilization VI's DX11 program passes 0: 38 to 39 fps without this, 95.5 to 97.7 with it (interleaved runs). Now 0 means 3 and values above 16 are refused, as Microsoft documents; GetMaximumFrameLatency returns the application's value; DXVK's `dxgi.maxFrameLatency` can cap it. Written by an AI agent, so offered to DXMT as an issue, not a pull request. |
+| `0002-frame-latency-to-presentation.patch` | Under vsync or a frame cap, DXMT counted a frame as done at GPU completion, so finished frames waiting in Core Animation's drawables added about 2.4 frames of input latency (measured with Mavrik's latency meter). The frame latency limit now counts to presentation, as in DXVK and on Windows; vsync off is unchanged. A presentation wait over 100 ms is given up and logged each time (at most once a second), then waits stop until a frame is presented again. Measured against the same build without it: 2.44 frames less latency under vsync, frame rate held. Written by an AI agent, so the finding goes to DXMT as an issue. |
 
 ## DXMT's source in a release
 
