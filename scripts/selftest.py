@@ -45,7 +45,7 @@ USER_C = "int mavrik_selftest_value(void);\nint mavrik_selftest_user(void) { ret
 # patch 0007 reversed, the same configure line, stripped (strip -x -S). Name it in SELFTEST_OLD_NTDLL;
 # without it the dockname rows that need it are not run. Up to revision 6 this was revision 4's ntdll.so
 # (00a4da2f...), but patches 0018 to 0032 change ntdll's Unix side, and a revision 7 prefix boot with
-# revision 4's hangs (S213). From revision 11 it is that revision's own, since 0037 changes ntdll's Unix side (S218).
+# revision 4's hangs. From revision 11 it is that revision's own, since 0037 changes ntdll's Unix side.
 OLD_NTDLL_SHA256 = "45f579bc4816731123f3ec7f613084d7a51715aa423f7d85ea363a745818de48"
 # Engine revision 11's own ntdll.so, from the published 11.0-cx26.3.0-r11: it has neither patch 0037 version 3's
 # Game Mode switch (MAVRIK_GAME_MODE) nor patch 0007's link name for a first program with no title (revision 12).
@@ -458,7 +458,7 @@ def run(engine, work):
     # dockname: an engine clone whose Mac driver cannot find LaunchServices' naming call (the name it looks
     # up is changed in winemac.so, which is then signed again), with a title whose link name differs from
     # it ('/' is U+2215 in a file name), so the Dock shows the link's name. (With no link the call does
-    # not matter since patch 0037: the bundle names the process; lab S218.) The probe's windows must still
+    # not matter since patch 0037: the bundle names the process.) The probe's windows must still
     # appear: the driver goes on quietly without the call.
     if G.login_session() == "Aqua":
         bad = os.path.join(tmp, "no-naming-call-engine")
@@ -553,8 +553,8 @@ def run(engine, work):
                 "with CrossOver's link condition, and one with its hard link", "not in a login (Aqua) session")
 
     # The engine clones Wine ran from go only now: macOS's syspolicyd checks each new program while it
-    # runs, and crashes when the file is gone before it gets to it (S213; it crashed on such files from
-    # mavrik's own tests 17 times in a row, and the Mac hung while launchd held it back).
+    # runs, and crashes when the file is gone before it gets to it (it crashed on such files from
+    # Mavrik's own tests 17 times in a row, and the Mac hung while launchd held it back).
     shutil.rmtree(tmp, ignore_errors=True)
     G.remove_deferred()
     covered = {r["gate"] for r in results}

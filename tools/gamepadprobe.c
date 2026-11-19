@@ -1,5 +1,5 @@
 /* gamepadprobe: neutron's tests/gamepad_list.c (github.com/fourlexboehm/neutron at 0ac2574d, LGPL-2.1-or-later,
- * Copyright 2026 the neutron contributors), with mavrik's variable names (MAVRIK_PAD_VIRTUAL, MAVRIK_PAD_HIDRAW)
+ * Copyright 2026 the neutron contributors), with Mavrik's variable names (MAVRIK_PAD_VIRTUAL, MAVRIK_PAD_HIDRAW)
  * and the program's name; nothing else changed. */
 /* neutron gamepad test: lists the game controllers a Windows game can see through
  * the four APIs games use, with names, VID/PID and current state:

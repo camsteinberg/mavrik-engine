@@ -24,8 +24,8 @@ JOBS="${JOBS:-$(( ncpu + ncpu / 2 ))}"
 x86() { arch -x86_64 "$@"; }
 MAP="-ffile-prefix-map=$WORK/="
 # The 32-bit Windows half is built with Proton's i386 flags (Proton's Makefile.in, i386_CFLAGS): float math in
-# SSE registers instead of the x87 stack, which Rosetta runs slowly (DirectSound's resampler in 32-bit games;
-# mavrik S217, r11-mouse-sound.md part B), on a Pentium 4 (nocona) baseline, with the stack realigned at
+# SSE registers instead of the x87 stack, which Rosetta runs slowly (DirectSound's resampler in 32-bit games),
+# on a Pentium 4 (nocona) baseline, with the stack realigned at
 # every entry from Windows code that keeps only 4-byte alignment. Wine's configure takes i386_CFLAGS for its
 # i386 cross compiler only; the 64-bit half and the Unix side keep CROSSCFLAGS and CFLAGS.
 I386_EXTRA="-mstackrealign -march=nocona -mfpmath=sse"

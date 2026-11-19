@@ -104,7 +104,7 @@ The gates:
 
 A gate returns PASS, FAIL or, for d3d11 and dockname only, SKIP with its reason.
 
-Every Wine run has the Mac display driver off (Wine's null driver, as mavrik makes and updates a prefix),
+Every Wine run has the Mac display driver off (Wine's null driver, as Mavrik makes and updates a prefix),
 so no window or prompt can reach the screen, except the d3d11 and dockname probes, which must draw;
 their prefixes are still made with it off. Every Wine step has a bound, and whatever a prefix started
 ends with its gate: wineserver -k with a bound, then SIGKILL to each of the prefix's processes still
@@ -113,7 +113,7 @@ running, checked; a process left over fails the gate.
 macOS's syspolicyd checks each new program before it runs, and the program waits while syspolicyd is
 down. When it crashes over and over, launchd restarts it later each time (up to 20 minutes), so the gates
 stop at the first syspolicyd crash report written while they run, instead of starting more programs that
-would wait on it (S213: run 3's wine gate, and the Mac at its lock screen after).
+would wait on it (it happened once in the wine gate, and left the Mac at its lock screen).
 """
 import ctypes
 import fcntl
@@ -505,7 +505,7 @@ def gate_addons(engine, ctx):
 
 
 # Wine's Mac display driver off: Wine falls back to its null driver, where no window reaches the screen
-# (mavrik's PREFIX_BUILD_DLL_OVERRIDES, wine_session.rs).
+# (Mavrik sets the same override when it makes a prefix).
 DISPLAY_OFF = {"WINEDLLOVERRIDES": "winemac.drv=d"}
 
 
@@ -682,7 +682,7 @@ def syspolicyd_watch():
 
 # Folders Wine ran programs from (engine clones, patch 0007's link folders): removed only when the whole run
 # ends (remove_later, then remove_deferred), because syspolicyd checks each new program while it runs and
-# crashes when the file is gone before it gets to it (S213).
+# crashes when the file is gone before it gets to it.
 _DEFERRED = []
 
 
@@ -1467,7 +1467,7 @@ def link_name(title):
 
 def window_server_name(title):
     """What the window server shows for a program started through patch 0007's link: the link's name,
-    decomposed (NFD), as macOS keeps it (S193 lab: 'Gâte' reads back with a combining accent)."""
+    decomposed (NFD), as macOS keeps it ('Gâte' reads back with a combining accent)."""
     return unicodedata.normalize("NFD", link_name(title))
 
 
@@ -1586,7 +1586,7 @@ def dock_names_once(wine, probes, env, log, case, timeout, root, work):
             problems.append(f"{program}: the Dock shows '{ls}', not '{ls_wanted}'")
         if ws != ws_wanted:
             problems.append(f"{program}: the window server shows '{ws}', not '{ws_wanted}'")
-        # The raw path, as mavrik's Stop and engine checks read it (no realpath on the process side).
+        # The raw path, as Mavrik's Stop and engine checks read it (no realpath on the process side).
         if not paths[program].startswith(root):
             problems.append(f"{program}: started from {paths[program]}, outside the engine")
         elif paths[program] != root + want_exe:

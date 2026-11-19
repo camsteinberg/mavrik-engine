@@ -12,7 +12,7 @@
 #      fixed place: the files then name no machine's folders and come out the same on any Mac.
 #   3. DXMT's version string. Its meson asks `git describe --always`, which the source archive cannot
 #      answer, so a stand-in `git` on PATH answers <commit, 10 characters>-mavrik.<number of patches>: the
-#      HUD and DXMT's log then name the commit and that the build carries mavrik's patches.
+#      HUD and DXMT's log then name the commit and that the build carries Mavrik's patches.
 #   4. meson setup, compile and install with the CI's options (dxmt-source meson_options), linked
 #      against 3Shain's Wine 8.16 (dxmt-wine), with the CI's macOS target (dxmt-source deployment_target).
 # Every compiler gets -ffile-prefix-map=WORK/=, so no build path lands in the files (the Metal shaders: step 2). Called by build.sh after

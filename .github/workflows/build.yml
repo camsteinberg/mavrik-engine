@@ -1,4 +1,4 @@
-# Builds mavrik's Wine engine from the pinned inputs in inputs.json, runs the gates that fail
+# Builds Mavrik's Wine engine from the pinned inputs in inputs.json, runs the gates that fail
 # the build, proves each gate fails on a bad input, and uploads the engine as an artifact.
 # Started by hand only. A prerelease is published only when publish_release is set.
 #

@@ -96,5 +96,5 @@ property the case breaks):
   and of the one in `mavrik.app` otherwise, and nowhere else. Each child starts from the loader its parent chose and
   inherits the variable with the rest of the Unix environment, so the grandchild proves it passes through two
   generations. Whether macOS then turns Game Mode on is
-  not a gate (it needs a full-screen game in front); the lab reads it from gamepolicyd. One self-test row needs
+  not a gate (it needs a full-screen game in front); I read it from gamepolicyd's log by hand. One self-test row needs
   revision 11's `ntdll.so` (no switch), named in `SELFTEST_R11_NTDLL`.

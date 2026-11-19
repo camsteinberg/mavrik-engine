@@ -121,8 +121,8 @@ COMPONENT_INFO = {
     "licences": ("(the licence texts themselves)", "this folder"),
     # The Steam bridge's own archive (licences.py bridge), never the engine.
     "lsteamclient": ("Steamworks SDK License (Valve's, a contract: see lsteamclient/LICENSE)",
-                     "Valve's lsteamclient from Proton, with mavrik's macOS changes (bridge/patches/)"),
-    "steam-helper": ("BSD-3-Clause (Valve)", "Valve's steam.exe stub from Proton's steam_helper, with mavrik's macOS change"),
+                     "Valve's lsteamclient from Proton, with Mavrik's macOS changes (bridge/patches/)"),
+    "steam-helper": ("BSD-3-Clause (Valve)", "Valve's steam.exe stub from Proton's steam_helper, with Mavrik's macOS change"),
     "mavrik-steam-bridge": ("LGPL-2.1-or-later", "this repository's bridge build files, build record and notice"),
 }
 # The Steam bridge's files: built only by bridge/build.sh, packed only in the bridge's archive.
@@ -347,7 +347,7 @@ def write_bridge(work, bridge, repo):
         "under BSD-3-Clause (steam-helper/LICENSE.proton). Both carry Wine's start-up code (wine/). COMPONENTS.tsv\n"
         "names each part, its version, its licence, where its source is and its notice files; FILES.tsv names\n"
         "every file and the part it belongs to.\n\n"
-        "Built by mavrik from Valve's Proton source. Not made, endorsed or supported by Valve.\n")
+        "Built by Mavrik from Valve's Proton source. Not made, endorsed or supported by Valve.\n")
     print(f"bridge licences: {len(rows)} components, {len(files) + 1} lines in FILES.tsv")
 
 

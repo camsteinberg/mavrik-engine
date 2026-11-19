@@ -67,7 +67,7 @@ def notes(inputs_path, name, run_id):
     cx = doc["inputs"]["crossover-sources"]["version"]
     print(f"""{name}
 
-mavrik's Wine engine, built from CodeWeavers' published CrossOver {cx} sources (LGPL) with the patches in
+Mavrik's Wine engine, built from CodeWeavers' published CrossOver {cx} sources (LGPL) with the patches in
 patches/. This is not CrossOver. Report bugs in this repository, never to CodeWeavers or WineHQ.
 
 This is a prerelease for testing. It is checked by the build's gates (see the .gates.json file) and

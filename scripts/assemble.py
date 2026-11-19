@@ -18,7 +18,7 @@ What it does, in order:
      to x86_64) and what a carried library opens at run time (OPENED_BY: sdl2-compat's SDL3, under
      the name sdl2-compat looks for first);
   5. adds the media component (scripts/make-media-component.sh) to lib/ and lib/gstreamer-1.0/;
-  6. puts DXMT's 64-bit files in place, exactly as mavrik's s182-fullscreen branch does
+  6. puts DXMT's 64-bit files in place, in the layout Mavrik has tested
      (lib/wine/x86_64-windows/{d3d11,dxgi,d3d10core,winemetal,nvapi64,nvngx}.dll and
      lib/wine/x86_64-unix/winemetal.so, over Wine's own where they exist), from build-dxmt.sh's
      install (WORK/dxmt-install), each the file whose sha256 its record (.build/dxmt.json) holds;

@@ -4,8 +4,8 @@
 #   make-media-component.sh --from GSTREAMER_LIB_DIR --version VERSION --notices NOTICES_DIR \
 #                           --dest ENGINE --list OUT_TSV
 #
-# Moved here from mavrik's own s183-engine branch (scripts/engine/make-media-component.sh) and
-# changed to write straight into the engine instead of a separate archive.
+# It started as a script in Mavrik's own repository, changed here to write straight into the engine
+# instead of a separate archive.
 #
 # Wine's winegstreamer.so (GStreamer) and winedmo.so (FFmpeg) need these libraries. A new player
 # has no GStreamer.framework, and a Mac that has one should never lend it to a game. So the

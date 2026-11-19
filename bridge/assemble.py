@@ -32,14 +32,14 @@ STRIP = {"i386-windows": ["i686-w64-mingw32-strip", "--strip-debug"],
          "x86_64-windows": ["x86_64-w64-mingw32-strip", "--strip-debug"], "x86_64-unix": ["strip", "-x", "-S"]}
 NOTICE = """mavrik's Steam bridge: {name}
 
-Built by mavrik from Valve's lsteamclient and steam_helper sources in Proton
-(https://github.com/ValveSoftware/Proton, commit {commit}), with mavrik's changes for macOS
+Built by Mavrik from Valve's lsteamclient and steam_helper sources in Proton
+(https://github.com/ValveSoftware/Proton, commit {commit}), with Mavrik's changes for macOS
 (bridge/patches/ in https://github.com/camsteinberg/mavrik-engine).
 
 Not made, endorsed or supported by Valve. Steam and Proton are trademarks of Valve Corporation.
 
 lsteamclient is under Valve's Steamworks SDK licence and steam.exe under BSD-3-Clause; both carry Wine's
-start-up code under the LGPL. licences/ holds every text. It is used with mavrik's engine, whose loader
+start-up code under the LGPL. licences/ holds every text. It is used with Mavrik's engine, whose loader
 (its patch 0004, Valve's) hands a game's Steam calls to lsteamclient, which passes them to the Steam
 app on this Mac.
 """
@@ -81,7 +81,7 @@ def main(argv):
     record = {
         "name": name,
         "revision": info["revision"],
-        "source": "Valve's lsteamclient and steam_helper from Proton, with mavrik's patches. Not made by Valve.",
+        "source": "Valve's lsteamclient and steam_helper from Proton, with Mavrik's patches. Not made by Valve.",
         "proton": {"commit": pin["commit"], "version": pin["version"], "url": pin["url"],
                    "tarball_sha256": pin.get("sha256"), "tree_sha256": pin["tree_sha256"], "members": pin["members"]},
         "patches": [{"file": p, "sha256": sha256(os.path.join(REPO, "bridge", "patches", p))} for p in patches],
