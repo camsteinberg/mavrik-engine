@@ -128,7 +128,7 @@ repository's issues, and removes CrossOver's names from the places a player coul
 
 - CodeWeavers, for CrossOver and for publishing its Wine sources, and the Wine project.
 - [highball-engine](https://github.com/gauthierpiarrette/highball-engine) (LGPL-2.1-or-later): the
-  closest recipe to this one. Patches 0001, 0002, 0010 (its MSync fix) and 0018 to 0032 come from it unchanged, with
+  closest recipe to this one. Patches 0001, 0002, 0010 (its MSync fix) and 0018 to 0033 come from it unchanged, with
   the authors named in each one's header (Gauthier Piarrette, athei, Tx, Paul Gofman and Proton's developers, and
   MacPorts' game-porting-toolkit port for 0018), and the build follows
   its shape (pinned CrossOver sources, an Intel runner, mingw-w64 gcc, Mono and Gecko unpacked).
@@ -150,8 +150,8 @@ repository's issues, and removes CrossOver's names from the places a player coul
 - OpenAL Soft, whose use of Apple's default output unit patch 0043 follows, and winepulse and winealsa, whose first,
   default endpoint it follows. Nothing is copied.
 - [neutron](https://github.com/fourlexboehm/neutron) (LGPL-2.1-or-later), a Proton-style Steam tool for
-  macOS: patches 0035 and 0036 adapt its game controller patch (`0017-winebus-sdl-gamepads.patch`), and
-  `tools/gamepadprobe.c` is its `tests/gamepad_list.c` with Mavrik's variable names.
+  macOS: patches 0035 and 0036 adapt its game controller patch (`0017-winebus-sdl-gamepads.patch`), patch
+  0037 follows its two loader hunks, and `tools/gamepadprobe.c` is its `tests/gamepad_list.c` with Mavrik's variable names.
 - [Recall](https://github.com/AsherJN/recall) (Josh Nelson): patch 0039 follows its `wine-mouselook.patch`
   (a mouse's raw counts from GameController while a game holds the pointer), written for this tree.
 - CodeWeavers' CW HACK 22144, which patch 0007 adapts: CrossOver already starts each Windows program
