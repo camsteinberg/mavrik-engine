@@ -15,7 +15,7 @@ From upstream Wine (wine-mirror/wine, LGPL-2.1-or-later): commits 56a4347 by Gio
   device period frame size." The device period Wine reports is the Mac's piece size (512 frames at
   48 kHz is 10.67 ms), not a fixed 10 ms; its test in dlls/mmdevapi/tests/render.c accepts 106667.
 
-Why mavrik needs it: Wine never set the Mac's piece size, so the Mac pulled 512 frames at a time while a
+Why Mavrik needs it: Wine never set the Mac's piece size, so the Mac pulled 512 frames at a time while a
 game's sound library (SDL2's WASAPI backend, as in Rogue Legacy) added 480 frames per 10 ms tick and only
 once 480 or fewer were queued. The queue often ran dry and Wine filled the gap with silence, so the sound
 was choppy. Upstream's own message names the same fault ("crackling sound").

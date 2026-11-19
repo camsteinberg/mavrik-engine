@@ -1,7 +1,7 @@
 A sound stream at another rate than the Mac's output gets a Mac pull of one period: patch 0009's buffer size is counted in device frames.
 
 This repository's patch to winecoreaudio (version 1), on top of 0009 (upstream's period frame size), to be offered
-to WineHQ. It is mavrik's own: upstream master (checked 2026-10-30) has 0009's code unchanged.
+to WineHQ. It is Mavrik's own: upstream master (checked 2026-10-30) has 0009's code unchanged.
 
 0009 sets the Mac's I/O buffer (kAudioDevicePropertyBufferFrameSize) to the stream's period so the Mac pulls one
 period at a time. But it computes the period in the stream's frames (at the format's nSamplesPerSec) and hands that
@@ -16,8 +16,8 @@ stream's own rate if that read fails), clamped to the device's range there, and 
 the stream's period in its own frames is computed back from it, so a clamp still shows in the period Wine reports.
 At the same rate nothing changes.
 
-Checked (mavrik S217 lab): applies after patches 0001 to 0037 with no fuzz; winecoreaudio builds with the engine's
-toolchain with no new warning. Its effect on underruns rides mavrik r11's sound run and no-regression run.
+Checked: applies after patches 0001 to 0037 with no fuzz; winecoreaudio builds with the engine's
+toolchain with no new warning. Its effect on underruns is left to r11's sound runs.
 
 diff --git a/dlls/winecoreaudio.drv/coreaudio.c b/dlls/winecoreaudio.drv/coreaudio.c
 index 43310e3..fbf438d 100644

@@ -1,6 +1,6 @@
 With the Mac driver option FitBelowNotch, a full-screen game uses only the area below the camera housing and the strip beside it is black; off by default.
 
-This repository's patch to the Mac driver (version 2, after its adversarial review), mavrik's own; the route is VLC's
+This repository's patch to the Mac driver (version 2), Mavrik's own; the route is VLC's
 (2022: a black window over the whole screen, the picture below the safe area, as QuickTime Player does). Rebased
 after 0034, whose full-screen pass shows the black window, and 0039.
 
@@ -56,10 +56,10 @@ sides too; Windows has no safe-area call a game could read. So the display itsel
 
 MAVRIK_NOTCH_TRACE=1 prints each notched display's strip, how it was found, and its monitor on stderr.
 
-Checked (mavrik S217 lab): applies after patches 0001 to 0039 with no fuzz; winemac builds with the engine's toolchain
-with no new warning. It draws, so its probe (mavrik's tools/notchprobe.c: modes, monitor, metrics, a red bar on a
+Checked: applies after patches 0001 to 0039 with no fuzz; winemac builds with the engine's toolchain
+with no new warning. It draws, so its probe (Mavrik's tools/notchprobe.c: modes, monitor, metrics, a red bar on a
 full-screen window's top rows, a cursor round trip, raw input and GetCursorPos with the pointer over the strip, a
-1280x720 mode captured as a letterbox) runs in mavrik's away block, and the look in its walk.
+1280x720 mode captured as a letterbox) runs on a real display, by hand, and the look is judged by eye.
 
 diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
 index 360b263..6f5c7e9 100644

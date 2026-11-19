@@ -7,7 +7,7 @@ nothing from patches 0013 and 0014 except 0014's cursorNeedsReapply flag; withou
 
 The fault: with a game in front that clips the cursor (ClipCursor; DirectInput's exclusive mouse clips to the
 window), opening Mission Control kept the pointer inside the game's window area, so no other window could be
-clicked; and back in the game, the Mac arrow showed over it until a Cmd-Tab out and back (mavrik S212, Skyrim SE on
+clicked; and back in the game, the Mac arrow showed over it until a Cmd-Tab out and back (Skyrim SE on
 macOS 27.0.1).
 
 Why: the Mac driver's default clipping (WineConfinementClipCursorHandler, the undocumented
@@ -15,12 +15,12 @@ Why: the Mac driver's default clipping (WineConfinementClipCursorHandler, the un
 key. The app stays active through Mission Control and App Exposé, so the confinement stays. The older event tap handler lets events for another process through ("This may happen if the
 user activates Exposé or Mission Control"), but the confinement handler has no such case. Version 1 watched for
 mouse events going to other processes with a global NSEvent monitor; under the confinement macOS keeps sending the
-moves to the game, so the monitor never fired (mavrik S214, hands-on test). Version 2 looked for a full-display
+moves to the game, so the monitor never fired (a hands-on test). Version 2 looked for a full-display
 Dock window above the normal level; on macOS 27 the Dock's ordinary window (layer 20) covers the whole display at all
-times, so version 2 read "shown" from a game's first clip and lifted it for as long as the game clipped (mavrik S215).
+times, so version 2 read "shown" from a game's first clip and lifted it for as long as the game clipped.
 
-The fix detects the overlay itself. mavrik read this Mac's whole window list every 100 ms through each state
-(S215): Mission Control and App Exposé each draw a window of WindowManager's at layer 19 covering the whole display;
+The fix detects the overlay itself. This Mac's whole window list, read every 100 ms through each state, shows this:
+Mission Control and App Exposé each draw a window of WindowManager's at layer 19 covering the whole display;
 WindowManager puts nothing else above the desktop level except Show Desktop's window at layer 18; nothing changes
 there for a normal or a full-screen window, a full-screen Space, Spotlight, the Command-Tab switcher, a Space switch,
 or an hour and three quarters of real games.
@@ -49,19 +49,19 @@ or an hour and three quarters of real games.
   when a watch ends, the read's median and worst time in microseconds. These lines lack Wine's pid:tid prefix;
   the version offered to WineHQ should send them through a real debug channel.
 
-Version 4 (r11): Show Desktop (F11, its hot corner or the trackpad spread) held the pointer too (mavrik S216, hand
-test step 8: "stuck within the confines of the bottom toolbar"). Show Desktop leaves Wine active with its window key,
+Version 4 (r11): Show Desktop (F11, its hot corner or the trackpad spread) held the pointer too (a hand
+test: "stuck within the confines of the bottom toolbar"). Show Desktop leaves Wine active with its window key,
 so the confinement stays, and the window server slides the window almost off screen; the confinement rect is
 relative to the window, so the pointer stayed in the sliver left at the screen's edge. Show Desktop draws
-WindowManager's full-display window at layer 18, which nothing else draws (every state mavrik S215 recorded, and 485
+WindowManager's full-display window at layer 18, which nothing else draws (every state recorded, and 485
 window list records of game play), and the watch now counts it as an overlay too. Everything else is version 3's.
 
-Checked (mavrik S215): applies to the CrossOver 26.3.0 tree after patches 0001 to 0014 with no fuzz, and 0016 to
+Checked: applies to the CrossOver 26.3.0 tree after patches 0001 to 0014 with no fuzz, and 0016 to
 0032 still apply after it with no fuzz; the changed files compile with the tree's warning flags with no new
 warning (Xcode 26.2, x86_64). The same check, timed on an M1 Pro with macOS 27.0.1 (a command-line program that
 opens no window): about 0.2 ms back to back, about 1 to 2.5 ms median at the watch's 100 ms pace (mostly waiting on
 the window server; the reading thread's own CPU time about 0.05 ms). Not yet checked: Mission Control itself, which
-only the player's own pointer can show (mavrik's r8 hand test).
+only the player's own pointer can show (r8's hand test).
 
 diff --git a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
 index 49d36db1..600347b6 100644
@@ -132,10 +132,10 @@ index 25b47d28..308b39e8 100644
 + * window of WindowManager's at layer 19 that covers the whole display, and
 + * Show Desktop one at layer 18; WindowManager puts no other window above the
 + * desktop level, and the Dock's own window (layer 20) covers the whole display
-+ * at all times, so it says nothing (mavrik measured each state's window list,
-+ * S215).  Show Desktop slides our window almost off screen and the
-+ * confinement follows it, so the pointer was held at the screen's edge
-+ * (S216).  This uses only CoreGraphics, so
++ * at all times, so it says nothing (measured from each state's window
++ * list).  Show Desktop slides our window almost off screen and the
++ * confinement follows it, so the pointer was held at the screen's edge.
++ * This uses only CoreGraphics, so
 + * it runs off the main thread, and it needs no permission: window titles are
 + * withheld without Screen Recording, but the owner, level and bounds are not.
 + * If a later macOS draws these overlays differently, this never fires, which

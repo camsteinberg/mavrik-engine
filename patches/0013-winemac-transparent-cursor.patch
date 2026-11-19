@@ -8,12 +8,12 @@ differs: in the CrossOver 26.3.0 tree, -applicationDidBecomeActive: is followed 
 -applicationDidChangeScreenParameters:, not -applicationDidResignActive:, so the context is regenerated against this
 tree and the patch applies with no fuzz.
 
-Why mavrik needs it: Wine's Mac driver hid the cursor with [NSCursor hide] once and then trusted its own flag.
+Why Mavrik needs it: Wine's Mac driver hid the cursor with [NSCursor hide] once and then trusted its own flag.
 macOS shows the cursor again on its own (after another app was in front, at the Dock edge, and when shake to locate
-enlarges it), and Wine never hid it again, so the Mac cursor stayed over a full-screen game (Skyrim SE, mavrik S210;
+enlarges it), and Wine never hid it again, so the Mac cursor stayed over a full-screen game (Skyrim SE;
 Hadron issue 85 with Ready or Not). A transparent cursor leaves macOS nothing to undo; it is set again whenever
 AppKit's current cursor differs and on every activation, and shake to locate is off only while a hidden or custom
-cursor is active. Reading: mavrik .factory/design-passes/2026-10-23-s211/cursor.md.
+cursor is active.
 
 The merge request's own commit follows.
 

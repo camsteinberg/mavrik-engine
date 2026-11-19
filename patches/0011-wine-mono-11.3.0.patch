@@ -14,7 +14,7 @@ CrossOver 26.3.0 and apply to it with no fuzz; this file is their combined diff:
 Each commit changes the version and its SHA-256 in dlls/appwiz.cpl/addons.c, the version mscoree expects
 in dlls/mscoree/mscoree_private.h, and the version Wine's own CI uses in tools/gitlab/test.yml.
 
-Why mavrik needs it: the engine carries the Wine Mono its tree asks for (the addons gate checks they are
+Why Mavrik needs it: the engine carries the Wine Mono its tree asks for (the addons gate checks they are
 the same), and Wine Mono 11 brings FNA 26.08 and SDL 3.4.14 for XNA and FNA games, and WPF, System.Drawing
 and Visual Basic 6 fixes. Remove when the pinned CrossOver sources ask for this version or a newer one.
 

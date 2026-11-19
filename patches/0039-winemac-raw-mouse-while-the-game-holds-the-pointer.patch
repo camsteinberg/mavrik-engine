@@ -10,12 +10,12 @@ GameController link.
 The fault: a game that holds the pointer (mouse-look) got [NSEvent deltaX], the Mac's accelerated pointer motion in
 points, coalesced to about one move per display frame (winit measured 8 ms between AppKit moves against 1 ms at the
 device), and lost the moves stamped before each of its own SetCursorPos warps. Windows games expect raw counts: the
-same hand movement turned the camera by different amounts at different speeds (mavrik S210, the user's Skyrim walk).
+same hand movement turned the camera by different amounts at different speeds (found playing Skyrim SE).
 
 - Raw mode is on while all of these hold, re-evaluated when any of them changes: Wine is the active app; the key
   window is a visible WineWindow and none is being dragged; the game hides the cursor (0013's state); the confinement
   clip holds the pointer and 0015 hasn't lifted it for an overlay; a GameController mouse that is not a trackpad is
-  connected; the Mac driver option RawMouseInput isn't "n" (default on, not shown to players: for lab comparisons and
+  connected; the Mac driver option RawMouseInput isn't "n" (default on, not shown to players: for comparisons and
   the per-game fix list). Only with the confinement clip, because 0015's watch runs then: Mission Control, App Exposé
   and Show Desktop lift the clip and so end raw mode, and the player has the pointer there. A game that holds the
   pointer by warping alone keeps AppKit's path, as does every Mac with only a trackpad (the player's choice: the
@@ -38,8 +38,8 @@ same hand movement turned the camera by different amounts at different speeds (m
 The mouse-or-trackpad test is one function, raw_mouse_device_counts() (Recall's: the device's vendorName names a
 Trackpad).
 
-Checked (mavrik S217 lab): applies after patches 0001 to 0038 with no fuzz; winemac builds with the engine's toolchain
-with no new warning. Its effect needs a mouse, the screen and a game: mavrik's away block and walk.
+Checked: applies after patches 0001 to 0038 with no fuzz; winemac builds with the engine's toolchain
+with no new warning. Its effect needs a mouse, the screen and a game, so it is checked by hand.
 
 diff --git a/dlls/winemac.drv/Makefile.in b/dlls/winemac.drv/Makefile.in
 index 3a811c9..300c2e9 100644
@@ -375,8 +375,8 @@ index 0000000..cca8fce
 +
 +
 +/* Is this GameController mouse one whose counts the game gets?  The built-in
-+ * and Magic Trackpad keep AppKit's accelerated path (the player's choice,
-+ * mavrik S217); Recall tells them apart by the device's vendorName. Kept in
++ * and Magic Trackpad keep AppKit's accelerated path, by choice;
++ * Recall tells them apart by the device's vendorName. Kept in
 + * one function, as the mouse probe may still change the test. */
 +static BOOL raw_mouse_device_counts(GCMouse* mouse)
 +{
@@ -629,7 +629,7 @@ index 47897f1..f630cb5 100644
          enable_app_nap = IS_OPTION_TRUE(buffer[0]);
  
 +    /* mavrik: a mouse's own counts while the game holds the pointer (cocoa_rawmouse.m); not
-+     * shown to players, for lab comparisons and the per-game fix list */
++     * shown to players, for comparisons and the per-game fix list */
 +    if (!get_config_key(hkey, appkey, "RawMouseInput", buffer, sizeof(buffer)))
 +        raw_mouse_input = IS_OPTION_TRUE(buffer[0]);
 +

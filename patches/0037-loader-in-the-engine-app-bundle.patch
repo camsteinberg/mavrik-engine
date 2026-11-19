@@ -11,7 +11,7 @@ bundle's Info.plist (LSApplicationCategoryType public.app-category.games and LSS
 GCSupportsGameMode for macOS 14 to 25). A bundle's Info.plist applies to the executable at
 Contents/MacOS/<CFBundleExecutable>. Wine's loader is a bare executable, and version 1 of this patch put the keys in
 its embedded Info.plist (__TEXT,__info_plist): macOS ignored them (the Metal HUD read Game Mode Off and gamepolicyd
-logged nothing, in Wine's full screen and in a full-screen Space, mavrik S217). A lab bundle around the loader got
+logged nothing, in Wine's full screen and in a full-screen Space). A test bundle around the loader got
 Game Mode On in both (gamepolicyd: "Found game ... labelReason=LSSupportsGameMode (Info.plist)", then "Game mode
 enabled.").
 
@@ -43,7 +43,7 @@ turning Game Mode off changes only Game Mode, and measuring on against off measu
 Version 1's three keys in loader/wine_info.plist.in are gone: they did nothing, and the bundle's Info.plist holds
 them now.
 
-Upstream status: mavrik's own layout (the bundle's name and place are this engine's), not offered. A WineHQ offer
+Upstream status: Mavrik's own layout (the bundle's name and place are this engine's), not offered. A WineHQ offer
 would need a configurable bundle; the Game Mode finding is offered as a note with the engine's other upstream offers.
 
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c

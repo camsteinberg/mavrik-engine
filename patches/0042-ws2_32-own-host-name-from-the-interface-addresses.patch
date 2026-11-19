@@ -21,7 +21,7 @@ it). AI_NUMERICHOST is left to the system as before. gethostbyname uses the same
 local-address answer instead of an exact one. Every other name is looked up as before, so a game that really looks
 for other machines on the local network still asks.
 
-Checked (mavrik S217 lab, display off, fresh prefixes, interleaved, twice each, the engine bundle's prompt
+Checked (display off, fresh prefixes, interleaved, twice each, the engine bundle's prompt
 unanswered): applies after patches 0001 to 0041 with no fuzz; ws2_32 builds with the engine's toolchain with no new
 warning. In the engine bundle every own-name call (getaddrinfo on the host name, its first label, the NetBIOS name and
 the name in capitals, GetAddrInfoW, gethostbyname) answered in 0.0 s with the Mac's addresses, where without this

@@ -31,8 +31,7 @@ engine, with no lsteamclient, sets PROTON_DISABLE_LSTEAMCLIENT=1, as Proton's pl
 NotProton (github.com/NotProtonNot/NotProton) showed this bridge working on a Mac with the Mac Steam
 app; nothing is copied from it.
 
-Upstream status: Valve's Proton patch; not in WineHQ. Carried here as the one exception in mavrik's
-upstream-first rule.
+Upstream status: Valve's Proton patch; not in WineHQ.
 
 --- a/dlls/ntdll/loader.c
 +++ b/dlls/ntdll/loader.c

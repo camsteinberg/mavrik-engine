@@ -1,17 +1,17 @@
 A game's window refits the screen when the Mac's display mode changes while it plays.
 
-This repository's patch to win32u and winemac (version 2, after the S222 review), to be offered to WineHQ. It is
-mavrik's own; nothing is copied. It uses upstream Wine's own machinery for emulated display modes (win32u's virtual and
+This repository's patch to win32u and winemac (version 2), to be offered to WineHQ. It is
+Mavrik's own; nothing is copied. It uses upstream Wine's own machinery for emulated display modes (win32u's virtual and
 raw monitor rects, map_window_rects_virt_to_raw and update_window_state, Wine 9 and later) and changes only when it
 runs. Upstream Wine master (checked 2026-11-03: dlls/win32u/defwnd.c, dlls/winemac.drv/display.c and gdi.c, and
 Proton's bleeding-edge and proton_10.0 defwnd.c) has the same code, so the fault is upstream's too, on X11 as on the
 Mac.
 
-The fault: with EmulateModeset=y, which mavrik sets in every prefix, a mode change made outside Wine (System
+The fault: with EmulateModeset=y, which Mavrik sets in every prefix, a mode change made outside Wine (System
 Settings' "Larger Text", another app, a display that changes its mode) keeps the game's virtual mode and changes
 only the physical one (win32u add_modes). The desktop window's WM_DISPLAYCHANGE handler compared only the virtual
 screen rect, found it unchanged and returned, so update_children_window_state never ran and every window kept its
-old raw rect. In mavrik's S222 lab, switching a 14-inch MacBook Pro from 1512x982 to 1352x878 points for 20 s left
+old raw rect. In testing, switching a 14-inch MacBook Pro from 1512x982 to 1352x878 points for 20 s left
 ABZU (DXMT) and Civ VI (D3DMetal) full screen at 0,0 1512x982 and Rogue Legacy (OpenGL) windowed at 76,75 1360x800,
 so the picture was cut off at the right and bottom until the mode came back.
 
@@ -38,11 +38,11 @@ Windows the system sends WM_DISPLAYCHANGE to every top-level window and the prog
 
 Not covered: a Vulkan swapchain decides on present scaling when it is made (win32u vulkan.c), so after the refit the
 game gets VK_SUBOPTIMAL_KHR; DXVK and most engines then make a new swapchain, and one that ignores it shows an
-unscaled picture. Whether Wine's OpenGL drawable follows the smaller view is what the lab's Rogue Legacy row shows.
+unscaled picture. Whether Wine's OpenGL drawable follows the smaller view is what the Rogue Legacy test shows.
 
-Checked (mavrik S222 lab): applies after patches 0001 to 0043 with no fuzz; win32u.so and winemac.so build with the
+Checked: applies after patches 0001 to 0043 with no fuzz; win32u.so and winemac.so build with the
 engine's toolchain and configure with no new warning, and without this patch both rebuild byte-identical to
-revision 12's. The live resolution rows are run by the main session (lab-s222/res-patch/design.md).
+revision 12's.
 
 diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
 index 4d55ed53..d81db061 100644

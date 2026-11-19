@@ -1,4 +1,4 @@
-mavrik's macOS changes to Proton's lsteamclient (ValveSoftware/Proton proton_11.0 at 5b89db9).
+Mavrik's macOS changes to Proton's lsteamclient (ValveSoftware/Proton proton_11.0 at 5b89db9).
 Same needs NotProton found (NotProtonNot/NotProton lsteamclient/), written here independently:
 - unixlib.cpp: NOMINMAX; Steam_IsKnownInterface and Steam_NotifyMissingInterface are optional,
   because the Mac client's steamclient.dylib exports neither (missing: every interface is known).

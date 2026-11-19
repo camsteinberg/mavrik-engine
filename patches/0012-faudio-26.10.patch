@@ -18,7 +18,7 @@ After them, every file in libs/faudio is byte for byte the one in Wine at c23103
 changes not taken: libs/faudio/Makefile.in keeps this tree's STATICLIB line (Wine's 93deb5bbde changed it
 for its new makefiles), and libs/faudio/src/stb_vorbis.h stays (Wine's 10dadcedbf removed it, unused).
 
-Why mavrik needs it: FAudio 26.10 carries fixes in XAudio2 and XACT that many Unreal and Unity games use
+Why Mavrik needs it: FAudio 26.10 carries fixes in XAudio2 and XACT that many Unreal and Unity games use
 for sound: XACT3 wave variations (Supreme Commander), a resampler crash on small buffer updates, a race
 when a voice is destroyed, and the WMA path rewritten in 26.06 with its later fix (FAudio ee01836310, in
 26.10). Remove when the pinned CrossOver sources carry FAudio 26.10 or newer.

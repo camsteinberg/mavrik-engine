@@ -28,7 +28,7 @@ patch adapts that hack and keeps its structure, so CodeWeavers' later changes st
   (argv[1]), not from the file that was run (argv[0], Wine's "wine"), unless argv[0] itself names a
   builtin program (wine's extra argument). Before, such a program (a store's setup program with a
   window) showed its own name in the Dock but "wine" in the menu bar and Cmd-Tab. Its children were
-  already named after their own files. (Engine revision 12; mavrik S218, dockname-r11.md.)
+  already named after their own files. (Engine revision 12.)
 - The name is made safe for a file name and for the window server: "/" becomes U+2215 (division
   slash), control characters (C0, DEL and C1) are dropped, and it is cut between whole characters
   where its decomposed (NFD) UTF-8 form still fits in 31 bytes. The window server keeps a process's

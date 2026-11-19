@@ -19,7 +19,7 @@ set (no DisableProcessSwitching).
 Why: Wine's full-screen window sits above the Dock (window level 26 over the Dock's 20) but the Dock stays live under
 it. On macOS 27 the Dock sets its arrow cursor each time the pointer touches its edge of the screen, over a game that
 hides the cursor: one arrow that stayed 73 s with 0014 v1, and with 0014 v2 (re-applied every 100 ms) still 225
-flashes in 75 s of mouse-look, median 61 ms, longest 240 ms, 19% of the time, all at y 917 to 980 of 982 (mavrik S216,
+flashes in 75 s of mouse-look, median 61 ms, longest 240 ms, 19% of the time, all at y 917 to 980 of 982 (measured with
 a sampler of the displayed system cursor beside the DirectInput probe). It also stops the Dock from appearing over
 games that show their own pointer and scroll at the bottom edge.
 

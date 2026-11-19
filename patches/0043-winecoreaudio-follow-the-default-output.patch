@@ -1,7 +1,7 @@
 A game's sound follows the Mac's default output (AirPods, headphones, a display's speakers) while it plays.
 
 This repository's patch to winecoreaudio (version 2), on top of 0009 and 0038, to be offered to WineHQ. It is
-mavrik's own; nothing is copied. Its shape is upstream Wine's own on Linux, and its mechanism is OpenAL Soft's on the
+Mavrik's own; nothing is copied. Its shape is upstream Wine's own on Linux, and its mechanism is OpenAL Soft's on the
 Mac:
 - winepulse.drv lists a first endpoint with an empty device name ("PulseAudio Output") as the default; a stream on
   it connects to PulseAudio's default sink and moves with it, and a stream on a named sink is opened with
@@ -35,12 +35,12 @@ WASAPI stream opened on GetDefaultAudioEndpoint's device follows here too, as it
 an exclusive stream on the default endpoint (Windows never moves those; Wine's exclusive mode is emulated on a shared
 Mac output); IMMNotificationClient::OnDefaultDeviceChanged is not sent, since Wine's default endpoint never changes.
 
-Checked (mavrik S222 lab): applies after patches 0001 to 0042 with no fuzz; winecoreaudio.so builds with the
+Checked: applies after patches 0001 to 0042 with no fuzz; winecoreaudio.so builds with the
 engine's toolchain and configure line with no warning (the same tree without this patch rebuilt revision 12's
 winecoreaudio.so byte for byte). Version 1, live, with a shared-mode WASAPI program while the default output moved to
 a second output and back: revision 12 stayed on the speakers; with this patch the stream followed in 0.15 s and came
 back, and a stream opened on the speakers by name stayed. A device disappearing could not be told apart on this Mac
-(revision 12 also kept playing when a lab aggregate device was removed); it is checked with real AirPods.
+(revision 12 also kept playing when a test aggregate device was removed); it is checked with real AirPods.
 
 diff --git a/dlls/winecoreaudio.drv/coreaudio.c b/dlls/winecoreaudio.drv/coreaudio.c
 index fbf438d..6153cd0 100644

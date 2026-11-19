@@ -19,10 +19,10 @@ sends the driver no new SetCursor; Skyrim SE does this) showed the Mac arrow ove
 with and without mouse movement. 0013's only re-apply, at activation, did not hold, and later mouse moves never
 re-set the cursor, because +[NSCursor currentCursor] still named the transparent one.
 
-Lab evidence (mavrik S211, M1 Pro, macOS 27.0.1; a Windows probe hiding the cursor two ways: ShowCursor(FALSE)
+Measured (M1 Pro, macOS 27.0.1; a Windows probe hiding the cursor two ways: ShowCursor(FALSE)
 with a full-screen ClipCursor, and an exclusive foreground DirectInput8 mouse; the steps posted as mouse and key
 events; the cursor read from 64x64 screen captures with and without -C; only readings where the game and the driver
-both asked for a hidden cursor count; .factory/design-passes/2026-10-23-s211/cursor.md in mavrik):
+both asked for a hidden cursor count):
 - Block 1 (2 runs per cell): r6 showed the cursor after Cmd-Tab, the Dock edge and a shake in both modes; 0013
   failed Cmd-Tab in both modes and the Dock edge, the shake and the baseline once each in DirectInput mode; with
   this patch's first change only, everything passed except Cmd-Tab (2/2 failed in both modes).
@@ -33,7 +33,7 @@ both asked for a hidden cursor count; .factory/design-passes/2026-10-23-s211/cur
 Open: before the first mouse movement after a game hides its cursor, the arrow can still show (DirectInput mode, 2 of
 3 runs in blocks 3 and 4; never with r6, whose [NSCursor hide] needs no movement). Not explained yet.
 
-Why version 2 (mavrik S216, macOS 27.0.1): over a full-screen game, the Mac arrow appeared as soon as the pointer
+Why version 2 (macOS 27.0.1): over a full-screen game, the Mac arrow appeared as soon as the pointer
 touched the bottom edge of the screen and stayed until Wine lost and regained focus (the probe in DirectInput mode,
 and ABZU). A sampler of the displayed system cursor every 20 ms showed the cursor seed change once and the arrow
 appear at y 964 to 980 of 982, over Wine's window, with the Dock's full-display window (layer 20) under it, while the

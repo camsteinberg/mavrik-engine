@@ -8,9 +8,9 @@ winemac half is patch 0036.
 The fault: winebus sees each pad twice on a Mac, through SDL and through IOHID, and keeps one copy. For Sony's
 DualShock 4 and DualSense it always kept the raw IOHID copy, and only a gamepad copy gets the XInput child that
 XInput and Windows.Gaming.Input open. So a PlayStation pad was no XInput pad: most PC games saw no controller
-(mavrik S217 read it in S214's log: "ignoring non-hidraw device 054c:09cc", then "creating hidraw device
+(Wine's log: "ignoring non-hidraw device 054c:09cc", then "creating hidraw device
 054c:09cc"). On Linux, Steam Input hides the real pad behind a virtual Xbox pad; the Mac Steam app makes none for a
-Windows game, and mavrik runs no Windows Steam.
+Windows game, and Mavrik runs no Windows Steam.
 
 - Sony pads keep the SDL copy, so they are XInput gamepads like every other pad, with Sony's ids and Wine's own
   report layout. Raw HID stays Wine's choice when SDL is off or MAVRIK_PAD_HIDRAW=1 is in the Unix environment
@@ -33,17 +33,17 @@ Windows game, and mavrik runs no Windows Steam.
   for pads it reads through GameController). An environment variable of the same name still wins.
 - Nintendo pads are mapped by position, not by their printed labels (SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS
   "0", SDL3's own default): the Switch Pro Controller's right face button is XInput's B and its bottom one XInput's
-  A, where an Xbox pad has them, so a game's "press A" prompt means the same place on every pad (mavrik's choice,
-  S217; Steam Input on Windows offers both). SDL2's default had matched labels. The variable still wins.
+  A, where an Xbox pad has them, so a game's "press A" prompt means the same place on every pad (Mavrik's choice;
+  Steam Input on Windows offers both). SDL2's default had matched labels. The variable still wins.
 - MAVRIK_PAD_VIRTUAL=1 (Xbox 360 ids) or =<vid>:<pid> attaches an SDL virtual gamepad that presses A, then B and
   dpad up, then moves the left stick and trigger, every 400 ms; it echoes rumble back as the right stick and
   trigger, and a rumble of 0xffff/0x0001 unplugs it for one second. It stays still for 1.5 s after each plug-in:
   winebus drops input until hidclass starts the device, and moves the dpad's hat switch by steps, so a dpad press
-  lost that way and its release left the hat stuck at "down" (mavrik S217, 4 of 13 probe runs before the hold;
-  Wine's own behaviour, not this patch's). With it, mavrik's tools/gamepadprobe.c (from
+  lost that way and its release left the hat stuck at "down" (4 of 13 probe runs before the hold;
+  Wine's own behaviour, not this patch's). With it, Mavrik's tools/gamepadprobe.c (from
   neutron's tests/gamepad_list.c) checks the whole path with no real pad. Off unless the variable is set.
 
-Checked (mavrik S217 lab): applies after patches 0001 to 0034 with no fuzz; winebus and the xinput DLLs build with
+Checked: applies after patches 0001 to 0034 with no fuzz; winebus and the xinput DLLs build with
 the engine's toolchain with no new warning. On r10 with these modules laid in (display driver off, a fresh prefix),
 tools/gamepadprobe.c's selftest passed 18 of 18 checks in 64- and 32-bit, in two passes, with the virtual pad as
 045e:028e (Xbox 360), 054c:09cc (DualShock 4), 054c:0ce6 (DualSense) and 057e:2009 (Switch Pro): XInput buttons
@@ -52,7 +52,7 @@ Windows.Gaming.Input, unplug and replug. With MAVRIK_PAD_HIDRAW=1 the Sony ids' 
 non-hidraw device") and the Xbox id still passed 18 of 18. Before the positional hint, 057e:2009 passed 15 or 16 of
 18 (the scripted bottom button read as B), and 18 of 18 only with SDL_GAMECONTROLLER_USE_BUTTON_LABELS=0 set by
 hand. scripts/gates.py's controllers gate runs these cases. Real pads (SDL's HIDAPI and GameController drivers
-inside winedevice, real motors) are for mavrik's walk.
+inside winedevice, real motors) are checked by hand.
 
 diff --git a/dlls/winebus.sys/bus_sdl.c b/dlls/winebus.sys/bus_sdl.c
 index f274d54..45bd060 100644
