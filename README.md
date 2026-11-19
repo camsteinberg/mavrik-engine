@@ -86,6 +86,8 @@ app) is not in the engine. It is built from Proton's source as its own archive
 - `inputs-…` releases mirror build inputs whose own addresses are not stable.
 - `d3dmetal-4.0b3` is Apple's file ([above](#d3dmetal)).
 
+Releases start at r3. Revisions 1 and 2 were never published.
+
 An engine archive is a self-contained Wine folder and runs without Mavrik;
 [docs/launchers.md](docs/launchers.md) says what is in it. Old revisions stay up because installed
 copies of Mavrik download them by URL and check each against a hash they carry.
@@ -142,9 +144,15 @@ repository's issues, and removes CrossOver's names from the places a player coul
 - Chromium, Firefox and WebKit, whose way of naming a process in the Dock patch 0006 follows.
 - VLC, whose handling of the camera housing (a black window, the picture below the safe area) patch 0040
   follows.
-- Wine's developers, whose commits patches 0009, 0011 and 0012 carry unchanged (Zhiyi Zhang's Core Audio
-  period fix and Giovanni Mascellani's guard; Esme Povirk's Wine Mono updates; Alexandre Julliard's FAudio
-  imports and Alex Henrie's FAudio fix).
+- Wine's developers, whose commits patches 0009, 0011, 0012 and 0025 carry unchanged (Zhiyi Zhang's Core
+  Audio period fix and Giovanni Mascellani's guard; Esme Povirk's Wine Mono updates; Alexandre Julliard's
+  FAudio imports and Alex Henrie's FAudio fix; Paul Gofman's GetIntegratedDisplaySize), and Paul Gofman's
+  Proton work in 0021 and 0031.
+- DXVK, whose frame latency behaviour DXMT patches 0001 and 0002 follow.
+- yabai and the window managers whose work on Mission Control detection informed patch 0015. Nothing is
+  copied.
+- SDL, whose Cocoa backend hides the Dock and menu bar for its own full screen, the precedent for patch
+  0034. Nothing is copied.
 - Elvin Hayatov, whose Wine merge request 11880 patch 0013 carries (the transparent hidden cursor).
 - Ivo Ivanov, whose route in Wine bug 60322 (no lookup of a `.local` host name) patch 0041 follows.
 - OpenAL Soft, whose use of Apple's default output unit patch 0043 follows, and winepulse and winealsa, whose first,

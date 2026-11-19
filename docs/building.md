@@ -20,8 +20,9 @@ bash scripts/pack.sh WORK       # the .tar.xz and its .sha256
   workflow) and uploads the engine, its checksum and the gate results as the run's artifact. It has
   never completed a run, so treat it as untested.
 
-Every release so far, revisions 3 to 13, was built on my Mac by these scripts and passed the same
-gates and self-test. Each release carries its gate results and its build record.
+Every release so far, revisions 3 to 13, was built on my Mac by these scripts and passed every gate
+and self-test row the recipe had at the time (13 gates at revision 3, 19 at revision 13). Each release
+carries its gate results and its build record.
 
 ## Inputs
 
@@ -98,7 +99,7 @@ The workflow can publish too, though it never has: a run started with `publish_r
 prerelease after every gate and the self-test pass. A dockname SKIP is not a pass for a release: if the runner reports SKIP, the prerelease is not
 published until the same recipe commit has passed dockname on a Mac in a login session, and that
 run's `gates/results.json` goes with the release's gate results. The workflow does not enforce this
-yet; whoever starts the release checks it. A release carries the engine, its `.sha256`, the gate
+yet, so it has to be checked by hand. A release carries the engine, its `.sha256`, the gate
 results and the source of every LGPL and MPL part:
 
 - Wine (the CrossOver source archive, with this repository's patches in the recipe), GnuTLS,
