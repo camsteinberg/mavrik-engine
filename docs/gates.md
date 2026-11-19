@@ -40,7 +40,7 @@ property the case breaks):
 - **d3d11**: a small Windows program ([`tools/d3d11probe.c`](../tools/d3d11probe.c)) draws through
   Direct3D 11 on a visible window, as a game does: DXMT's device, 60 frames presented into its Metal
   view, 120 more under vsync at 50 or more a second with no presentation wait given up (DXMT patch
-  0001), and a texture read back from the GPU. DXMT's `winemetal.so` and the Mac driver load from the
+  0002), and a texture read back from the GPU. DXMT's `winemetal.so` and the Mac driver load from the
   engine. A machine with no Metal device cannot run DXMT, and the gate reports SKIP there, never
   PASS. GitHub's Intel runners are virtual machines that may have none.
 - **playback**: a small Windows program ([`tools/mediaprobe.c`](../tools/mediaprobe.c)) decodes a
