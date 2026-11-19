@@ -4,7 +4,7 @@ Applied in order to the pinned Wine source (`inputs.json`, `crossover-sources`).
 patch does not apply exactly (no fuzz, no rejects). Each patch keeps its own header. A patch that
 upstream ships is removed here in the change that moves the pinned source.
 
-DXMT's patches are in [`../dxmt/patches/`](../dxmt/patches/), for revision 8, which builds DXMT from source.
+DXMT's patches are in [`../dxmt/patches/`](../dxmt/patches/). Since revision 8 the engine builds DXMT from source.
 
 | Patch | From | Why Mavrik needs it |
 |---|---|---|
