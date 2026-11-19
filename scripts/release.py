@@ -56,7 +56,7 @@ def collect(inputs_path, work, dest):
             name = entry.get("file") or os.path.basename(entry["url"])
             shutil.copy(paths[key], os.path.join(dest, name))
     with tarfile.open(os.path.join(dest, "mavrik-engine-recipe.tar.gz"), "w:gz") as t:
-        for name in ("README.md", "NOTICE.md", "LICENSE", "inputs.json", "patches", "dxmt", "scripts", "tools", ".github"):
+        for name in ("README.md", "NOTICE.md", "LICENSE", "inputs.json", "docs", "patches", "dxmt", "scripts", "tools", ".github"):
             t.add(os.path.join(REPO, name), arcname=name,
                   filter=lambda i: None if "__pycache__" in i.name else i)
     print("\n".join(sorted(os.listdir(dest))))
