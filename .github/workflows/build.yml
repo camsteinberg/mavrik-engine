@@ -4,7 +4,7 @@
 #
 # The steps themselves live in scripts/ (build.sh, assemble.sh, gates.sh, pack.sh), so a build on a
 # Mac runs exactly what this workflow runs. This file only prepares the runner and keeps the caches.
-# Actions are pinned to commits (the v4 releases named beside them).
+# Actions are pinned to commits (the releases named beside them).
 name: build
 
 on:
